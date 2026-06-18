@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { setSessionToken } from '../lib/session.js';
 import { auth } from '../lib/firebase.js';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
 
 export default function Auth({ onAuthSuccess }) {
   const [screen, setScreen] = useState('welcome'); // welcome, login, register, verify_email, verify_phone, pin_setup
@@ -30,6 +30,26 @@ export default function Auth({ onAuthSuccess }) {
   // Pin State
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
+
+  const resolveFirebaseProfile = async (firebaseUser, profile = {}) => {
+    const idToken = await firebaseUser.getIdToken();
+
+    const res = await fetch('/api/auth/firebase-profile', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`
+      },
+      body: JSON.stringify(profile)
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Failed to load landlord profile.');
+    }
+
+    return data;
+  };
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -61,33 +81,30 @@ export default function Auth({ onAuthSuccess }) {
     }
 
     try {
-      // 1. Create user in Firebase Authentication
-      await createUserWithEmailAndPassword(auth, email, password);
+      const credential = await createUserWithEmailAndPassword(auth, email, password);
 
-      // 2. Call backend register API
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name,
-          email,
-          phone_number: phone,
-          country,
-          billing_currency: currency,
-          type: isCompany ? 'company' : 'individual',
-          registration_number: regNum,
-          tax_identifier: taxId
-        })
+      try {
+        await sendEmailVerification(credential.user);
+      } catch (verifyError) {
+        console.warn('Firebase email verification could not be sent immediately.', verifyError);
+      }
+
+      const data = await resolveFirebaseProfile(credential.user, {
+        name,
+        email,
+        phone_number: phone,
+        country,
+        billing_currency: currency,
+        type: isCompany ? 'company' : 'individual',
+        registration_number: regNum,
+        tax_identifier: taxId
       });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to register.');
 
       setUserId(data.user.id);
       setOrgId(data.organization.id);
       setAuthToken(data.auth_token);
       setSessionToken(data.auth_token);
-      setScreen('verify_email');
+      setScreen('pin_setup');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -113,18 +130,8 @@ export default function Auth({ onAuthSuccess }) {
     }
 
     try {
-      // 1. Log in with Firebase Authentication
-      await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
-
-      // 2. Call backend login API to resolve database user context
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to log in.');
+      const credential = await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+      const data = await resolveFirebaseProfile(credential.user);
 
       onAuthSuccess(data.user, data.role, data.organization, data.auth_token);
     } catch (err) {
@@ -164,14 +171,8 @@ export default function Auth({ onAuthSuccess }) {
         throw new Error(data.error || 'Failed to set PIN.');
       }
 
-      // Login immediately after setup
-      const loginRes = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-      const loginData = await loginRes.json();
-      onAuthSuccess(loginData.user, loginData.role, loginData.organization, loginData.auth_token);
+      const profileData = await resolveFirebaseProfile(auth.currentUser);
+      onAuthSuccess(profileData.user, profileData.role, profileData.organization, profileData.auth_token);
     } catch (err) {
       setError(err.message);
     } finally {

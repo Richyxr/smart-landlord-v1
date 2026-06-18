@@ -14,6 +14,8 @@ import { createIntegrationRoutes } from './routes/integrationRoutes.js';
 import { createNotificationRoutes } from './routes/notificationRoutes.js';
 import { createSaasBillingRoutes } from './routes/saasBillingRoutes.js';
 import { NotificationService } from './notificationService.js';
+import { initializeApp as initializeFirebaseAdminApp, getApps as getFirebaseAdminApps } from 'firebase-admin/app';
+import { getAuth as getFirebaseAdminAuth } from 'firebase-admin/auth';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -23,10 +25,16 @@ const DATA_BACKEND = process.env.DATA_BACKEND || 'json';
 const pgDb = DATA_BACKEND === 'postgres' ? createPostgresDb() : null;
 const SESSION_SECRET = process.env.SESSION_SECRET || (IS_PRODUCTION ? null : 'smart-landlord-dev-session-secret');
 const SESSION_TTL_SECONDS = parseInt(process.env.SESSION_TTL_SECONDS || '86400', 10);
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'smart-landlord-1e526';
+const firebaseAdminApp = getFirebaseAdminApps().length
+  ? getFirebaseAdminApps()[0]
+  : initializeFirebaseAdminApp({ projectId: FIREBASE_PROJECT_ID });
+const firebaseAdminAuth = getFirebaseAdminAuth(firebaseAdminApp);
 
 const publicApiPaths = new Set([
   '/api/auth/login',
   '/api/auth/register',
+  '/api/auth/firebase-profile',
   '/api/webhooks/payment',
   '/api/webhooks/mpesa/c2b',
   '/api/webhooks/mpesa/stk',
@@ -143,6 +151,10 @@ async function activeFindOne(table, filterObj) {
   return pgDb ? pgDb.findOne(table, filterObj) : db.findOne(table, filterObj);
 }
 
+async function activeInsert(table, data) {
+  return pgDb ? pgDb.insert(table, data) : db.insert(table, data);
+}
+
 async function attachSessionContext(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
@@ -151,6 +163,12 @@ async function attachSessionContext(req, res, next) {
     if (token) {
       const session = verifyToken(token);
       if (!session) {
+        // /api/auth/firebase-profile receives Firebase ID tokens, not legacy Smart Landlord session tokens.
+        // Let the route handler verify Firebase tokens with firebase-admin.
+        if (req.path === '/api/auth/firebase-profile') {
+          return next();
+        }
+
         return res.status(401).json({ error: 'INVALID_SESSION', message: 'Session is invalid or expired.' });
       }
 
@@ -219,6 +237,142 @@ async function checkOrganizationLock(req, res, next) {
 
 app.use(attachSessionContext);
 app.use(checkOrganizationLock);
+
+// --- FIREBASE AUTH PROFILE API ---
+app.post('/api/auth/firebase-profile', async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+    if (!idToken) {
+      return res.status(401).json({
+        error: 'FIREBASE_TOKEN_REQUIRED',
+        message: 'A Firebase ID token is required.'
+      });
+    }
+
+    const decodedToken = await firebaseAdminAuth.verifyIdToken(idToken);
+    const email = decodedToken.email || req.body.email;
+
+    if (!email) {
+      return res.status(400).json({
+        error: 'EMAIL_REQUIRED',
+        message: 'Firebase account does not include an email address.'
+      });
+    }
+
+    const profile = req.body || {};
+    const displayName = profile.name || decodedToken.name || email.split('@')[0];
+    const phoneNumber = profile.phone_number || decodedToken.phone_number || '';
+
+    let user = await activeFindOne('users', { email });
+
+    if (!user) {
+      user = await activeInsert('users', {
+        email,
+        email_verified: Boolean(decodedToken.email_verified),
+        phone_number: phoneNumber,
+        phone_verified: Boolean(decodedToken.phone_number),
+        name: displayName,
+        status: 'active'
+      });
+    }
+
+    let membership = await activeFindOne('organization_members', {
+      user_id: user.id,
+      status: 'active'
+    });
+
+    let organization = membership?.organization_id
+      ? await activeFindOne('organizations', { id: membership.organization_id })
+      : null;
+
+    if (!organization) {
+      const orgName = profile.type === 'company' ? displayName : `${displayName}'s Rental Org`;
+
+      organization = await activeInsert('organizations', {
+        owner_user_id: user.id,
+        name: orgName,
+        type: profile.type || 'individual',
+        registration_number: profile.registration_number || '',
+        tax_identifier: profile.tax_identifier || '',
+        email,
+        phone_number: phoneNumber,
+        country: profile.country || 'Kenya',
+        billing_currency: profile.billing_currency || 'KES',
+        subscription_tier: 'standard',
+        subscription_status: 'active',
+        is_locked: false,
+        security_pin_hash: '',
+        status: 'active'
+      });
+
+      membership = await activeInsert('organization_members', {
+        organization_id: organization.id,
+        user_id: user.id,
+        role: 'landlord',
+        status: 'active'
+      });
+
+      await activeInsert('notification_settings', {
+        organization_id: organization.id,
+        rent_reminders_enabled: true,
+        reminder_days_before_due: 3,
+        payment_confirmation_enabled: true,
+        unmatched_payment_alert_enabled: true,
+        meter_reading_alert_enabled: true,
+        billing_alerts_enabled: true,
+        sms_provider: 'None'
+      });
+
+      if (!pgDb && typeof db.logAudit === 'function') {
+        db.logAudit(
+          organization.id,
+          user.id,
+          'landlord',
+          'firebase_register_landlord',
+          'organization',
+          organization.id,
+          null,
+          { org_id: organization.id, name: organization.name }
+        );
+      }
+    }
+
+    const role = membership?.role || 'landlord';
+    const authToken = createSessionToken(user, role, organization);
+
+    return res.status(200).json({
+      user,
+      role,
+      organization,
+      auth_token: authToken
+    });
+  } catch (error) {
+    if (
+      error?.code === 'auth/id-token-expired' ||
+      error?.code === 'auth/argument-error' ||
+      error?.code === 'auth/id-token-revoked'
+    ) {
+      return res.status(401).json({
+        error: 'INVALID_FIREBASE_TOKEN',
+        message: 'Firebase session is invalid or expired. Please sign in again.'
+      });
+    }
+
+    console.error('Firebase profile error:', {
+      code: error?.code,
+      message: error?.message,
+      stack: error?.stack
+    });
+
+    return res.status(500).json({
+      error: 'FIREBASE_PROFILE_FAILED',
+      code: error?.code || null,
+      message: error?.message || 'Failed to create or load Firebase profile.'
+    });
+  }
+});
 
 // --- AUTH & SETUP API ---
 
