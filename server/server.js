@@ -195,6 +195,12 @@ async function attachSessionContext(req, res, next) {
 // Helper for Organization Billing / Lockout check
 async function checkOrganizationLock(req, res, next) {
   try {
+    // Demo/MVP deployments should not lock newly registered landlord accounts.
+    // Real SaaS lock enforcement should be re-enabled only after billing/payment flows are production-ready.
+    if (DEMO_MODE) {
+      return next();
+    }
+
     const orgId = req.headers['x-organization-id'];
     if (orgId) {
       const org = await activeFindOne('organizations', { id: parseInt(orgId) });
@@ -2682,3 +2688,4 @@ app.put('/api/maintenance/:id', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Smart Landlord Backend Server running on http://localhost:${PORT}`);
 });
+

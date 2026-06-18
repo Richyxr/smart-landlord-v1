@@ -69,6 +69,14 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         .sort((a, b) => b.id - a.id);
     }
 
+    if (demoMode && org) {
+      org = {
+        ...org,
+        is_locked: false,
+        subscription_status: 'active'
+      };
+    }
+
     res.json({
       organization: org,
       active_tenants: activeTenantCount,
@@ -740,3 +748,4 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
 
   return router;
 }
+
