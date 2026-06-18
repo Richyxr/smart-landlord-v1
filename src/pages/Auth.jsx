@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { setSessionToken } from '../lib/session.js';
 import { auth } from '../lib/firebase.js';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 export default function Auth({ onAuthSuccess }) {
   const [screen, setScreen] = useState('welcome'); // welcome, login, register, verify_email, verify_phone, pin_setup
@@ -141,6 +141,34 @@ export default function Auth({ onAuthSuccess }) {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setError('');
+    setLoading(true);
+
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({
+        prompt: 'select_account'
+      });
+
+      const credential = await signInWithPopup(auth, provider);
+      const data = await resolveFirebaseProfile(credential.user, {
+        name: credential.user.displayName || '',
+        email: credential.user.email || '',
+        phone_number: credential.user.phoneNumber || '',
+        country,
+        billing_currency: currency,
+        type: 'individual'
+      });
+
+      onAuthSuccess(data.user, data.role, data.organization, data.auth_token);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSetupPin = async (e) => {
     e.preventDefault();
     setError('');
@@ -199,6 +227,15 @@ export default function Auth({ onAuthSuccess }) {
             <button className="btn btn-secondary" onClick={() => setScreen('login')}>
               Sign In to Account
             </button>
+            <button
+              type="button"
+              aria-label="Welcome Google Sign In"
+              className="btn btn-secondary"
+              onClick={handleGoogleSignIn}
+              disabled={loading}
+            >
+              {loading ? 'Connecting...' : 'Continue with Google'}
+            </button>
           </div>
         </div>
       )}
@@ -240,6 +277,17 @@ export default function Auth({ onAuthSuccess }) {
               {loading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
+
+          <button
+            type="button"
+            aria-label="Login Google Sign In"
+            className="btn btn-secondary"
+            disabled={loading}
+            style={{ marginTop: '12px' }}
+            onClick={handleGoogleSignIn}
+          >
+            {loading ? 'Connecting...' : 'Continue with Google'}
+          </button>
 
           <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => setScreen('welcome')}>
             Go Back
@@ -377,6 +425,19 @@ export default function Auth({ onAuthSuccess }) {
               {loading ? 'Creating Profile...' : 'Register Profile'}
             </button>
           </form>
+
+          {!isCompany && (
+            <button
+              type="button"
+              aria-label="Register Google Sign In"
+              className="btn btn-secondary"
+              disabled={loading}
+              style={{ marginTop: '12px' }}
+              onClick={handleGoogleSignIn}
+            >
+              {loading ? 'Connecting...' : 'Continue with Google'}
+            </button>
+          )}
 
           <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => setScreen('welcome')}>
             Go Back
