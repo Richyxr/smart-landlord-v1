@@ -1,0 +1,29 @@
+mutation CreateSeedData @transaction {
+  property_insertMany(data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440001",
+      name: "Sunset Apartments",
+      location: "123 Maple St",
+      ownerId: "owner_01"
+    }
+  ])
+  unit_insertMany(data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440002",
+      property: {id: "550e8400-e29b-41d4-a716-446655440001"},
+      unitNumber: "101",
+      rentAmount: 1200.0,
+      status: "occupied"
+    }
+  ])
+  tenant_insertMany(data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440003",
+      unit: {id: "550e8400-e29b-41d4-a716-446655440002"},
+      fullName: "Jane Doe",
+      phone: "555-0101",
+      email: "jane.doe@example.com",
+      leaseStartDate: "2023-01-01"
+    }
+  ])
+}

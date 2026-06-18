@@ -1,0 +1,62 @@
+type Property @table {
+  name: String!
+  location: String!
+  ownerId: String!
+  description: String
+  managementFees: Float
+}
+
+type Unit @table {
+  property: Property!
+  unitNumber: String!
+  rentAmount: Float!
+  status: String!
+  size: String
+  amenities: String
+}
+
+type Tenant @table {
+  unit: Unit!
+  fullName: String!
+  phone: String!
+  email: String!
+  leaseStartDate: Date!
+  leaseEndDate: Date
+  kycDocuments: String
+}
+
+type Invoice @table {
+  tenant: Tenant!
+  amountDue: Float!
+  dueDate: Date!
+  status: String!
+  lateFee: Float
+  billingMonth: String
+}
+
+type Payment @table {
+  invoice: Invoice!
+  amountPaid: Float!
+  paymentDate: Timestamp!
+  referenceNumber: String!
+  paymentMethod: String!
+  reconciliationStatus: String
+}
+
+type CaretakerTask @table {
+  property: Property!
+  title: String!
+  status: String!
+  createdBy: String!
+  assignedTo: String
+  priority: String
+}
+
+type AuditLog @table {
+  entityType: String!
+  entityId: UUID!
+  action: String!
+  performedBy: String!
+  timestamp: Timestamp!
+  details: String
+}

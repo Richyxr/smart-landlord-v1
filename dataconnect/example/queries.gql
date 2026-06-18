@@ -1,0 +1,28 @@
+query ListUnitsWithProperties @auth(level: USER) {
+  units {
+    unitNumber
+    rentAmount
+    property {
+      name
+      location
+    }
+  }
+}
+
+mutation CreateTenant($data: Tenant_Data!) @auth(level: USER) {
+  tenant_insert(data: $data)
+}
+
+mutation UpdateInvoiceStatus($id: UUID!, $status: String!) @auth(level: USER) {
+  invoice_update(id: $id, data: { status: $status })
+}
+
+query SearchCaretakerTasks @auth(level: USER) {
+  caretakerTasks(where: { status: { eq: "OPEN" } }, orderBy: [{ priority: DESC }]) {
+    title
+    property {
+      name
+    }
+    assignedTo
+  }
+}

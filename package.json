@@ -1,0 +1,39 @@
+{
+  "name": "smart-landlord",
+  "version": "1.0.0",
+  "description": "Mobile-first SaaS MVP for Landlords",
+  "main": "server/server.js",
+  "type": "module",
+  "scripts": {
+    "server": "node server/server.js",
+    "client": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "smoke:auth-rbac": "node scripts/smoke-auth-rbac.mjs",
+    "smoke:postgres-financial": "node scripts/smoke-postgres-financial.mjs",
+    "smoke:postgres-reconciliation": "node scripts/smoke-postgres-reconciliation.mjs",
+    "smoke:postgres-webhook": "node scripts/smoke-postgres-webhook.mjs",
+    "db:migrate": "node scripts/db-migrate.mjs",
+    "db:seed:from-json": "node scripts/db-seed-from-json.mjs",
+    "db:seed:reset-from-json": "node scripts/db-seed-from-json.mjs --truncate"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "firebase": "^12.15.0",
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.21.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.23.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^8.2.2",
+    "vite": "^5.2.11"
+  }
+}
