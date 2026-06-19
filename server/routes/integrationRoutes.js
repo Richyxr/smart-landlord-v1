@@ -21,6 +21,27 @@ function asyncHandler(handler) {
   };
 }
 
+function getContext(req) {
+  return {
+    orgId: req.auth?.organizationId,
+    userId: req.auth?.userId,
+    role: req.auth?.role
+  };
+}
+
+function requireAuthenticatedContext(req, res, next) {
+  const { orgId, userId, role } = getContext(req);
+
+  if (!orgId || !userId || !role) {
+    return res.status(401).json({
+      error: 'AUTHENTICATION_REQUIRED',
+      message: 'A valid Smart Landlord session is required.'
+    });
+  }
+
+  next();
+}
+
 /**
  * Prepare an integration row for frontend consumption.
  * Strips the encrypted config and replaces it with a masked version.
@@ -69,8 +90,8 @@ export function createIntegrationRoutes(pgDb) {
   // =========================================================================
   // Returns masked credentials only. Never returns config_json_encrypted.
   // =========================================================================
-  router.get('/integrations', asyncHandler(async (req, res) => {
-    const orgId = parseInt(req.headers['x-organization-id']);
+  router.get('/integrations', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
     if (!orgId) return res.status(400).json({ error: 'Organization ID required.' });
 
     const result = await pgDb.query(
@@ -90,8 +111,8 @@ export function createIntegrationRoutes(pgDb) {
   // =========================================================================
   // GET /integrations/:id — Get a single integration (masked)
   // =========================================================================
-  router.get('/integrations/:id', asyncHandler(async (req, res) => {
-    const orgId = parseInt(req.headers['x-organization-id']);
+  router.get('/integrations/:id', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
     const integrationId = parseInt(req.params.id);
 
     const result = await pgDb.query(
@@ -112,10 +133,8 @@ export function createIntegrationRoutes(pgDb) {
   // Encrypts config_json before storage. Extracts shortcode and passkey
   // into top-level columns for webhook routing (Phase 6 integration).
   // =========================================================================
-  router.post('/integrations', asyncHandler(async (req, res) => {
-    const orgId = parseInt(req.headers['x-organization-id']);
-    const userId = parseInt(req.headers['x-user-id']);
-    const role = req.headers['x-user-role'];
+  router.post('/integrations', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId, userId, role } = getContext(req);
     const { provider_type, provider_name, environment, config_json } = req.body;
 
     if (!provider_type || !provider_name) {
@@ -219,10 +238,9 @@ export function createIntegrationRoutes(pgDb) {
   // real HTTP call to the provider's sandbox/test endpoint using the
   // decrypted credentials.
   // =========================================================================
-  router.post('/integrations/:id/test', asyncHandler(async (req, res) => {
-    const orgId = parseInt(req.headers['x-organization-id']);
+  router.post('/integrations/:id/test', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId, userId } = getContext(req);
     const integrationId = parseInt(req.params.id);
-    const userId = parseInt(req.headers['x-user-id']);
 
     const integration = await pgDb.findOne('organization_integrations', {
       id: integrationId,
@@ -287,12 +305,10 @@ export function createIntegrationRoutes(pgDb) {
   // Soft-resets the integration: clears encrypted config, webhook secret,
   // and resets status to needs_credentials.  Preserves the row and test logs.
   // =========================================================================
-  router.post('/integrations/:id/delete', asyncHandler(async (req, res) => {
-    const orgId = parseInt(req.headers['x-organization-id']);
+  router.post('/integrations/:id/delete', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId, userId, role } = getContext(req);
     const integrationId = parseInt(req.params.id);
     const { pin } = req.body;
-    const userId = parseInt(req.headers['x-user-id']);
-    const role = req.headers['x-user-role'];
 
     if (!pin) {
       return res.status(400).json({ error: 'Security PIN is required to delete credentials.' });
@@ -370,11 +386,9 @@ export function createIntegrationRoutes(pgDb) {
   // =========================================================================
   // POST /integrations/:id/activate — Toggle integration active/inactive
   // =========================================================================
-  router.post('/integrations/:id/activate', asyncHandler(async (req, res) => {
-    const orgId = parseInt(req.headers['x-organization-id']);
+  router.post('/integrations/:id/activate', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId, userId, role } = getContext(req);
     const integrationId = parseInt(req.params.id);
-    const userId = parseInt(req.headers['x-user-id']);
-    const role = req.headers['x-user-role'];
     const { active } = req.body;
 
     const integration = await pgDb.findOne('organization_integrations', {
@@ -409,3 +423,4 @@ export function createIntegrationRoutes(pgDb) {
 
   return router;
 }
+
