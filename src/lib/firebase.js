@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
-import { getAuth } from "firebase/auth";
+import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -24,5 +24,9 @@ if (typeof window !== "undefined") {
 
 // Initialize Auth
 const auth = getAuth(app);
+
+setPersistence(auth, browserLocalPersistence).catch((error) => {
+  console.error('Failed to set Firebase auth persistence.', error);
+});
 
 export { app, analytics, auth };

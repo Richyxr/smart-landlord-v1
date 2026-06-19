@@ -13,6 +13,8 @@ import BottomNav from './components/BottomNav.jsx';
 import ImpersonationBanner from './components/ImpersonationBanner.jsx';
 import DevSwitcher from './components/DevSwitcher.jsx';
 import { clearSessionToken, getSessionToken, setSessionToken } from './lib/session.js';
+import { auth } from './lib/firebase.js';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 const demoMode =
   import.meta.env.VITE_DEMO_MODE === 'true' ||
@@ -23,6 +25,7 @@ export default function App() {
   const [role, setRole] = useState('landlord'); // landlord, caretaker, super_admin
   const [organization, setOrganization] = useState(null);
   const [activeTab, setActiveTab] = useState('landlord_dashboard');
+  const [authRestoring, setAuthRestoring] = useState(true);
   
   // Impersonation Support Session
   const [impersonationSession, setImpersonationSession] = useState(null); // { id, orgName }
@@ -33,9 +36,60 @@ export default function App() {
   const [isLocked, setIsLocked] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
+  const resolveFirebaseSession = async (firebaseUser) => {
+    const idToken = await firebaseUser.getIdToken();
+
+    const res = await fetch('/api/auth/firebase-profile', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`
+      },
+      body: JSON.stringify({})
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.message || data.error || 'Failed to restore session.');
+    }
+
+    return data;
+  };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser) {
+        clearSessionToken();
+        setUser(null);
+        setRole('landlord');
+        setOrganization(null);
+        setIsLocked(false);
+        setAuthRestoring(false);
+        return;
+      }
+
+      try {
+        const data = await resolveFirebaseSession(firebaseUser);
+        handleAuthSuccess(data.user, data.role, data.organization, data.auth_token);
+      } catch (error) {
+        console.error('Failed to restore Firebase session.', error);
+        clearSessionToken();
+        setUser(null);
+        setRole('landlord');
+        setOrganization(null);
+        setIsLocked(false);
+      } finally {
+        setAuthRestoring(false);
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
   // Load a demo session only for local/demo builds.
   useEffect(() => {
-    if (demoMode) {
+    if (demoMode && !auth.currentUser) {
       autoLoginDemo();
     }
   }, []);
@@ -73,7 +127,8 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await signOut(auth);
     clearSessionToken();
     setUser(null);
     setRole('landlord');
@@ -160,6 +215,15 @@ export default function App() {
     setIsLocked(false);
     triggerRefresh();
   };
+
+  if (authRestoring) {
+    return (
+      <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center', textAlign: 'center' }}>
+        <h2>Restoring your session...</h2>
+        <p>Please wait while Smart Landlord signs you back in.</p>
+      </div>
+    );
+  }
 
   // Routing render logic based on activeTab
   const renderActivePage = () => {

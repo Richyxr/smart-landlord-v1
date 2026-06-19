@@ -322,7 +322,7 @@ select.form-control {
 
 /* Bottom Navigation Bar */
 .bottom-nav {
-  position: absolute;
+  position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
@@ -423,7 +423,7 @@ select.form-control {
 }
 
 .dev-switcher-panel {
-  position: absolute;
+  position: fixed;
   bottom: 50px;
   right: 0;
   width: 260px;
@@ -477,7 +477,7 @@ select.form-control {
 
 /* Lockout Overlay Screen */
 .lockout-screen {
-  position: absolute;
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
