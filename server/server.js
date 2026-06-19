@@ -598,9 +598,9 @@ app.use('/api', createSaasBillingRoutes(pgDb, {
 
 // Properties
 app.get('/api/properties', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
-  const role = req.headers['x-user-role'];
-  const userId = parseInt(req.headers['x-user-id']);
+  const orgId = req.auth?.organizationId;
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
 
   let properties = db.find('properties', { organization_id: orgId, deleted_at: null });
 
@@ -650,10 +650,10 @@ app.get('/api/properties', (req, res) => {
 });
 
 app.post('/api/properties', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { name, property_type, location, county, town, notes } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const prop = db.insert('properties', {
     organization_id: orgId,
@@ -673,10 +673,10 @@ app.post('/api/properties', (req, res) => {
 });
 
 app.put('/api/properties/:id', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const propId = parseInt(req.params.id);
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
   const oldVal = db.findOne('properties', { id: propId, organization_id: orgId });
 
   const updated = db.update('properties', { id: propId, organization_id: orgId }, req.body);
@@ -686,10 +686,10 @@ app.put('/api/properties/:id', (req, res) => {
 });
 
 app.delete('/api/properties/:id', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const propId = parseInt(req.params.id);
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   // Soft delete properties, units, and vacate tenants
   const oldVal = db.findOne('properties', { id: propId, organization_id: orgId });
@@ -703,10 +703,10 @@ app.delete('/api/properties/:id', (req, res) => {
 
 // Units
 app.get('/api/units', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const propertyId = req.query.property_id ? parseInt(req.query.property_id) : null;
-  const role = req.headers['x-user-role'];
-  const userId = parseInt(req.headers['x-user-id']);
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
 
   let query = { organization_id: orgId, deleted_at: null };
   if (propertyId) query.property_id = propertyId;
@@ -741,10 +741,10 @@ app.get('/api/units', (req, res) => {
 });
 
 app.post('/api/units', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { property_id, unit_code, unit_type, rent_amount, deposit_amount, floor, block, notes } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const unit = db.insert('units', {
     organization_id: orgId,
@@ -765,10 +765,10 @@ app.post('/api/units', (req, res) => {
 });
 
 app.put('/api/units/:id', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const unitId = parseInt(req.params.id);
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
   const oldVal = db.findOne('units', { id: unitId, organization_id: orgId });
 
   const updated = db.update('units', { id: unitId, organization_id: orgId }, req.body);
@@ -778,10 +778,10 @@ app.put('/api/units/:id', (req, res) => {
 });
 
 app.delete('/api/units/:id', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const unitId = parseInt(req.params.id);
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const oldVal = db.findOne('units', { id: unitId, organization_id: orgId });
   db.update('units', { id: unitId, organization_id: orgId }, { deleted_at: new Date().toISOString(), status: 'inactive' });
@@ -793,9 +793,9 @@ app.delete('/api/units/:id', (req, res) => {
 
 // Tenants
 app.get('/api/tenants', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
-  const role = req.headers['x-user-role'];
-  const userId = parseInt(req.headers['x-user-id']);
+  const orgId = req.auth?.organizationId;
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
 
   let tenants = db.find('tenants', { organization_id: orgId, deleted_at: null });
 
@@ -844,10 +844,10 @@ app.get('/api/tenants', (req, res) => {
 });
 
 app.post('/api/tenants', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { property_id, unit_id, full_name, phone_number, email, id_number, move_in_date, rent_amount, billing_day, emergency_contact_name, emergency_contact_phone, notes } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   // Generate tenant account number based on org id, property id and unit code
   const prop = db.findOne('properties', { id: parseInt(property_id) });
@@ -885,10 +885,10 @@ app.post('/api/tenants', (req, res) => {
 });
 
 app.put('/api/tenants/:id', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const tenantId = parseInt(req.params.id);
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const oldVal = db.findOne('tenants', { id: tenantId, organization_id: orgId });
   const updated = db.update('tenants', { id: tenantId, organization_id: orgId }, req.body);
@@ -905,10 +905,10 @@ app.put('/api/tenants/:id', (req, res) => {
 });
 
 app.post('/api/tenants/:id/vacate', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const tenantId = parseInt(req.params.id);
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const oldVal = db.findOne('tenants', { id: tenantId, organization_id: orgId });
   if (!oldVal) {
@@ -930,7 +930,7 @@ app.post('/api/tenants/:id/vacate', (req, res) => {
 // --- INVOICES API ---
 
 app.get('/api/invoices', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const invoices = db.find('invoices', { organization_id: orgId });
   const tenants = db.get('tenants');
   const properties = db.get('properties');
@@ -952,10 +952,10 @@ app.get('/api/invoices', (req, res) => {
 });
 
 app.post('/api/invoices', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { tenant_id, invoice_type, issue_date, due_date, items, notes } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   // Retrieve tenant info
   const tenant = db.findOne('tenants', { id: parseInt(tenant_id), organization_id: orgId });
@@ -1012,11 +1012,11 @@ app.post('/api/invoices', (req, res) => {
 
 // Update draft invoice
 app.put('/api/invoices/:id', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const invoiceId = parseInt(req.params.id);
   const { items, notes, due_date, issue_date, invoice_type } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const invoice = db.findOne('invoices', { id: invoiceId, organization_id: orgId });
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
@@ -1058,7 +1058,7 @@ app.put('/api/invoices/:id', (req, res) => {
 
 // Get single invoice details
 app.get('/api/invoices/:id', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const invoiceId = parseInt(req.params.id);
   const invoice = db.findOne('invoices', { id: invoiceId, organization_id: orgId });
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
@@ -1079,10 +1079,10 @@ app.get('/api/invoices/:id', (req, res) => {
 
 // Issue Invoice
 app.post('/api/invoices/:id/issue', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const invoiceId = parseInt(req.params.id);
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const invoice = db.findOne('invoices', { id: invoiceId, organization_id: orgId });
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
@@ -1118,11 +1118,11 @@ app.post('/api/invoices/:id/issue', (req, res) => {
 
 // Void Invoice (Requires PIN in frontend UI flow, API logs validation)
 app.post('/api/invoices/:id/void', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const invoiceId = parseInt(req.params.id);
   const { pin } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const org = db.findOne('organizations', { id: orgId });
   if (!org || !bcrypt.compareSync(pin, org.security_pin_hash)) {
@@ -1147,10 +1147,10 @@ app.post('/api/invoices/:id/void', (req, res) => {
 
 // Send Rent Reminder (multi-channel: sms, email, whatsapp)
 app.post('/api/invoices/:id/send-reminder', async (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const invoiceId = parseInt(req.params.id);
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   if (role === 'caretaker') {
     return res.status(403).json({ error: 'You do not have permission to send reminders.' });
@@ -1230,7 +1230,7 @@ app.post('/api/invoices/:id/send-reminder', async (req, res) => {
 
 // Payments list
 app.get('/api/payments', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const txs = db.find('transactions', { organization_id: orgId });
   const tenants = db.get('tenants');
   const properties = db.get('properties');
@@ -1253,10 +1253,10 @@ app.get('/api/payments', (req, res) => {
 
 // Record manual payment
 app.post('/api/payments', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { tenant_id, amount, payment_method, reference_number, transaction_date, notes } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   // Check duplicate reference
   const duplicate = db.findOne('transactions', { reference_number, organization_id: orgId });
@@ -1352,11 +1352,11 @@ app.post('/api/payments', (req, res) => {
 
 // Reversing transaction (Requires PIN)
 app.post('/api/payments/:id/reverse', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const txId = parseInt(req.params.id);
   const { pin, reason } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const org = db.findOne('organizations', { id: orgId });
   if (!org || !bcrypt.compareSync(pin, org.security_pin_hash)) {
@@ -1421,7 +1421,7 @@ app.post('/api/payments/:id/reverse', (req, res) => {
 
 // Get unmatched staging rows
 app.get('/api/reconciliation/staging', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const rows = db.find('reconciliation_staging_rows', { organization_id: orgId });
   res.json(rows);
 });
@@ -1442,7 +1442,7 @@ app.get('/api/reconciliation/sample-csv', (req, res) => {
 
 // CSV Statement Upload
 app.post('/api/reconciliation/upload', upload.single('file'), (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded.' });
   }
@@ -1482,10 +1482,10 @@ app.post('/api/reconciliation/upload', upload.single('file'), (req, res) => {
 
 // Finalize CSV Import & Auto Match
 app.post('/api/reconciliation/import-finalize', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { tempPath, fileName, mappings } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   if (!tempPath || !mappings) {
     return res.status(400).json({ error: 'Missing temporary file path or column mappings.' });
@@ -1656,10 +1656,10 @@ app.post('/api/reconciliation/import-finalize', (req, res) => {
 
 // Manual Match / Reconcile Staging Row (Requires PIN)
 app.post('/api/reconciliation/match', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { row_id, tenant_id, invoice_id, pin } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const org = db.findOne('organizations', { id: orgId });
   if (!org || !bcrypt.compareSync(pin, org.security_pin_hash)) {
@@ -1774,10 +1774,10 @@ app.post('/api/reconciliation/match', (req, res) => {
 
 // Ignore row
 app.post('/api/reconciliation/ignore', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { row_id } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const updated = db.update('reconciliation_staging_rows', { id: parseInt(row_id), organization_id: orgId }, {
     status: 'ignored',
@@ -1981,9 +1981,9 @@ app.post('/api/webhooks/payment', (req, res) => {
 // --- METER READINGS MODULE ---
 
 app.get('/api/meter-readings', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
-  const role = req.headers['x-user-role'];
-  const userId = parseInt(req.headers['x-user-id']);
+  const orgId = req.auth?.organizationId;
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
 
   let readings = db.find('meter_readings', { organization_id: orgId });
 
@@ -2018,10 +2018,10 @@ app.get('/api/meter-readings', (req, res) => {
 
 // Submit reading (Caretaker)
 app.post('/api/meter-readings', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { property_id, unit_id, meter_type, current_reading, notes } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const unit = db.findOne('units', { id: parseInt(unit_id), property_id: parseInt(property_id) });
   if (!unit) return res.status(404).json({ error: 'Unit not found' });
@@ -2081,11 +2081,11 @@ function propName(id) {
 
 // Approve/Reject meter reading (Landlord)
 app.post('/api/meter-readings/:id/review', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const readingId = parseInt(req.params.id);
   const { status, action_bill } = req.body; // 'approved', 'rejected'
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const reading = db.findOne('meter_readings', { id: readingId, organization_id: orgId });
   if (!reading) return res.status(404).json({ error: 'Reading not found' });
@@ -2207,9 +2207,9 @@ app.post('/api/meter-readings/:id/review', (req, res) => {
 
 // Get messages chat list
 app.get('/api/messages', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const orgId = req.auth?.organizationId;
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const messages = db.find('internal_messages', { organization_id: orgId });
   const users = db.get('users');
@@ -2254,9 +2254,9 @@ app.get('/api/messages', (req, res) => {
 
 // Send internal message
 app.post('/api/messages', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { recipient_user_id, message_body, property_id, unit_id } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
+  const userId = req.auth?.userId;
 
   const message = db.insert('internal_messages', {
     organization_id: orgId,
@@ -2274,9 +2274,9 @@ app.post('/api/messages', (req, res) => {
 
 // Mark messages as read
 app.post('/api/messages/read', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { partner_id } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
+  const userId = req.auth?.userId;
 
   const messages = db.find('internal_messages', { organization_id: orgId, recipient_user_id: userId, sender_user_id: parseInt(partner_id), is_read: false });
   messages.forEach(msg => {
@@ -2290,8 +2290,8 @@ app.post('/api/messages/read', (req, res) => {
 
 // Get Service Billing Rates
 app.get('/api/settings/service-rates', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
-  const role = req.headers['x-user-role'];
+  const orgId = req.auth?.organizationId;
+  const role = req.auth?.role;
 
   if (role === 'caretaker') {
     return res.status(403).json({ error: 'Access denied.' });
@@ -2315,9 +2315,9 @@ app.get('/api/settings/service-rates', (req, res) => {
 
 // Update / Upsert Service Billing Rates
 app.put('/api/settings/service-rates', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const orgId = req.auth?.organizationId;
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   if (role === 'caretaker') {
     return res.status(403).json({ error: 'Access denied.' });
@@ -2359,10 +2359,10 @@ app.put('/api/settings/service-rates', (req, res) => {
 
 // Delete a custom service rate (non-system services only)
 app.delete('/api/settings/service-rates/:id', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const rateId = parseInt(req.params.id);
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   if (role === 'caretaker') {
     return res.status(403).json({ error: 'Access denied.' });
@@ -2386,17 +2386,17 @@ app.delete('/api/settings/service-rates/:id', (req, res) => {
 // Integrations list
 app.get('/api/integrations', (req, res) => {
 
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const list = db.find('organization_integrations', { organization_id: orgId });
   res.json(list);
 });
 
 // Save integration connection
 app.post('/api/integrations', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { provider_type, provider_name, environment, config_json } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   // Encrypt simulation: Mask credentials
   const maskedConfig = {};
@@ -2434,9 +2434,9 @@ app.post('/api/integrations', (req, res) => {
 
 // Test Connection
 app.post('/api/integrations/:id/test', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const integrationId = parseInt(req.params.id);
-  const userId = parseInt(req.headers['x-user-id']);
+  const userId = req.auth?.userId;
 
   const integration = db.findOne('organization_integrations', { id: integrationId, organization_id: orgId });
   if (!integration) return res.status(404).json({ error: 'Integration not found.' });
@@ -2463,11 +2463,11 @@ app.post('/api/integrations/:id/test', (req, res) => {
 
 // Delete credentials (Requires PIN)
 app.post('/api/integrations/:id/delete', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const integrationId = parseInt(req.params.id);
   const { pin } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const org = db.findOne('organizations', { id: orgId });
   if (!org || !bcrypt.compareSync(pin, org.security_pin_hash)) {
@@ -2486,8 +2486,8 @@ app.post('/api/integrations/:id/delete', (req, res) => {
 
 // Get Audit Logs (Settings)
 app.get('/api/settings/audit-logs', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
-  const role = req.headers['x-user-role'];
+  const orgId = req.auth?.organizationId;
+  const role = req.auth?.role;
 
   if (role === 'caretaker') {
     return res.status(403).json({ error: 'You do not have permission to access this financial feature.' });
@@ -2509,7 +2509,7 @@ app.get('/api/settings/audit-logs', (req, res) => {
 
 // Settings info & setup readiness
 app.get('/api/settings/readiness', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const org = db.findOne('organizations', { id: orgId });
 
   if (!org) return res.status(404).json({ error: 'Org not found' });
@@ -2539,10 +2539,10 @@ app.get('/api/settings/readiness', (req, res) => {
 
 // Financial Archive (Requires PIN)
 app.post('/api/settings/archive', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { pin, before_date, reason } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const org = db.findOne('organizations', { id: orgId });
   if (!org || !bcrypt.compareSync(pin, org.security_pin_hash)) {
@@ -2576,10 +2576,10 @@ app.post('/api/settings/archive', (req, res) => {
 
 // Request Account / Data Deletion (Landlord)
 app.post('/api/compliance/delete-request', async (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { reason, target_type, target_tenant_id } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const activeDb = pgDb || db;
   const request = await activeDb.insert('deletion_requests', {
@@ -2600,7 +2600,7 @@ app.post('/api/compliance/delete-request', async (req, res) => {
 
 // View Deletion Requests (Landlord)
 app.get('/api/compliance/delete-request', async (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const activeDb = pgDb || db;
   const requests = await activeDb.find('deletion_requests', { organization_id: orgId });
   const sorted = [...requests].sort((a, b) => b.id - a.id);
@@ -2641,8 +2641,8 @@ app.get('/api/admin/compliance/delete-requests', async (req, res) => {
 app.post('/api/admin/compliance/delete-requests/:id/process', async (req, res) => {
   const { action, reject_reason } = req.body;
   const requestId = parseInt(req.params.id);
-  const userId = parseInt(req.headers['x-user-id'] || '1');
-  const role = req.headers['x-user-role'] || 'super_admin';
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const activeDb = pgDb || db;
   const request = await activeDb.findOne('deletion_requests', { id: requestId });
@@ -2763,9 +2763,9 @@ app.post('/api/admin/compliance/delete-requests/:id/process', async (req, res) =
 
 // Maintenance list
 app.get('/api/maintenance', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
-  const role = req.headers['x-user-role'];
-  const userId = parseInt(req.headers['x-user-id']);
+  const orgId = req.auth?.organizationId;
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
 
   let requests = db.find('maintenance_requests', { organization_id: orgId });
 
@@ -2797,10 +2797,10 @@ app.get('/api/maintenance', (req, res) => {
 
 // Create request
 app.post('/api/maintenance', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const { property_id, unit_id, title, description, priority, assigned_to_user_id } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const request = db.insert('maintenance_requests', {
     organization_id: orgId,
@@ -2826,11 +2826,11 @@ app.post('/api/maintenance', (req, res) => {
 
 // Update progress/status
 app.put('/api/maintenance/:id', (req, res) => {
-  const orgId = parseInt(req.headers['x-organization-id']);
+  const orgId = req.auth?.organizationId;
   const reqId = parseInt(req.params.id);
   const { status, description, estimated_cost, actual_cost } = req.body;
-  const userId = parseInt(req.headers['x-user-id']);
-  const role = req.headers['x-user-role'];
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
 
   const oldVal = db.findOne('maintenance_requests', { id: reqId, organization_id: orgId });
   if (!oldVal) return res.status(404).json({ error: 'Request not found' });
