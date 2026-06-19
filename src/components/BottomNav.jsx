@@ -17,6 +17,7 @@ export default function BottomNav({ role, activeTab, onChangeTab }) {
   const getItems = () => {
     switch (role) {
       case 'admin':
+      case 'super_admin':
         return [
           { id: 'admin_dashboard', label: 'Platform', icon: BarChart3 },
           { id: 'admin_orgs', label: 'Landlords', icon: Building2 },
@@ -63,4 +64,5 @@ export default function BottomNav({ role, activeTab, onChangeTab }) {
     </div>
   );
 }
+
 
