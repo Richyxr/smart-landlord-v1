@@ -155,6 +155,10 @@ async function activeInsert(table, data) {
   return pgDb ? pgDb.insert(table, data) : db.insert(table, data);
 }
 
+async function activeUpdate(table, idOrFilter, data) {
+  return pgDb ? pgDb.update(table, idOrFilter, data) : db.update(table, idOrFilter, data);
+}
+
 async function attachSessionContext(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
@@ -252,7 +256,15 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
     }
 
     const decodedToken = await firebaseAdminAuth.verifyIdToken(idToken);
+    const firebaseUid = decodedToken.uid;
     const email = decodedToken.email || req.body.email;
+
+    if (!firebaseUid) {
+      return res.status(400).json({
+        error: 'FIREBASE_UID_REQUIRED',
+        message: 'Firebase account does not include a valid UID.'
+      });
+    }
 
     if (!email) {
       return res.status(400).json({
@@ -265,10 +277,15 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
     const displayName = profile.name || decodedToken.name || email.split('@')[0];
     const phoneNumber = profile.phone_number || decodedToken.phone_number || '';
 
-    let user = await activeFindOne('users', { email });
+    let user = await activeFindOne('users', { auth_provider_uid: firebaseUid });
+
+    if (!user) {
+      user = await activeFindOne('users', { email });
+    }
 
     if (!user) {
       user = await activeInsert('users', {
+        auth_provider_uid: firebaseUid,
         email,
         email_verified: Boolean(decodedToken.email_verified),
         phone_number: phoneNumber,
@@ -276,6 +293,14 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
         name: displayName,
         status: 'active'
       });
+    } else if (!user.auth_provider_uid) {
+      await activeUpdate('users', user.id, {
+        auth_provider_uid: firebaseUid,
+        email_verified: Boolean(decodedToken.email_verified),
+        phone_verified: Boolean(decodedToken.phone_number)
+      });
+
+      user = await activeFindOne('users', { id: user.id });
     }
 
     let membership = await activeFindOne('organization_members', {
