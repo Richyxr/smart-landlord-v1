@@ -213,16 +213,16 @@ export default function Auth({ onAuthSuccess }) {
       
       {/* WELCOME SCREEN */}
       {screen === 'welcome' && (
-        <div style={{ textAlign: 'center' }}>
+        <div className="auth-welcome-block" style={{ textAlign: 'center' }}>
           <img
             src="/icons/maskable-512.png"
             alt="Smart Landlord"
             className="auth-logo"
           />
-          <h1 style={{ fontSize: '36px', fontWeight: '800', marginBottom: '8px', fontFamily: 'var(--font-title)' }}>
-            Smart <span style={{ color: 'var(--primary)' }}>Landlord</span>
+          <h1 style={{ fontSize: '36px', fontWeight: '800', marginBottom: '5px', fontFamily: 'var(--font-title)', letterSpacing: '-0.03em' }}>
+            Smart <span style={{ color: '#A78BFA', textShadow: '0 0 18px rgba(167, 139, 250, 0.34)' }}>Landlord</span>
           </h1>
-          <p style={{ marginBottom: '40px', fontSize: '15px' }}>
+          <p style={{ marginBottom: '34px', fontSize: '15px', color: 'rgba(203, 213, 225, 0.86)', lineHeight: '1.55' }}>
             Run your rental properties, payments, and bank reconciliation from one secure mobile app.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -549,6 +549,8 @@ export default function Auth({ onAuthSuccess }) {
     </div>
   );
 }
+
+
 
 
 
