@@ -58,11 +58,11 @@ function requireDemoMode(req, res, next) {
 }
 
 function getRequestRole(req) {
-  return req.auth?.role || (DEMO_MODE ? req.headers['x-user-role'] : null);
+  return req.auth?.role || null;
 }
 
 function requireAuthenticated(req, res, next) {
-  if (req.auth || (DEMO_MODE && req.headers['x-user-id'])) {
+  if (req.auth) {
     return next();
   }
 
@@ -192,13 +192,6 @@ async function attachSessionContext(req, res, next) {
         userId: user.id,
         organizationId: organization ? organization.id : null
       };
-
-      // Transitional bridge while individual route handlers are migrated.
-      req.headers['x-user-id'] = String(req.auth.userId);
-      req.headers['x-user-role'] = req.auth.role;
-      if (req.auth.organizationId) {
-        req.headers['x-organization-id'] = String(req.auth.organizationId);
-      }
     }
 
     if (IS_PRODUCTION && req.path.startsWith('/api') && !publicApiPaths.has(req.path) && !req.auth) {
@@ -223,9 +216,9 @@ async function checkOrganizationLock(req, res, next) {
       return next();
     }
 
-    const orgId = req.headers['x-organization-id'];
+    const orgId = req.auth?.organizationId;
     if (orgId) {
-      const org = await activeFindOne('organizations', { id: parseInt(orgId) });
+      const org = await activeFindOne('organizations', { id: orgId });
       if (org && org.is_locked && !req.path.startsWith('/api/saas') && !req.path.startsWith('/api/admin')) {
         return res.status(403).json({
           error: 'LOCKED',
