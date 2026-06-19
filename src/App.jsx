@@ -10,6 +10,7 @@ import SuperAdmin from './pages/SuperAdmin.jsx';
 import SaaSInvoices from './pages/SaaSInvoices.jsx';
 
 import BottomNav from './components/BottomNav.jsx';
+import InstallPrompt from './components/InstallPrompt.jsx';
 import ImpersonationBanner from './components/ImpersonationBanner.jsx';
 import DevSwitcher from './components/DevSwitcher.jsx';
 import { clearSessionToken, getSessionToken, setSessionToken } from './lib/session.js';
@@ -324,8 +325,8 @@ export default function App() {
           )}
         </>
       )}
+      <InstallPrompt />
     </div>
   );
 }
-
 
