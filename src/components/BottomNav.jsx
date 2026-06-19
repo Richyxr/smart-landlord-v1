@@ -13,7 +13,7 @@ import {
   Handshake
 } from 'lucide-react';
 
-export default function BottomNav({ role, activeTab, onNavigate }) {
+export default function BottomNav({ role, activeTab, onChangeTab }) {
   const getItems = () => {
     switch (role) {
       case 'admin':
@@ -53,7 +53,7 @@ export default function BottomNav({ role, activeTab, onNavigate }) {
             key={item.id}
             type="button"
             className={`nav-item ${isActive ? 'active' : ''}`}
-            onClick={() => onNavigate(item.id)}
+            onClick={() => onChangeTab(item.id)}
           >
             <Icon className="nav-icon" size={21} strokeWidth={2.3} />
             <span>{item.label}</span>
@@ -63,3 +63,4 @@ export default function BottomNav({ role, activeTab, onNavigate }) {
     </div>
   );
 }
+
