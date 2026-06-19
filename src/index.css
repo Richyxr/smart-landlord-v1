@@ -964,3 +964,14 @@ select.form-control {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* Smart Landlord bottom navigation - Lucide icons */
+.nav-icon {
+  display: block;
+  margin-bottom: 4px;
+  color: currentColor;
+}
+
+.nav-item {
+  gap: 2px;
+}
