@@ -324,8 +324,10 @@ select.form-control {
 .bottom-nav {
   position: fixed;
   bottom: 0;
-  left: 0;
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 440px;
   height: 68px;
   background-color: rgba(18, 20, 32, 0.95);
   backdrop-filter: blur(16px);
