@@ -7,6 +7,40 @@ function asyncHandler(handler) {
   };
 }
 
+function getContext(req) {
+  return {
+    orgId: req.auth?.organizationId,
+    userId: req.auth?.userId,
+    role: req.auth?.role
+  };
+}
+
+function requireAuthenticatedContext(req, res, next) {
+  const { orgId, userId, role } = getContext(req);
+
+  if (!orgId || !userId || !role) {
+    return res.status(401).json({
+      error: 'AUTHENTICATION_REQUIRED',
+      message: 'A valid Smart Landlord session is required.'
+    });
+  }
+
+  next();
+}
+
+function requireSuperAdminContext(req, res, next) {
+  const { userId, role } = getContext(req);
+
+  if (!userId || role !== 'super_admin') {
+    return res.status(403).json({
+      error: 'SUPER_ADMIN_REQUIRED',
+      message: 'Super admin access is required.'
+    });
+  }
+
+  next();
+}
+
 export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret = null, sessionTtlSeconds = 86400, createSessionToken = null } = {}) {
   const router = express.Router();
 
@@ -17,8 +51,8 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   // GET /api/saas/status
   // =========================================================================
-  router.get('/saas/status', asyncHandler(async (req, res) => {
-    const orgId = parseInt(req.headers['x-organization-id']);
+  router.get('/saas/status', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
     if (!orgId) {
       return res.status(400).json({ error: 'Missing organization ID.' });
     }
@@ -88,8 +122,8 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   // POST /api/saas/pay
   // =========================================================================
-  router.post('/saas/pay', asyncHandler(async (req, res) => {
-    const orgId = parseInt(req.headers['x-organization-id']);
+  router.post('/saas/pay', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
     const { invoice_id, phone_number } = req.body;
 
     if (!invoice_id) {
@@ -186,13 +220,13 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   // POST /api/saas/trigger-bill-run (Dev only, 404 in production)
   // =========================================================================
-  router.post('/saas/trigger-bill-run', asyncHandler(async (req, res) => {
+  router.post('/saas/trigger-bill-run', requireAuthenticatedContext, asyncHandler(async (req, res) => {
     if (process.env.NODE_ENV === 'production') {
       return res.status(404).json({ error: 'Not Found' });
     }
 
-    const orgId = parseInt(req.headers['x-organization-id']);
-    const userId = parseInt(req.headers['x-user-id']);
+    const { orgId } = getContext(req);
+    const { userId } = getContext(req);
 
     if (!orgId) {
       return res.status(400).json({ error: 'Missing organization ID.' });
@@ -354,7 +388,7 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   // GET /api/admin/stats (Super Admin stats dashboard)
   // =========================================================================
-  router.get('/admin/stats', asyncHandler(async (req, res) => {
+  router.get('/admin/stats', requireSuperAdminContext, asyncHandler(async (req, res) => {
     if (pgDb) {
       const totalOrgsRes = await pgDb.query("SELECT COUNT(*) FROM organizations WHERE status <> 'deleted'");
       const activeOrgsRes = await pgDb.query("SELECT COUNT(*) FROM organizations WHERE status = 'active'");
@@ -397,7 +431,7 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   // GET /api/admin/organizations (Super Admin organizations details)
   // =========================================================================
-  router.get('/admin/organizations', asyncHandler(async (req, res) => {
+  router.get('/admin/organizations', requireSuperAdminContext, asyncHandler(async (req, res) => {
     if (pgDb) {
       const result = await pgDb.query(
         `SELECT o.*, COALESCE(t.cnt, 0)::integer as active_tenant_count
@@ -431,7 +465,7 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   // GET /api/admin/platform-payments
   // =========================================================================
-  router.get('/admin/platform-payments', asyncHandler(async (req, res) => {
+  router.get('/admin/platform-payments', requireSuperAdminContext, asyncHandler(async (req, res) => {
     let payments = [];
     if (pgDb) {
       const result = await pgDb.query(
@@ -460,9 +494,9 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   // POST /api/admin/confirm-payment
   // =========================================================================
-  router.post('/admin/confirm-payment', asyncHandler(async (req, res) => {
+  router.post('/admin/confirm-payment', requireSuperAdminContext, asyncHandler(async (req, res) => {
     const { payment_id } = req.body;
-    const adminId = parseInt(req.headers['x-user-id'] || '1');
+    const { userId: adminId } = getContext(req);
 
     if (!payment_id) {
       return res.status(400).json({ error: 'Missing payment_id.' });
@@ -535,9 +569,9 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   // POST /api/admin/pricing
   // =========================================================================
-  router.post('/admin/pricing', asyncHandler(async (req, res) => {
+  router.post('/admin/pricing', requireSuperAdminContext, asyncHandler(async (req, res) => {
     const { price_per_active_tenant, grace_period_days } = req.body;
-    const adminId = parseInt(req.headers['x-user-id'] || '1');
+    const { userId: adminId } = getContext(req);
 
     if (price_per_active_tenant === undefined || grace_period_days === undefined) {
       return res.status(400).json({ error: 'Missing price_per_active_tenant or grace_period_days.' });
@@ -585,9 +619,9 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   // POST /api/admin/impersonate/start
   // =========================================================================
-  router.post('/admin/impersonate/start', asyncHandler(async (req, res) => {
+  router.post('/admin/impersonate/start', requireSuperAdminContext, asyncHandler(async (req, res) => {
     const { organization_id, reason } = req.body;
-    const adminId = parseInt(req.headers['x-user-id'] || '1');
+    const { userId: adminId } = getContext(req);
 
     if (!organization_id || !reason) {
       return res.status(400).json({ error: 'Missing organization target or access reason.' });
@@ -657,9 +691,9 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   // POST /api/admin/impersonate/stop
   // =========================================================================
-  router.post('/api/admin/impersonate/stop', asyncHandler(async (req, res) => {
+  router.post('/api/admin/impersonate/stop', requireSuperAdminContext, asyncHandler(async (req, res) => {
     const { session_id } = req.body;
-    const adminId = parseInt(req.headers['x-user-id'] || '1');
+    const { userId: adminId } = getContext(req);
 
     if (!session_id) return res.status(400).json({ error: 'Missing session_id.' });
 
@@ -707,7 +741,7 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   // GET /api/admin/system-audits
   // =========================================================================
-  router.get('/admin/system-audits', asyncHandler(async (req, res) => {
+  router.get('/admin/system-audits', requireSuperAdminContext, asyncHandler(async (req, res) => {
     if (pgDb) {
       const result = await pgDb.query(
         `SELECT a.*, o.name as org_name
@@ -734,7 +768,7 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   // GET /api/admin/system-errors
   // =========================================================================
-  router.get('/admin/system-errors', asyncHandler(async (req, res) => {
+  router.get('/admin/system-errors', requireSuperAdminContext, asyncHandler(async (req, res) => {
     if (pgDb) {
       const result = await pgDb.query('SELECT * FROM system_errors ORDER BY created_at DESC');
       res.json(result.rows);
