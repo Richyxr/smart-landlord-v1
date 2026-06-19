@@ -260,14 +260,14 @@ export default function App() {
       case 'caretaker_readings':
       case 'caretaker_messages':
       case 'caretaker_profile':
-        return <Caretaker user={user} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
+        return <Caretaker user={user} activeRoute={activeTab} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
 
       // Super Admin Pages
       case 'admin_dashboard':
       case 'admin_orgs':
       case 'admin_pricing':
       case 'admin_errors':
-        return <SuperAdmin onImpersonateStart={handleImpersonateStart} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
+        return <SuperAdmin activeRoute={activeTab} onImpersonateStart={handleImpersonateStart} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
 
       default:
         return <div>Tab not found.</div>;
@@ -327,4 +327,5 @@ export default function App() {
     </div>
   );
 }
+
 

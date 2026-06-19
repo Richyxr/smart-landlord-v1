@@ -1,7 +1,21 @@
 import React, { useState, useEffect } from 'react';
 
-export default function SuperAdmin({ onImpersonateStart, refreshTrigger, onRefresh }) {
-  const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, landlords, billing, errors, audits
+export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTrigger, onRefresh }) {
+  const routeTabMap = {
+    admin_dashboard: 'dashboard',
+    admin_orgs: 'landlords',
+    admin_pricing: 'billing',
+    admin_errors: 'errors'
+  };
+
+  const [activeTab, setActiveTab] = useState(routeTabMap[activeRoute] || 'dashboard'); // dashboard, landlords, billing, errors, audits
+
+  useEffect(() => {
+    const nextTab = routeTabMap[activeRoute];
+    if (nextTab && nextTab !== activeTab) {
+      setActiveTab(nextTab);
+    }
+  }, [activeRoute]);
   const [stats, setStats] = useState({
     total_organizations: 0,
     active_organizations: 0,
@@ -487,3 +501,4 @@ export default function SuperAdmin({ onImpersonateStart, refreshTrigger, onRefre
     </div>
   );
 }
+

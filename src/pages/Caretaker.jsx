@@ -1,7 +1,21 @@
 import React, { useState, useEffect } from 'react';
 
-export default function Caretaker({ user, refreshTrigger, onRefresh }) {
-  const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, submit, history, messages, profile
+export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh }) {
+  const routeTabMap = {
+    caretaker_dashboard: 'dashboard',
+    caretaker_readings: 'submit',
+    caretaker_messages: 'messages',
+    caretaker_profile: 'profile'
+  };
+
+  const [activeTab, setActiveTab] = useState(routeTabMap[activeRoute] || 'dashboard'); // dashboard, submit, history, messages, profile
+
+  useEffect(() => {
+    const nextTab = routeTabMap[activeRoute];
+    if (nextTab && nextTab !== activeTab) {
+      setActiveTab(nextTab);
+    }
+  }, [activeRoute]);
   const [assignedProperties, setAssignedProperties] = useState([]);
   const [units, setUnits] = useState([]);
   const [readingsHistory, setReadingsHistory] = useState([]);
@@ -687,3 +701,4 @@ export default function Caretaker({ user, refreshTrigger, onRefresh }) {
     </div>
   );
 }
+
