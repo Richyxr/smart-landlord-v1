@@ -214,6 +214,11 @@ export default function Auth({ onAuthSuccess }) {
       {/* WELCOME SCREEN */}
       {screen === 'welcome' && (
         <div style={{ textAlign: 'center' }}>
+          <img
+            src="/icons/maskable-512.png"
+            alt="Smart Landlord"
+            className="auth-logo"
+          />
           <h1 style={{ fontSize: '36px', fontWeight: '800', marginBottom: '8px', fontFamily: 'var(--font-title)' }}>
             Smart <span style={{ color: 'var(--primary)' }}>Landlord</span>
           </h1>
@@ -544,3 +549,6 @@ export default function Auth({ onAuthSuccess }) {
     </div>
   );
 }
+
+
+
