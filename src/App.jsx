@@ -188,7 +188,10 @@ export default function App() {
     try {
       await fetch('/api/admin/impersonate/stop', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-role': 'super_admin' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${originalAdminToken || getSessionToken()}`
+        },
         body: JSON.stringify({ session_id: impersonationSession.id })
       });
 
@@ -324,3 +327,4 @@ export default function App() {
     </div>
   );
 }
+

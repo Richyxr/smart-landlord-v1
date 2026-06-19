@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { getSessionToken } from '../lib/session.js';
 
 export default function DevSwitcher({ currentRole, onChangeRole, currentOrgId, onTriggerLockout, onRefreshData }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -54,8 +55,7 @@ export default function DevSwitcher({ currentRole, onChangeRole, currentOrgId, o
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-organization-id': currentOrgId.toString(),
-          'x-user-id': '2'
+          Authorization: `Bearer ${getSessionToken()}`
         }
       });
       if (res.ok) {
@@ -166,3 +166,4 @@ export default function DevSwitcher({ currentRole, onChangeRole, currentOrgId, o
     </div>
   );
 }
+
