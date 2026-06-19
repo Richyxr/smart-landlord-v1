@@ -1922,3 +1922,372 @@ html[data-theme="dark"] .logo-text {
     letter-spacing: -0.04em;
   }
 }
+
+/* Header brand readability: match auth title styling */
+.logo-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-title);
+  font-size: 19px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+  background: none !important;
+  -webkit-background-clip: initial !important;
+  -webkit-text-fill-color: initial !important;
+  text-shadow: none;
+}
+
+.app-brand-smart {
+  color: #f8fafc;
+}
+
+.app-brand-accent {
+  color: #a78bfa;
+}
+
+html[data-theme="light"] .app-header {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+html[data-theme="light"] .app-brand-smart {
+  color: #07111f;
+}
+
+html[data-theme="light"] .app-brand-accent {
+  color: #7c3aed;
+  text-shadow: 0 0 14px rgba(124, 58, 237, 0.16);
+}
+
+html[data-theme="dark"] .app-header {
+  background: rgba(10, 11, 16, 0.92);
+  border-bottom: 1px solid var(--border);
+}
+
+html[data-theme="dark"] .app-brand-smart {
+  color: #f8fafc;
+}
+
+html[data-theme="dark"] .app-brand-accent {
+  color: #a78bfa;
+  text-shadow: 0 0 16px rgba(167, 139, 250, 0.24);
+}
+
+@media (max-width: 420px) {
+  .logo-text {
+    font-size: 17px;
+    gap: 3px;
+  }
+}
+
+/* Header brand: readable split-color treatment */
+.app-header {
+  background:
+    linear-gradient(180deg, rgba(18, 20, 32, 0.96), rgba(10, 11, 16, 0.92));
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  backdrop-filter: blur(16px);
+}
+
+.logo-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-title);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+  background: none !important;
+  -webkit-background-clip: initial !important;
+  -webkit-text-fill-color: initial !important;
+  text-shadow: none;
+}
+
+.app-brand-smart {
+  color: #f8fafc;
+}
+
+.app-brand-accent {
+  color: #a78bfa;
+  text-shadow:
+    0 0 16px rgba(167, 139, 250, 0.32),
+    0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="light"] .app-header {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.90), rgba(17, 24, 39, 0.86));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+}
+
+html[data-theme="light"] .app-brand-smart {
+  color: #ffffff;
+}
+
+html[data-theme="light"] .app-brand-accent {
+  color: #c4b5fd;
+  text-shadow:
+    0 0 18px rgba(196, 181, 253, 0.42),
+    0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .app-brand-smart {
+  color: #f8fafc;
+}
+
+html[data-theme="dark"] .app-brand-accent {
+  color: #a78bfa;
+}
+
+@media (max-width: 420px) {
+  .logo-text {
+    font-size: 17px;
+    gap: 3px;
+  }
+}
+
+/* Final dashboard header brand contrast - match auth split-color logic */
+#root .app-header .logo-text {
+  display: inline-flex !important;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-title);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+  background: none !important;
+  background-image: none !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: initial !important;
+  text-shadow: none !important;
+}
+
+#root .app-header .logo-text .app-brand-smart {
+  color: #f8fafc !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+#root .app-header .logo-text .app-brand-accent {
+  color: #a78bfa !important;
+  -webkit-text-fill-color: #a78bfa !important;
+  text-shadow:
+    0 0 16px rgba(167, 139, 250, 0.38),
+    0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+html[data-theme="light"] #root .app-header .logo-text .app-brand-smart {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+html[data-theme="light"] #root .app-header .logo-text .app-brand-accent {
+  color: #c4b5fd !important;
+  -webkit-text-fill-color: #c4b5fd !important;
+  text-shadow:
+    0 0 18px rgba(196, 181, 253, 0.48),
+    0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] #root .app-header .logo-text .app-brand-smart {
+  color: #f8fafc !important;
+  -webkit-text-fill-color: #f8fafc !important;
+}
+
+html[data-theme="dark"] #root .app-header .logo-text .app-brand-accent {
+  color: #a78bfa !important;
+  -webkit-text-fill-color: #a78bfa !important;
+}
+
+@media (max-width: 420px) {
+  #root .app-header .logo-text {
+    font-size: 17px;
+    gap: 3px;
+  }
+}
+
+/* Final brand color system: match auth screen */
+#root .app-header {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.88));
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.10);
+  backdrop-filter: blur(18px);
+}
+
+#root .app-header .logo-text {
+  display: inline-flex !important;
+  align-items: baseline;
+  gap: 3px;
+  font-family: var(--font-title);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+  background: none !important;
+  background-image: none !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: initial !important;
+  text-shadow: none !important;
+}
+
+#root .app-header .app-brand-smart {
+  color: #07111f !important;
+  -webkit-text-fill-color: #07111f !important;
+}
+
+#root .app-header .app-brand-accent {
+  color: #7c3aed !important;
+  -webkit-text-fill-color: #7c3aed !important;
+  text-shadow: 0 0 14px rgba(124, 58, 237, 0.18);
+}
+
+html[data-theme="dark"] #root .app-header {
+  background:
+    linear-gradient(180deg, rgba(18, 20, 32, 0.96), rgba(10, 11, 16, 0.94));
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  box-shadow: 0 12px 32px rgba(2, 6, 23, 0.36);
+}
+
+html[data-theme="dark"] #root .app-header .app-brand-smart {
+  color: #f8fafc !important;
+  -webkit-text-fill-color: #f8fafc !important;
+}
+
+html[data-theme="dark"] #root .app-header .app-brand-accent {
+  color: #a78bfa !important;
+  -webkit-text-fill-color: #a78bfa !important;
+  text-shadow: 0 0 16px rgba(167, 139, 250, 0.34);
+}
+
+html[data-theme="light"] #root .app-header {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.90));
+}
+
+html[data-theme="light"] #root .app-header .app-brand-smart {
+  color: #07111f !important;
+  -webkit-text-fill-color: #07111f !important;
+}
+
+html[data-theme="light"] #root .app-header .app-brand-accent {
+  color: #7c3aed !important;
+  -webkit-text-fill-color: #7c3aed !important;
+  text-shadow: 0 0 14px rgba(124, 58, 237, 0.18);
+}
+
+@media (max-width: 420px) {
+  #root .app-header .logo-text {
+    font-size: 17px;
+    gap: 2px;
+  }
+}
+
+/* Final header brand color inversion fix */
+html[data-theme="light"] #root .app-header .logo-text,
+html[data-theme="light"] #root .app-header .logo-text *,
+html[data-theme="dark"] #root .app-header .logo-text,
+html[data-theme="dark"] #root .app-header .logo-text * {
+  background: none !important;
+  background-image: none !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: unset !important;
+}
+
+html[data-theme="light"] #root .app-header .app-brand-smart {
+  color: #07111f !important;
+  -webkit-text-fill-color: #07111f !important;
+  text-shadow: none !important;
+}
+
+html[data-theme="light"] #root .app-header .app-brand-accent {
+  color: #7c3aed !important;
+  -webkit-text-fill-color: #7c3aed !important;
+  text-shadow: 0 0 12px rgba(124, 58, 237, 0.16) !important;
+}
+
+html[data-theme="dark"] #root .app-header .app-brand-smart {
+  color: #f8fafc !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  text-shadow: none !important;
+}
+
+html[data-theme="dark"] #root .app-header .app-brand-accent {
+  color: #a78bfa !important;
+  -webkit-text-fill-color: #a78bfa !important;
+  text-shadow: 0 0 14px rgba(167, 139, 250, 0.30) !important;
+}
+
+/* Keep header background aligned with readable brand colors */
+html[data-theme="light"] #root .app-header {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94)) !important;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08) !important;
+}
+
+html[data-theme="dark"] #root .app-header {
+  background:
+    linear-gradient(180deg, rgba(18, 20, 32, 0.96), rgba(10, 11, 16, 0.94)) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14) !important;
+}
+
+/* Isolated dashboard header brand colors */
+#root .app-header .header-brand-text {
+  display: inline-flex !important;
+  align-items: baseline;
+  gap: 3px;
+  font-family: var(--font-title);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  white-space: nowrap;
+  background: none !important;
+  background-image: none !important;
+  -webkit-background-clip: initial !important;
+  background-clip: initial !important;
+  -webkit-text-fill-color: initial !important;
+  text-shadow: none !important;
+}
+
+html[data-theme="light"] #root .app-header .header-brand-smart {
+  color: #07111f !important;
+  -webkit-text-fill-color: #07111f !important;
+}
+
+html[data-theme="light"] #root .app-header .header-brand-landlord {
+  color: #7c3aed !important;
+  -webkit-text-fill-color: #7c3aed !important;
+  text-shadow: 0 0 12px rgba(124, 58, 237, 0.16) !important;
+}
+
+html[data-theme="dark"] #root .app-header .header-brand-smart {
+  color: #f8fafc !important;
+  -webkit-text-fill-color: #f8fafc !important;
+}
+
+html[data-theme="dark"] #root .app-header .header-brand-landlord {
+  color: #a78bfa !important;
+  -webkit-text-fill-color: #a78bfa !important;
+  text-shadow: 0 0 14px rgba(167, 139, 250, 0.30) !important;
+}
+
+@media (max-width: 420px) {
+  #root .app-header .header-brand-text {
+    font-size: 17px;
+    gap: 2px;
+  }
+}

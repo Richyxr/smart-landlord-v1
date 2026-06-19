@@ -292,7 +292,10 @@ export default function App() {
           <div className="app-header">
             <div className="app-brand">
   <img src="/icons/maskable-192.png" alt="Smart Landlord" className="app-brand-logo" />
-  <span className="logo-text">Smart Landlord</span>
+  <span className="header-brand-text">
+  <span className="header-brand-smart">Smart</span>
+  <span className="header-brand-landlord">Landlord</span>
+</span>
 </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span className="badge badge-info" style={{ textTransform: 'uppercase', fontSize: '9px' }}>
@@ -334,6 +337,11 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
+
 
 
 
