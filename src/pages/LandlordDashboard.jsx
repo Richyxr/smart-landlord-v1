@@ -8,6 +8,7 @@ import {
   SetupAlert,
   StatusBadge
 } from '../components/ui-smart';
+import { AlertTriangle, Building2, Home, Wallet, ReceiptText, Zap, HandCoins } from 'lucide-react';
 
 export default function LandlordDashboard({ organization, onNavigate, refreshTrigger }) {
   const [stats, setStats] = useState({
@@ -153,7 +154,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
         <div className="sl-dashboard-stack">
           {stats.unmatchedCount > 0 && (
             <SetupAlert
-              icon="🤝"
+              icon={HandCoins}
               tone="danger"
               title={`${stats.unmatchedCount} Unmatched Payments`}
               description="Incoming statement entries require reconciliation."
@@ -164,7 +165,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
 
           {stats.pendingReadingsCount > 0 && (
             <SetupAlert
-              icon="⚡"
+              icon={Zap}
               tone="warning"
               title={`${stats.pendingReadingsCount} Pending Readings`}
               description="Caretaker submitted meter readings require approval."
@@ -179,26 +180,26 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
         <MetricCard
           label="Total Properties"
           value={stats.propertiesCount}
-          icon="🏢"
+          icon={Building2}
         />
         <MetricCard
           label="Occupancy"
           value={`${stats.occupiedCount} / ${stats.unitsCount}`}
           helper="Units occupied"
-          icon="🏠"
+          icon={Home}
         />
         <MetricCard
           label="Collected"
           value={formatCurrency(stats.collectedRent)}
           helper="Current month"
-          icon="KES"
+          icon={Wallet}
           tone="success"
         />
         <MetricCard
           label="Arrears"
           value={formatCurrency(stats.arrears)}
           helper="Outstanding balance"
-          icon="!"
+          icon={AlertTriangle}
           tone={stats.arrears > 0 ? 'danger' : 'default'}
         />
       </div>
@@ -237,7 +238,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
       >
         {recentPayments.length === 0 ? (
           <EmptyState
-            icon="💸"
+            icon={Wallet}
             title="No payments yet"
             description="Recorded payments will appear here."
           />
@@ -270,7 +271,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
       >
         {recentInvoices.length === 0 ? (
           <EmptyState
-            icon="🧾"
+            icon={ReceiptText}
             title="No invoices yet"
             description="Created invoices will appear here."
           />
@@ -298,7 +299,4 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
     </div>
   );
 }
-
-
-
 

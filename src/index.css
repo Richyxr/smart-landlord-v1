@@ -910,3 +910,57 @@ select.form-control {
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+
+/* Smart Landlord UI polish - Lucide icons and mobile-shell metric grid */
+.sl-dashboard-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.sl-metric-card {
+  min-height: 112px;
+  overflow: hidden;
+}
+
+.sl-metric-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.24);
+  color: #c7d2fe;
+  flex-shrink: 0;
+}
+
+.sl-setup-icon,
+.sl-empty-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sl-setup-icon {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  color: #fbbf24;
+}
+
+.sl-empty-icon {
+  margin: 0 auto 8px;
+  background: rgba(99, 102, 241, 0.12);
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  color: #c7d2fe;
+}
+
+@media (min-width: 768px) {
+  #root .sl-dashboard-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
