@@ -26,10 +26,23 @@ function asyncHandler(handler) {
 
 function getContext(req) {
   return {
-    orgId: req.auth?.organizationId || parseInt(req.headers['x-organization-id']),
-    userId: req.auth?.userId || parseInt(req.headers['x-user-id']),
-    role: req.auth?.role || req.headers['x-user-role']
+    orgId: req.auth?.organizationId,
+    userId: req.auth?.userId,
+    role: req.auth?.role
   };
+}
+
+function requireAuthenticatedContext(req, res, next) {
+  const { orgId, userId, role } = getContext(req);
+
+  if (!orgId || !userId || !role) {
+    return res.status(401).json({
+      error: 'AUTHENTICATION_REQUIRED',
+      message: 'A valid Smart Landlord session is required.'
+    });
+  }
+
+  next();
 }
 
 function requireLandlord(req, res, next) {
@@ -291,6 +304,8 @@ function findMatch({ rowData, tenants, invoices, unitsById, mappings }) {
 
 export function createReconciliationRoutes(pgDb) {
   const router = express.Router();
+
+  router.use(requireAuthenticatedContext);
 
   router.get('/reconciliation/staging', requireLandlord, asyncHandler(async (req, res) => {
     const { orgId } = getContext(req);
@@ -672,3 +687,4 @@ export function createReconciliationRoutes(pgDb) {
 
   return router;
 }
+
