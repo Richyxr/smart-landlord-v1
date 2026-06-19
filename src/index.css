@@ -2432,3 +2432,118 @@ html[data-theme="light"] .form-control {
 html[data-theme="light"] .form-control::placeholder {
   color: #64748b !important;
 }
+
+/* Mature-user button sizing and tap-target polish */
+html[data-theme="light"] .btn,
+html[data-theme="light"] .sl-button {
+  min-height: 46px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 800;
+  border-radius: 14px;
+}
+
+html[data-theme="light"] .btn-sm,
+html[data-theme="light"] .app-header .btn-sm {
+  min-height: 34px;
+  padding: 7px 12px !important;
+  font-size: 11px !important;
+  font-weight: 800;
+  border-radius: 999px;
+}
+
+/* Primary action should remain strongest */
+html[data-theme="light"] .btn-primary,
+html[data-theme="light"] .sl-button-primary {
+  min-height: 48px;
+  font-size: 14px;
+  font-weight: 900;
+  box-shadow: 0 12px 26px rgba(99, 102, 241, 0.22);
+}
+
+/* Secondary actions need clearer click/tap affordance */
+html[data-theme="light"] .btn-secondary,
+html[data-theme="light"] .sl-button-secondary {
+  min-height: 46px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 850;
+  border-radius: 14px;
+  border-width: 1.5px !important;
+}
+
+/* Small inline action buttons such as Review */
+html[data-theme="light"] .sl-setup-alert button,
+html[data-theme="light"] .sl-setup-alert a,
+html[data-theme="light"] button {
+  font-weight: 800;
+}
+
+/* Header controls should be compact but easier to tap */
+#root .app-header .theme-mode-toggle {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+}
+
+#root .app-header .theme-mode-icon {
+  width: 16px;
+  height: 16px;
+}
+
+#root .app-header .badge {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px !important;
+  font-size: 9.5px !important;
+  font-weight: 900;
+}
+
+/* Bottom navigation tap targets */
+.bottom-nav .nav-item {
+  min-height: 48px;
+  padding: 6px 4px;
+}
+
+.bottom-nav .nav-icon {
+  font-size: 21px;
+}
+
+.bottom-nav .nav-item span,
+.bottom-nav .nav-item div {
+  font-size: 11.5px;
+  font-weight: 750;
+}
+
+@media (max-width: 420px) {
+  html[data-theme="light"] .btn,
+  html[data-theme="light"] .sl-button {
+    min-height: 44px;
+    padding: 11px 14px;
+    font-size: 13.5px;
+  }
+
+  html[data-theme="light"] .btn-primary,
+  html[data-theme="light"] .sl-button-primary {
+    min-height: 46px;
+  }
+
+  #root .app-header .badge {
+    min-height: 26px;
+    padding: 5px 8px !important;
+    font-size: 8.5px !important;
+  }
+
+  #root .app-header .theme-mode-toggle {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+  }
+
+  #root .app-header .btn-sm {
+    min-height: 30px;
+    padding: 6px 10px !important;
+    font-size: 10px !important;
+  }
+}
