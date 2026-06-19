@@ -198,7 +198,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
           label="Arrears"
           value={formatCurrency(stats.arrears)}
           helper="Outstanding balance"
-          icon="⚠️"
+          icon="!"
           tone={stats.arrears > 0 ? 'danger' : 'default'}
         />
       </div>
@@ -298,5 +298,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
     </div>
   );
 }
+
+
 
 
