@@ -11,6 +11,7 @@ import SaaSInvoices from './pages/SaaSInvoices.jsx';
 
 import BottomNav from './components/BottomNav.jsx';
 import InstallPrompt from './components/InstallPrompt.jsx';
+import ThemeModeToggle from './components/ThemeModeToggle.jsx';
 import ImpersonationBanner from './components/ImpersonationBanner.jsx';
 import DevSwitcher from './components/DevSwitcher.jsx';
 import { clearSessionToken, getSessionToken, setSessionToken } from './lib/session.js';
@@ -289,11 +290,15 @@ export default function App() {
         <>
           {/* Main App Layout Header */}
           <div className="app-header">
-            <span className="logo-text">Smart Landlord</span>
+            <div className="app-brand">
+  <img src="/icons/maskable-192.png" alt="Smart Landlord" className="app-brand-logo" />
+  <span className="logo-text">Smart Landlord</span>
+</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span className="badge badge-info" style={{ textTransform: 'uppercase', fontSize: '9px' }}>
                 {role.replace('_', ' ')}
               </span>
+              <ThemeModeToggle />
               <button 
                 className="btn btn-secondary btn-sm" 
                 onClick={handleLogout}
@@ -329,4 +334,12 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
 

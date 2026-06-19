@@ -219,10 +219,10 @@ export default function Auth({ onAuthSuccess }) {
             alt="Smart Landlord"
             className="auth-logo"
           />
-          <h1 style={{ fontSize: '36px', fontWeight: '800', marginBottom: '5px', fontFamily: 'var(--font-title)', letterSpacing: '-0.03em' }}>
-            Smart <span style={{ color: '#A78BFA', textShadow: '0 0 18px rgba(167, 139, 250, 0.34)' }}>Landlord</span>
+          <h1 className="auth-title">
+            Smart <span className="auth-title-accent">Landlord</span>
           </h1>
-          <p style={{ marginBottom: '34px', fontSize: '15px', color: 'rgba(203, 213, 225, 0.86)', lineHeight: '1.55' }}>
+          <p className="auth-subtitle">
             Run your rental properties, payments, and bank reconciliation from one secure mobile app.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -549,6 +549,7 @@ export default function Auth({ onAuthSuccess }) {
     </div>
   );
 }
+
 
 
 
