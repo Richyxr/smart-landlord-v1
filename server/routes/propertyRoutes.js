@@ -8,10 +8,23 @@ function asyncHandler(handler) {
 
 function getContext(req) {
   return {
-    orgId: req.auth?.organizationId || parseInt(req.headers['x-organization-id']),
-    userId: req.auth?.userId || parseInt(req.headers['x-user-id']),
-    role: req.auth?.role || req.headers['x-user-role']
+    orgId: req.auth?.organizationId,
+    userId: req.auth?.userId,
+    role: req.auth?.role
   };
+}
+
+function requireAuthenticatedContext(req, res, next) {
+  const { orgId, userId, role } = getContext(req);
+
+  if (!orgId || !userId || !role) {
+    return res.status(401).json({
+      error: 'AUTHENTICATION_REQUIRED',
+      message: 'A valid Smart Landlord session is required.'
+    });
+  }
+
+  next();
 }
 
 async function getCaretakerPropertyIds(pgDb, orgId, userId) {
@@ -45,6 +58,8 @@ function requireLandlord(req, res, next) {
 
 export function createPropertyRoutes(pgDb) {
   const router = express.Router();
+
+  router.use(requireAuthenticatedContext);
 
   router.get('/properties', asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
@@ -395,3 +410,4 @@ export function createPropertyRoutes(pgDb) {
 
   return router;
 }
+
