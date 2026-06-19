@@ -12,15 +12,35 @@ function asyncHandler(handler) {
   };
 }
 
+function getContext(req) {
+  return {
+    orgId: req.auth?.organizationId,
+    userId: req.auth?.userId,
+    role: req.auth?.role
+  };
+}
+
+function requireAuthenticatedContext(req, res, next) {
+  const { orgId, userId, role } = getContext(req);
+
+  if (!orgId || !userId || !role) {
+    return res.status(401).json({
+      error: 'AUTHENTICATION_REQUIRED',
+      message: 'A valid Smart Landlord session is required.'
+    });
+  }
+
+  next();
+}
+
 export function createNotificationRoutes(pgDb) {
   const router = express.Router();
   const notificationService = new NotificationService(pgDb);
-
   // =========================================================================
   // GET /settings/notifications — Fetch notification settings for the org
   // =========================================================================
-  router.get('/settings/notifications', asyncHandler(async (req, res) => {
-    const orgId = parseInt(req.headers['x-organization-id']);
+  router.get('/settings/notifications', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
     if (!orgId) return res.status(400).json({ error: 'Organization ID required.' });
 
     let settings;
@@ -68,10 +88,8 @@ export function createNotificationRoutes(pgDb) {
   // =========================================================================
   // PUT /settings/notifications — Update notification settings for the org
   // =========================================================================
-  router.put('/settings/notifications', asyncHandler(async (req, res) => {
-    const orgId = parseInt(req.headers['x-organization-id']);
-    const userId = parseInt(req.headers['x-user-id']);
-    const role = req.headers['x-user-role'];
+  router.put('/settings/notifications', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId, userId, role } = getContext(req);
     if (!orgId) return res.status(400).json({ error: 'Organization ID required.' });
 
     // Restrict settings changes to landlords/owners
@@ -151,9 +169,8 @@ export function createNotificationRoutes(pgDb) {
   // =========================================================================
   // GET /settings/notification-logs — View recent notification logs
   // =========================================================================
-  router.get('/settings/notification-logs', asyncHandler(async (req, res) => {
-    const orgId = parseInt(req.headers['x-organization-id']);
-    const role = req.headers['x-user-role'];
+  router.get('/settings/notification-logs', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId, role } = getContext(req);
     if (!orgId) return res.status(400).json({ error: 'Organization ID required.' });
 
     let logs = [];
@@ -197,11 +214,9 @@ export function createNotificationRoutes(pgDb) {
   // =========================================================================
   // POST /settings/notification-logs/:id/retry — Retry failed sends
   // =========================================================================
-  router.post('/settings/notification-logs/:id/retry', asyncHandler(async (req, res) => {
-    const orgId = parseInt(req.headers['x-organization-id']);
+  router.post('/settings/notification-logs/:id/retry', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId, userId, role } = getContext(req);
     const logId = parseInt(req.params.id);
-    const role = req.headers['x-user-role'];
-    const userId = parseInt(req.headers['x-user-id']);
 
     if (role === 'caretaker') {
       return res.status(403).json({ error: 'Access denied. Caretakers cannot retry delivery.' });
@@ -254,3 +269,4 @@ export function createNotificationRoutes(pgDb) {
 
   return router;
 }
+
