@@ -82,8 +82,8 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizat
           </div>
 
           {error && (
-            <div style={{ color: 'var(--danger)', fontSize: '12px', textAlign: 'center', marginBottom: '16px', fontWeight: '500' }}>
-              ⚠️ {error}
+            <div role="alert" style={{ color: 'var(--danger)', fontSize: '12px', textAlign: 'center', marginBottom: '16px', fontWeight: '500' }}>
+              {error}
             </div>
           )}
 

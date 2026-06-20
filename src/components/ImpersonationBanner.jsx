@@ -6,7 +6,7 @@ export default function ImpersonationBanner({ session, onExit }) {
   return (
     <div className="impersonation-banner">
       <span>
-        ⚠️ <strong>Admin Impersonation Active:</strong> Viewing {session.orgName || 'Landlord Dashboard'}
+        <strong>Admin Impersonation Active:</strong> Viewing {session.orgName || 'Landlord Dashboard'}
       </span>
       <button className="impersonation-btn-exit" onClick={onExit}>
         Exit Impersonation

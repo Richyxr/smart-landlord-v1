@@ -453,7 +453,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
         </div>
       )}
 
-      {error && <div style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>⚠️ {error}</div>}
+      {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>{error}</div>}
 
       {/* MAPPING INTEGRATION FORMS */}
       {selectedInt && (

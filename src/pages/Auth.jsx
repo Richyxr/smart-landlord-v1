@@ -301,7 +301,7 @@ export default function Auth({ onAuthSuccess }) {
               />
             </div>
 
-            {error && <div style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>⚠️ {error}</div>}
+            {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
 
             <button type="submit" className="btn btn-primary" disabled={loading} style={{ marginTop: '10px' }}>
               {loading ? 'Signing In...' : 'Sign In'}
@@ -449,7 +449,7 @@ export default function Auth({ onAuthSuccess }) {
               </div>
             </div>
 
-            {error && <div style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>⚠️ {error}</div>}
+            {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
 
             <button type="submit" className="btn btn-primary" disabled={loading} style={{ marginTop: '10px' }}>
               {loading ? 'Creating Profile...' : 'Register Profile'}
@@ -562,7 +562,7 @@ export default function Auth({ onAuthSuccess }) {
               />
             </div>
 
-            {error && <div style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>⚠️ {error}</div>}
+            {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
 
             <button type="submit" className="btn btn-primary" disabled={loading} style={{ marginTop: '10px' }}>
               {loading ? 'Saving PIN...' : 'Save & Finalize'}

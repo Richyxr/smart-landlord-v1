@@ -399,7 +399,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
         </button>
       </div>
 
-      {error && <div style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px', fontWeight: 'bold' }}>⚠️ {error}</div>}
+      {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px', fontWeight: 'bold' }}>{error}</div>}
 
       {/* RENDER FORMS */}
       {showAddForm && (

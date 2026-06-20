@@ -367,7 +367,7 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
             </button>
           </div>
 
-          {error && <div style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>⚠️ {error}</div>}
+          {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>{error}</div>}
 
           {/* LIST ITEMS */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

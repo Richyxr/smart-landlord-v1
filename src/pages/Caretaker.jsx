@@ -266,7 +266,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
         </button>
       </div>
 
-      {error && <div style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>⚠️ {error}</div>}
+      {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>{error}</div>}
 
       {/* DASHBOARD VIEW */}
       {activeTab === 'dashboard' && (

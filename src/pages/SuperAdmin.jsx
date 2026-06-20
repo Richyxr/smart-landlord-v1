@@ -205,7 +205,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {impersonateOrg && (
         <div className="modal-backdrop">
           <div className="modal-content">
-            <h3 className="card-title">⚠️ Impersonate {impersonateOrg.name}</h3>
+            <h3 className="card-title">Impersonate {impersonateOrg.name}</h3>
             <p style={{ fontSize: '12px', marginBottom: '14px' }}>
               You are about to access this landlord's dashboard. Under policy guidelines, this support action must have an audit trail.
             </p>
@@ -272,7 +272,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         </button>
       </div>
 
-      {error && <div style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>⚠️ {error}</div>}
+      {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>{error}</div>}
 
       {/* OVERVIEW PLATFORM STATS */}
       {activeTab === 'dashboard' && (

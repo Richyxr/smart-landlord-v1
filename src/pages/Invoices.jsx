@@ -326,7 +326,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh }) {
               ))}
             </div>
 
-            {error && <div style={{ color: 'var(--danger)', fontSize: '12px' }}>⚠️ {error}</div>}
+            {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '12px' }}>{error}</div>}
 
             <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
               <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setReminderTarget(null); setError(''); }}>
