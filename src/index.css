@@ -2951,3 +2951,60 @@ html[data-theme="light"] button {
     display: inline;
   }
 }
+
+/* Lockout screen themed icons */
+.lockout-icon {
+  width: 74px;
+  height: 74px;
+  border-radius: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fb7185;
+  background:
+    radial-gradient(circle at top, rgba(251, 113, 133, 0.18), transparent 58%),
+    rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(251, 113, 133, 0.22);
+  box-shadow:
+    0 20px 54px rgba(239, 68, 68, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.lockout-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lockout-card-title svg {
+  color: var(--primary);
+}
+
+.lockout-card-kicker-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.lockout-card-kicker-with-icon svg {
+  color: var(--danger);
+}
+
+html[data-theme="light"] .lockout-icon {
+  color: #e11d48;
+  background:
+    radial-gradient(circle at top, rgba(225, 29, 72, 0.10), transparent 58%),
+    rgba(255, 255, 255, 0.94);
+  border-color: rgba(225, 29, 72, 0.22);
+  box-shadow:
+    0 20px 54px rgba(225, 29, 72, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.70);
+}
+
+html[data-theme="light"] .lockout-card-title svg {
+  color: #4f46e5;
+}
+
+html[data-theme="light"] .lockout-card-kicker-with-icon svg {
+  color: #e11d48;
+}
