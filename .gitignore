@@ -72,7 +72,6 @@ node_modules/
 .env
 .env.*
 !.env.example
-apphosting.yaml
 
 # Local data and uploads
 data/

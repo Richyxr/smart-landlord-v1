@@ -1,0 +1,32 @@
+runConfig:
+  minInstances: 0
+
+env:
+  - variable: FIREBASE_PROJECT_ID
+    value: "smart-landlord-1e526"
+    availability:
+      - RUNTIME
+  - variable: NODE_ENV
+    value: "production"
+    availability:
+      - RUNTIME
+  - variable: APP_ENV
+    value: "production"
+    availability:
+      - RUNTIME
+  - variable: DATA_BACKEND
+    value: "postgres"
+    availability:
+      - RUNTIME
+  - variable: DATABASE_SSL
+    value: "true"
+    availability:
+      - RUNTIME
+  - variable: DATABASE_URL
+    secret: DATABASE_URL
+    availability:
+      - RUNTIME
+  - variable: SESSION_SECRET
+    secret: SESSION_SECRET
+    availability:
+      - RUNTIME
