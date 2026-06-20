@@ -117,9 +117,10 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
   if (loading) {
     return (
       <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
-        <div className="pulse-primary" style={{ padding: '20px', borderRadius: '50%', background: 'var(--bg-surface)' }}>
-          ⏳ Loading Dashboard...
-        </div>
+        <div className="sl-loading-pill">
+  <span className="sl-loading-spinner" aria-hidden="true"></span>
+  <span>Loading Dashboard...</span>
+</div>
       </div>
     );
   }
@@ -299,4 +300,5 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
     </div>
   );
 }
+
 
