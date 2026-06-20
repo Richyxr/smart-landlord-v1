@@ -2313,7 +2313,7 @@ app.post('/api/messages/read', (req, res) => {
 // --- SETTINGS, INTEGRATIONS, AUDIT & ARCHIVE ---
 
 // Get Service Billing Rates
-app.get('/api/settings/service-rates', (req, res) => {
+app.get('/api/settings/service-rates', async (req, res) => {
   const orgId = req.auth?.organizationId;
   const role = req.auth?.role;
 
@@ -2321,7 +2321,8 @@ app.get('/api/settings/service-rates', (req, res) => {
     return res.status(403).json({ error: 'Access denied.' });
   }
 
-  let rates = db.find('service_rates', { organization_id: orgId });
+  const activeDb = pgDb || db;
+  let rates = await activeDb.find('service_rates', { organization_id: orgId });
 
   // If org has no rates yet (e.g. migrated existing db), return defaults
   if (rates.length === 0) {
@@ -2338,7 +2339,7 @@ app.get('/api/settings/service-rates', (req, res) => {
 });
 
 // Update / Upsert Service Billing Rates
-app.put('/api/settings/service-rates', (req, res) => {
+app.put('/api/settings/service-rates', async (req, res) => {
   const orgId = req.auth?.organizationId;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
@@ -2353,18 +2354,20 @@ app.put('/api/settings/service-rates', (req, res) => {
     return res.status(400).json({ error: 'rates must be an array.' });
   }
 
-  const saved = rates.map(rateData => {
-    const existing = db.findOne('service_rates', { organization_id: orgId, service_type: rateData.service_type });
+  const activeDb = pgDb || db;
+  const saved = await Promise.all(rates.map(async rateData => {
+    const existing = await activeDb.findOne('service_rates', { organization_id: orgId, service_type: rateData.service_type });
     if (existing) {
-      return db.update('service_rates', existing.id, {
+      const updated = await activeDb.update('service_rates', existing.id, {
         label: rateData.label,
         rate: parseFloat(rateData.rate),
         rate_type: rateData.rate_type,
         unit_label: rateData.unit_label,
         is_active: rateData.is_active !== false
-      })[0];
+      });
+      return updated[0] || updated;
     } else {
-      return db.insert('service_rates', {
+      return await activeDb.insert('service_rates', {
         organization_id: orgId,
         service_type: rateData.service_type,
         label: rateData.label,
@@ -2375,14 +2378,14 @@ app.put('/api/settings/service-rates', (req, res) => {
         is_active: rateData.is_active !== false
       });
     }
-  });
+  }));
 
-  db.logAudit(orgId, userId, role, 'service_rates_updated', 'service_rates', null, null, rates, 'Landlord updated billing rates');
+  await activeDb.logAudit(orgId, userId, role, 'service_rates_updated', 'service_rates', null, null, rates, 'Landlord updated billing rates');
   res.json(saved);
 });
 
 // Delete a custom service rate (non-system services only)
-app.delete('/api/settings/service-rates/:id', (req, res) => {
+app.delete('/api/settings/service-rates/:id', async (req, res) => {
   const orgId = req.auth?.organizationId;
   const rateId = parseInt(req.params.id);
   const userId = req.auth?.userId;
@@ -2392,7 +2395,8 @@ app.delete('/api/settings/service-rates/:id', (req, res) => {
     return res.status(403).json({ error: 'Access denied.' });
   }
 
-  const rate = db.findOne('service_rates', { id: rateId, organization_id: orgId });
+  const activeDb = pgDb || db;
+  const rate = await activeDb.findOne('service_rates', { id: rateId, organization_id: orgId });
   if (!rate) return res.status(404).json({ error: 'Service rate not found.' });
 
   // Protect system-defined services from deletion
@@ -2401,22 +2405,22 @@ app.delete('/api/settings/service-rates/:id', (req, res) => {
     return res.status(400).json({ error: 'System service rates cannot be deleted. You may disable them instead.' });
   }
 
-  db.delete('service_rates', { id: rateId, organization_id: orgId });
-  db.logAudit(orgId, userId, role, 'service_rate_deleted', 'service_rates', rateId, rate, null, `Deleted custom service: ${rate.label}`);
+  await activeDb.delete('service_rates', { id: rateId, organization_id: orgId });
+  await activeDb.logAudit(orgId, userId, role, 'service_rate_deleted', 'service_rates', rateId, rate, null, `Deleted custom service: ${rate.label}`);
 
   res.json({ success: true });
 });
 
 // Integrations list
-app.get('/api/integrations', (req, res) => {
-
+app.get('/api/integrations', async (req, res) => {
   const orgId = req.auth?.organizationId;
-  const list = db.find('organization_integrations', { organization_id: orgId });
+  const activeDb = pgDb || db;
+  const list = await activeDb.find('organization_integrations', { organization_id: orgId });
   res.json(list);
 });
 
 // Save integration connection
-app.post('/api/integrations', (req, res) => {
+app.post('/api/integrations', async (req, res) => {
   const orgId = req.auth?.organizationId;
   const { provider_type, provider_name, environment, config_json } = req.body;
   const userId = req.auth?.userId;
@@ -2428,19 +2432,21 @@ app.post('/api/integrations', (req, res) => {
     maskedConfig[key] = config_json[key].length > 4 ? config_json[key].substring(0, 2) + '********' : '********';
   }
 
-  const existing = db.findOne('organization_integrations', { provider_type, organization_id: orgId });
+  const activeDb = pgDb || db;
+  const existing = await activeDb.findOne('organization_integrations', { provider_type, organization_id: orgId });
   let integration;
 
   if (existing) {
-    integration = db.update('organization_integrations', existing.id, {
+    const updated = await activeDb.update('organization_integrations', existing.id, {
       provider_name,
       environment,
       config_json_encrypted: JSON.stringify(maskedConfig),
       status: 'ready',
       updated_at: new Date().toISOString()
-    })[0];
+    });
+    integration = updated[0] || updated;
   } else {
-    integration = db.insert('organization_integrations', {
+    integration = await activeDb.insert('organization_integrations', {
       organization_id: orgId,
       provider_type,
       provider_name,
@@ -2452,23 +2458,24 @@ app.post('/api/integrations', (req, res) => {
     });
   }
 
-  db.logAudit(orgId, userId, role, 'integration_added', 'organization_integrations', integration.id, existing, integration);
+  await activeDb.logAudit(orgId, userId, role, 'integration_added', 'organization_integrations', integration.id, existing, integration);
   res.json(integration);
 });
 
 // Test Connection
-app.post('/api/integrations/:id/test', (req, res) => {
+app.post('/api/integrations/:id/test', async (req, res) => {
   const orgId = req.auth?.organizationId;
   const integrationId = parseInt(req.params.id);
   const userId = req.auth?.userId;
 
-  const integration = db.findOne('organization_integrations', { id: integrationId, organization_id: orgId });
+  const activeDb = pgDb || db;
+  const integration = await activeDb.findOne('organization_integrations', { id: integrationId, organization_id: orgId });
   if (!integration) return res.status(404).json({ error: 'Integration not found.' });
 
   // Simulate test connection
   const success = Math.random() > 0.05; // 95% success rate for simulation
 
-  const testLog = db.insert('integration_test_logs', {
+  const testLog = await activeDb.insert('integration_test_logs', {
     organization_id: orgId,
     integration_id: integrationId,
     tested_by: userId,
@@ -2477,7 +2484,7 @@ app.post('/api/integrations/:id/test', (req, res) => {
     error_message: success ? null : 'Sandbox endpoint did not return validation challenge.'
   });
 
-  db.update('organization_integrations', integrationId, {
+  await activeDb.update('organization_integrations', integrationId, {
     status: success ? 'ready' : 'test_failed',
     last_tested_at: new Date().toISOString()
   });
@@ -2486,30 +2493,31 @@ app.post('/api/integrations/:id/test', (req, res) => {
 });
 
 // Delete credentials (Requires PIN)
-app.post('/api/integrations/:id/delete', (req, res) => {
+app.post('/api/integrations/:id/delete', async (req, res) => {
   const orgId = req.auth?.organizationId;
   const integrationId = parseInt(req.params.id);
   const { pin } = req.body;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
 
-  const org = db.findOne('organizations', { id: orgId });
+  const activeDb = pgDb || db;
+  const org = await activeDb.findOne('organizations', { id: orgId });
   if (!org || !bcrypt.compareSync(pin, org.security_pin_hash)) {
     return res.status(400).json({ error: 'Wrong security PIN.' });
   }
 
-  const integration = db.findOne('organization_integrations', { id: integrationId, organization_id: orgId });
+  const integration = await activeDb.findOne('organization_integrations', { id: integrationId, organization_id: orgId });
   if (!integration) return res.status(404).json({ error: 'Integration not found.' });
 
-  db.delete('organization_integrations', { id: integrationId, organization_id: orgId });
+  await activeDb.delete('organization_integrations', { id: integrationId, organization_id: orgId });
   
-  db.logAudit(orgId, userId, role, 'api_credential_deleted', 'organization_integrations', integrationId, integration, null, 'Deleted API keys from dashboard', 'success');
+  await activeDb.logAudit(orgId, userId, role, 'api_credential_deleted', 'organization_integrations', integrationId, integration, null, 'Deleted API keys from dashboard', 'success');
 
   res.json({ success: true, message: 'Credentials deleted successfully.' });
 });
 
 // Get Audit Logs (Settings)
-app.get('/api/settings/audit-logs', (req, res) => {
+app.get('/api/settings/audit-logs', async (req, res) => {
   const orgId = req.auth?.organizationId;
   const role = req.auth?.role;
 
@@ -2517,8 +2525,9 @@ app.get('/api/settings/audit-logs', (req, res) => {
     return res.status(403).json({ error: 'You do not have permission to access this financial feature.' });
   }
 
-  const logs = db.find('audit_logs', { organization_id: orgId });
-  const users = db.get('users');
+  const activeDb = pgDb || db;
+  const logs = await activeDb.find('audit_logs', { organization_id: orgId });
+  const users = await activeDb.get('users');
 
   const detailedLogs = logs.map(l => {
     const user = users.find(u => u.id === l.actor_user_id);
@@ -2532,16 +2541,17 @@ app.get('/api/settings/audit-logs', (req, res) => {
 });
 
 // Settings info & setup readiness
-app.get('/api/settings/readiness', (req, res) => {
+app.get('/api/settings/readiness', async (req, res) => {
   const orgId = req.auth?.organizationId;
-  const org = db.findOne('organizations', { id: orgId });
+  const activeDb = pgDb || db;
+  const org = await activeDb.findOne('organizations', { id: orgId });
 
   if (!org) return res.status(404).json({ error: 'Org not found' });
 
-  const props = db.find('properties', { organization_id: orgId, deleted_at: null });
-  const units = db.find('units', { organization_id: orgId, deleted_at: null });
-  const tenants = db.find('tenants', { organization_id: orgId, deleted_at: null });
-  const integrations = db.find('organization_integrations', { organization_id: orgId });
+  const props = await activeDb.find('properties', { organization_id: orgId, deleted_at: null });
+  const units = await activeDb.find('units', { organization_id: orgId, deleted_at: null });
+  const tenants = await activeDb.find('tenants', { organization_id: orgId, deleted_at: null });
+  const integrations = await activeDb.find('organization_integrations', { organization_id: orgId });
   const pinSet = org.security_pin_hash ? true : false;
 
   const checklist = {
@@ -2562,23 +2572,24 @@ app.get('/api/settings/readiness', (req, res) => {
 });
 
 // Financial Archive (Requires PIN)
-app.post('/api/settings/archive', (req, res) => {
+app.post('/api/settings/archive', async (req, res) => {
   const orgId = req.auth?.organizationId;
   const { pin, before_date, reason } = req.body;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
 
-  const org = db.findOne('organizations', { id: orgId });
+  const activeDb = pgDb || db;
+  const org = await activeDb.findOne('organizations', { id: orgId });
   if (!org || !bcrypt.compareSync(pin, org.security_pin_hash)) {
     return res.status(400).json({ error: 'Wrong security PIN.' });
   }
 
-  const txs = db.find('transactions', { organization_id: orgId, status: 'reconciled' });
+  const txs = await activeDb.find('transactions', { organization_id: orgId, status: 'reconciled' });
   const toArchive = txs.filter(t => new Date(t.transaction_date) < new Date(before_date));
 
-  toArchive.forEach(tx => {
+  for (const tx of toArchive) {
     // 1. Move to archived
-    db.insert('archived_transactions', {
+    await activeDb.insert('archived_transactions', {
       original_transaction_id: tx.id,
       organization_id: orgId,
       archived_by: userId,
@@ -2588,10 +2599,10 @@ app.post('/api/settings/archive', (req, res) => {
     });
     
     // 2. Mark ledger status
-    db.update('transactions', tx.id, { status: 'archived' });
-  });
+    await activeDb.update('transactions', tx.id, { status: 'archived' });
+  }
 
-  db.logAudit(orgId, userId, role, 'financial_archive_move', 'transactions', null, { before_date, count: toArchive.length }, null, `Archived ${toArchive.length} transactions before ${before_date}`, 'success');
+  await activeDb.logAudit(orgId, userId, role, 'financial_archive_move', 'transactions', null, { before_date, count: toArchive.length }, null, `Archived ${toArchive.length} transactions before ${before_date}`, 'success');
 
   res.json({ success: true, count: toArchive.length });
 });

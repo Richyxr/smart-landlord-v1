@@ -57,19 +57,26 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
     try {
       if (activeTab === 'readiness') {
         const res = await fetch('/api/settings/readiness', { headers });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || errData.message || 'Failed to fetch readiness status.');
+        }
         const data = await res.json();
-        setChecklist(data.checklist);
+        setChecklist(data.checklist || {});
       } else if (activeTab === 'integrations') {
         const res = await fetch('/api/integrations', { headers });
+        if (!res.ok) throw new Error('Failed to fetch integrations.');
         setIntegrations(await res.json());
       } else if (activeTab === 'archive') {
         // Calculate transactions count before archive date
         const res = await fetch('/api/payments', { headers });
+        if (!res.ok) throw new Error('Failed to fetch payments.');
         const txs = await res.json();
         const count = txs.filter(t => new Date(t.transaction_date) < new Date(archiveDate) && t.status === 'reconciled').length;
         setArchiveCount(count);
       } else if (activeTab === 'audits') {
         const res = await fetch('/api/settings/audit-logs', { headers });
+        if (!res.ok) throw new Error('Failed to fetch audit logs.');
         setAuditLogs(await res.json());
       } else if (activeTab === 'compliance') {
         const [resLog, resTenants] = await Promise.all([
@@ -80,11 +87,12 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
         if (resTenants.ok) setTenantsList(await resTenants.json());
       } else if (activeTab === 'readings') {
         const res = await fetch('/api/meter-readings', { headers });
+        if (!res.ok) throw new Error('Failed to fetch meter readings.');
         setMeterReadings(await res.json());
       } else if (activeTab === 'notifications') {
         const settingsRes = await fetch('/api/settings/notifications', { headers });
         if (settingsRes.ok) {
-          const settingsData = await settingsRes.ok ? await settingsRes.json() : null;
+          const settingsData = await settingsRes.json();
           if (settingsData) {
             setNotifSettings(settingsData);
             setSmsProviderVal(settingsData.sms_provider || 'None');
@@ -97,7 +105,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
       }
     } catch (e) {
       console.error(e);
-      setError('Failed to load settings data.');
+      setError(e.message || 'Failed to load settings data.');
     } finally {
       setLoading(false);
     }
@@ -457,7 +465,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
             <p style={{ fontSize: '12px', marginBottom: '14px' }}>Verify your dashboard config state before receiving live payments.</p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {Object.keys(checklist).map(key => (
+              {checklist && Object.keys(checklist).map(key => (
                 <div key={key} className="flex-row" style={{ fontSize: '13px', paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>
                   <span style={{ textTransform: 'capitalize' }}>{key.replace(/_/g, ' ')}</span>
                   <span className={`badge ${checklist[key] ? 'badge-success' : 'badge-danger'}`}>
