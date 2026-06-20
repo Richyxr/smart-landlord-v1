@@ -223,7 +223,8 @@ export default function Auth({ onAuthSuccess }) {
             Smart <span className="auth-title-accent">Landlord</span>
           </h1>
           <p className="auth-subtitle">
-            Run your rental properties, payments, and bank reconciliation from one secure mobile app.
+            <span className="auth-copy-mobile">Run your rental properties, payments, and bank reconciliation from one secure mobile app.</span>
+<span className="auth-copy-desktop">Run your rental properties, payments, and bank reconciliation from one secure web app.</span>
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <button className="btn btn-primary" onClick={() => setScreen('register')}>
@@ -549,6 +550,7 @@ export default function Auth({ onAuthSuccess }) {
     </div>
   );
 }
+
 
 
 

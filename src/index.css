@@ -2932,3 +2932,22 @@ html[data-theme="light"] button {
     border-color: rgba(99, 102, 241, 0.42);
   }
 }
+
+/* Auth responsive value statement */
+.auth-copy-desktop {
+  display: none;
+}
+
+.auth-copy-mobile {
+  display: inline;
+}
+
+@media (min-width: 700px) {
+  .auth-copy-mobile {
+    display: none;
+  }
+
+  .auth-copy-desktop {
+    display: inline;
+  }
+}
