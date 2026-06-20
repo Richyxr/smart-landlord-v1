@@ -10,6 +10,7 @@ import SuperAdmin from './pages/SuperAdmin.jsx';
 import SaaSInvoices from './pages/SaaSInvoices.jsx';
 
 import BottomNav from './components/BottomNav.jsx';
+import DesktopSidebar from './components/DesktopSidebar.jsx';
 import InstallPrompt from './components/InstallPrompt.jsx';
 import ThemeModeToggle from './components/ThemeModeToggle.jsx';
 import ImpersonationBanner from './components/ImpersonationBanner.jsx';
@@ -287,51 +288,61 @@ export default function App() {
       {!user ? (
         <Auth onAuthSuccess={handleAuthSuccess} />
       ) : (
-        <>
-          {/* Main App Layout Header */}
-          <div className="app-header">
-            <div className="app-brand">
-  <img src="/icons/maskable-192.png" alt="Smart Landlord" className="app-brand-logo" />
-  <span className="header-brand-text">
-  <span className="header-brand-smart">Smart</span>
-  <span className="header-brand-landlord">Landlord</span>
-</span>
-</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span className="badge badge-info" style={{ textTransform: 'uppercase', fontSize: '9px' }}>
-                {role.replace('_', ' ')}
-              </span>
-              <ThemeModeToggle />
-              <button 
-                className="btn btn-secondary btn-sm" 
-                onClick={handleLogout}
-                style={{ padding: '4px 8px', fontSize: '10px' }}
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-
-          {/* Main Content Area */}
-          <div className="app-content">
-            {renderActivePage()}
-          </div>
-
-          {/* Role Aware Bottom Navigation */}
+        <div className="responsive-app-shell">
           {(!isLocked || role !== 'landlord') && (
-            <BottomNav role={role} activeTab={activeTab} onChangeTab={setActiveTab} />
-          )}
-
-          {demoMode && (
-            <DevSwitcher
-              currentRole={role}
-              onChangeRole={handleRoleChange}
-              currentOrgId={organization ? organization.id : 1}
-              onTriggerLockout={() => setIsLocked(true)}
-              onRefreshData={triggerRefresh}
+            <DesktopSidebar
+              role={role}
+              activeTab={activeTab}
+              onChangeTab={setActiveTab}
             />
           )}
-        </>
+
+          <div className="responsive-main-shell">
+            {/* Main App Layout Header */}
+            <div className="app-header">
+              <div className="app-brand">
+                <img src="/icons/maskable-192.png" alt="Smart Landlord" className="app-brand-logo" />
+                <span className="header-brand-text">
+                  <span className="header-brand-smart">Smart</span>
+                  <span className="header-brand-landlord">Landlord</span>
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="badge badge-info" style={{ textTransform: 'uppercase', fontSize: '9px' }}>
+                  {role.replace('_', ' ')}
+                </span>
+                <ThemeModeToggle />
+                <button 
+                  className="btn btn-secondary btn-sm" 
+                  onClick={handleLogout}
+                  style={{ padding: '4px 8px', fontSize: '10px' }}
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+
+            {/* Main Content Area */}
+            <div className="app-content">
+              {renderActivePage()}
+            </div>
+
+            {/* Role Aware Bottom Navigation */}
+            {(!isLocked || role !== 'landlord') && (
+              <BottomNav role={role} activeTab={activeTab} onChangeTab={setActiveTab} />
+            )}
+
+            {demoMode && (
+              <DevSwitcher
+                currentRole={role}
+                onChangeRole={handleRoleChange}
+                currentOrgId={organization ? organization.id : 1}
+                onTriggerLockout={() => setIsLocked(true)}
+                onRefreshData={triggerRefresh}
+              />
+            )}
+          </div>
+        </div>
       )}
       <InstallPrompt />
     </div>

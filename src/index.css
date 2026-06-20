@@ -2547,3 +2547,188 @@ html[data-theme="light"] button {
     font-size: 10px !important;
   }
 }
+
+/* Responsive Layout Shell & Desktop Navigation Sidebar */
+.desktop-sidebar {
+  display: none;
+}
+
+.responsive-app-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  min-height: 100%;
+}
+
+.responsive-main-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  min-height: 100%;
+}
+
+@media (min-width: 900px) {
+  body {
+    align-items: stretch;
+  }
+
+  #root {
+    max-width: none !important;
+    width: 100% !important;
+    min-height: 100vh !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
+  }
+
+  .responsive-app-shell {
+    display: grid !important;
+    grid-template-columns: 260px minmax(0, 1fr) !important;
+    min-height: 100vh !important;
+    height: 100vh !important;
+    flex-direction: row !important;
+  }
+
+  .desktop-sidebar {
+    display: flex !important;
+    flex-direction: column;
+    width: 260px;
+    height: 100vh;
+    background-color: rgba(18, 20, 32, 0.85);
+    backdrop-filter: blur(20px);
+    border-right: 1px solid var(--border);
+    padding: 24px 16px;
+    box-sizing: border-box;
+    overflow-y: auto;
+  }
+
+  .responsive-main-shell {
+    min-width: 0 !important;
+    min-height: 100vh !important;
+    height: 100vh !important;
+    overflow-y: auto !important;
+  }
+
+  .bottom-nav {
+    display: none !important;
+  }
+
+  .app-content {
+    max-width: 1180px;
+    margin: 0 auto;
+    width: 100%;
+    padding-bottom: 32px;
+  }
+
+  /* Sidebar Typography & Brand Styling */
+  .sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 24px;
+    padding: 4px;
+  }
+
+  .sidebar-logo {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+  }
+
+  .sidebar-brand-text {
+    font-family: var(--font-title);
+    font-size: 20px;
+    font-weight: 800;
+  }
+
+  .brand-smart {
+    color: var(--primary);
+  }
+
+  .brand-landlord {
+    color: var(--text-primary);
+  }
+
+  .sidebar-role-container {
+    margin-bottom: 28px;
+    padding-left: 4px;
+  }
+
+  .sidebar-role-badge {
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+  }
+
+  .sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: var(--radius-md);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 14.5px;
+    transition: all var(--transition-normal);
+    color: var(--text-secondary);
+    width: 100%;
+    outline: none;
+  }
+
+  .sidebar-item:hover {
+    background-color: rgba(99, 102, 241, 0.08);
+    color: var(--primary);
+    transform: translateX(4px);
+  }
+
+  .sidebar-item.active {
+    background-color: rgba(99, 102, 241, 0.15);
+    color: var(--text-primary);
+    border-left: 3px solid var(--primary);
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+  }
+
+  .sidebar-icon {
+    color: inherit;
+    flex-shrink: 0;
+  }
+
+  /* Light Theme Overrides for Sidebar */
+  html[data-theme="light"] .desktop-sidebar {
+    background-color: rgba(248, 250, 252, 0.95);
+    border-right: 1px solid #cbd5e1;
+  }
+
+  html[data-theme="light"] .brand-landlord {
+    color: #0f172a;
+  }
+
+  html[data-theme="light"] .sidebar-item {
+    color: #475569;
+  }
+
+  html[data-theme="light"] .sidebar-item:hover {
+    background-color: rgba(79, 70, 229, 0.08);
+    color: #4f46e5;
+  }
+
+  html[data-theme="light"] .sidebar-item.active {
+    background-color: rgba(79, 70, 229, 0.12);
+    color: #4f46e5;
+    border-left-color: #4f46e5;
+  }
+}
