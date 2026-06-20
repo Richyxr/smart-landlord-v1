@@ -101,3 +101,10 @@ skills-lock.json
 
 # Duplicate functions codebase generated during init
 smart-landlord/
+
+# Database backups
+backups/*
+!backups/.gitkeep
+*.dump
+*.backup
+*.sql.gz

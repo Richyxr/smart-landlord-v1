@@ -16,7 +16,8 @@
     "smoke:postgres-webhook": "node scripts/smoke-postgres-webhook.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:seed:from-json": "node scripts/db-seed-from-json.mjs",
-    "db:seed:reset-from-json": "node scripts/db-seed-from-json.mjs --truncate"
+    "db:seed:reset-from-json": "node scripts/db-seed-from-json.mjs --truncate",
+    "db:backup": "node scripts/db-backup.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
