@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { LockKeyhole, Smartphone, ReceiptText } from 'lucide-react';
 
 export default function SaaSInvoices({ organization, refreshTrigger, onRefresh, forceShowLock }) {
   const [saasStatus, setSaasStatus] = useState(null);
@@ -72,66 +73,84 @@ export default function SaaSInvoices({ organization, refreshTrigger, onRefresh, 
   // Render LOCKOUT OVERLAY SCREEN
   if (isLocked) {
     return (
-      <div className="lockout-screen">
-        <span className="lockout-icon">🔒</span>
-        <h2 style={{ fontSize: '24px', fontWeight: '800', fontFamily: 'var(--font-title)', color: 'var(--danger)', marginBottom: '8px' }}>
-          Account Locked
-        </h2>
-        <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '24px', padding: '0 10px' }}>
-          Your platform subscription is overdue. Re-activate your account by completing payment below.
-        </p>
+      <div className="lockout-screen lockout-page">
+        <div className="lockout-shell">
+          <section className="lockout-hero">
+            <span className="lockout-icon" aria-hidden="true">
+  <LockKeyhole size={48} strokeWidth={2.2} />
+</span>
+            <h2 className="lockout-title">
+              Account Locked
+            </h2>
+            <p className="lockout-copy">
+              Your platform subscription is overdue. Complete payment below to reactivate your account.
+            </p>
+          </section>
 
-        {activeInvoice ? (
-          <div className="card" style={{ width: '100%', border: '1px solid var(--danger)', backgroundColor: 'rgba(239, 68, 68, 0.05)', marginBottom: '20px', textAlign: 'left' }}>
-            <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Invoice: {activeInvoice.invoice_number}</h4>
-            <div style={{ fontSize: '24px', fontWeight: '800', margin: '4px 0', fontFamily: 'var(--font-title)' }}>
-              {formatCurrency(activeInvoice.total)}
-            </div>
-            <p style={{ fontSize: '12px' }}>Billing Period: {new Date(activeInvoice.billing_period_start).toLocaleDateString()} to {new Date(activeInvoice.billing_period_end).toLocaleDateString()}</p>
-            <p style={{ fontSize: '12px' }}>Active Tenant Count: <strong>{activeInvoice.active_tenant_count}</strong></p>
-          </div>
-        ) : (
-          <p style={{ marginBottom: '20px' }}>Checking invoice details...</p>
-        )}
-
-        {activeInvoice && (
-          <div className="card" style={{ width: '100%', textAlign: 'left' }}>
-            <h4 style={{ fontSize: '14px', marginBottom: '8px' }}>🚀 Lipa na M-Pesa STK Push</h4>
-            <div className="form-group">
-              <label className="form-label">M-Pesa Phone Number</label>
-              <input
-                type="tel"
-                className="form-control"
-                placeholder={organization.phone_number}
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-              />
-            </div>
-            <button
-              className="btn btn-primary"
-              disabled={loading}
-              onClick={() => handlePaySTK(activeInvoice.id)}
-            >
-              {loading ? 'Sending STK Push...' : 'Send M-Pesa STK Push'}
-            </button>
-
-            {message && (
-              <div style={{ fontSize: '12px', color: 'var(--success)', textAlign: 'center', marginTop: '10px', fontWeight: 'bold' }}>
-                {message}
-              </div>
+          <section className="lockout-payment-grid">
+            {activeInvoice ? (
+              <article className="card lockout-card lockout-invoice-card">
+                <h4 className="lockout-card-kicker lockout-card-kicker-with-icon">
+  <ReceiptText size={15} strokeWidth={2.4} aria-hidden="true" />
+  <span>Invoice Summary</span>
+</h4>
+                <div className="lockout-invoice-number">Invoice: {activeInvoice.invoice_number}</div>
+                <div className="lockout-amount">
+                  {formatCurrency(activeInvoice.total)}
+                </div>
+                <p>Billing Period: {new Date(activeInvoice.billing_period_start).toLocaleDateString()} to {new Date(activeInvoice.billing_period_end).toLocaleDateString()}</p>
+                <p>Active Tenant Count: <strong>{activeInvoice.active_tenant_count}</strong></p>
+              </article>
+            ) : (
+              <p className="lockout-loading">Checking invoice details...</p>
             )}
-          </div>
-        )}
 
-        <div className="card" style={{ width: '100%', textAlign: 'left', backgroundColor: 'var(--bg-surface-elevated)' }}>
-          <h4 style={{ fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '6px' }}>Offline Paybill Instructions</h4>
-          <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <div>Business Number: <strong>174379</strong></div>
-            <div>Account Name: <strong>{organization.name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12)}</strong></div>
-            <div style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '4px' }}>Once paid, support admin will confirm within 1 hour.</div>
-          </div>
+            {activeInvoice && (
+              <article className="card lockout-card lockout-stk-card">
+                <h4 className="lockout-card-title">
+  <Smartphone size={18} strokeWidth={2.4} aria-hidden="true" />
+  <span>Lipa na M-Pesa STK Push</span>
+</h4>
+                <p className="lockout-card-description">
+                  Enter the M-Pesa phone number that should receive the payment prompt.
+                </p>
+
+                <div className="form-group">
+                  <label className="form-label">M-Pesa Phone Number</label>
+                  <input
+                    type="tel"
+                    className="form-control"
+                    placeholder={organization.phone_number}
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                  />
+                </div>
+                <button
+                  className="btn btn-primary lockout-pay-button"
+                  disabled={loading}
+                  onClick={() => handlePaySTK(activeInvoice.id)}
+                >
+                  {loading ? 'Sending STK Push...' : 'Send M-Pesa STK Push'}
+                </button>
+
+                {message && (
+                  <div className="lockout-message">
+                    {message}
+                  </div>
+                )}
+              </article>
+            )}
+
+            <article className="card lockout-card lockout-paybill-card">
+              <h4 className="lockout-card-kicker">Offline Paybill Instructions</h4>
+              <div className="lockout-paybill-list">
+                <div>Business Number: <strong>174379</strong></div>
+                <div>Account Name: <strong>{organization.name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12)}</strong></div>
+                <div className="lockout-note">Once paid, support admin will confirm within 1 hour.</div>
+              </div>
+            </article>
+          </section>
         </div>
-
       </div>
     );
   }
@@ -190,3 +209,8 @@ export default function SaaSInvoices({ organization, refreshTrigger, onRefresh, 
     </div>
   );
 }
+
+
+
+
+
