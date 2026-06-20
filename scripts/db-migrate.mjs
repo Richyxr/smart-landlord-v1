@@ -15,6 +15,30 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
+const databaseUrl = process.env.DATABASE_URL || '';
+const appEnv = (process.env.APP_ENV || process.env.NODE_ENV || '').toLowerCase();
+
+function isLocalDatabaseUrl(url) {
+  return /localhost|127\.0\.0\.1|::1|host\.docker\.internal/i.test(url);
+}
+
+const isProductionLike =
+  appEnv === 'production' ||
+  appEnv === 'prod' ||
+  appEnv === 'live' ||
+  (!isLocalDatabaseUrl(databaseUrl) && !databaseUrl.includes('smart_landlord_test'));
+
+const allowRemoteMigrations =
+  process.env.ALLOW_REMOTE_MIGRATIONS === 'I_HAVE_BACKED_UP_DATABASE';
+
+if (isProductionLike && !allowRemoteMigrations) {
+  console.error('');
+  console.error('REFUSING TO RUN MIGRATIONS AGAINST A PRODUCTION-LIKE DATABASE.');
+  console.error('Take a database backup first, then rerun with ALLOW_REMOTE_MIGRATIONS=I_HAVE_BACKED_UP_DATABASE.');
+  console.error('');
+  process.exit(1);
+}
+
 const client = new Client({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined
@@ -82,3 +106,4 @@ main().catch(error => {
   console.error(error);
   process.exit(1);
 });
+
