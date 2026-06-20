@@ -64,6 +64,43 @@ const jsonPathArg = process.argv.find(arg => arg.startsWith('--file='));
 const jsonPath = jsonPathArg ? path.resolve(jsonPathArg.slice('--file='.length)) : defaultJsonPath;
 const shouldTruncate = process.argv.includes('--truncate');
 
+const databaseUrl = process.env.DATABASE_URL || '';
+const appEnv = (process.env.APP_ENV || process.env.NODE_ENV || '').toLowerCase();
+
+function isLocalDatabaseUrl(url) {
+  return /localhost|127\.0\.0\.1|::1|host\.docker\.internal/i.test(url);
+}
+
+const isProductionLike =
+  appEnv === 'production' ||
+  appEnv === 'prod' ||
+  appEnv === 'live' ||
+  (!isLocalDatabaseUrl(databaseUrl) && !databaseUrl.includes('smart_landlord_test'));
+
+const allowDestructiveDbAction =
+  process.env.ALLOW_DESTRUCTIVE_DB_ACTIONS === 'I_UNDERSTAND_THIS_CAN_DELETE_PRODUCTION_DATA';
+
+const allowProductionSeed =
+  process.env.ALLOW_PRODUCTION_SEED === 'I_UNDERSTAND_THIS_WILL_MODIFY_PRODUCTION_DATA';
+
+if (shouldTruncate && isProductionLike && !allowDestructiveDbAction) {
+  console.error('');
+  console.error('REFUSING TO TRUNCATE DATABASE.');
+  console.error('This seed command uses TRUNCATE ... RESTART IDENTITY CASCADE and can delete production data.');
+  console.error('Run it only against a local/dev database, or set ALLOW_DESTRUCTIVE_DB_ACTIONS=I_UNDERSTAND_THIS_CAN_DELETE_PRODUCTION_DATA intentionally.');
+  console.error('');
+  process.exit(1);
+}
+
+if (!shouldTruncate && isProductionLike && !allowProductionSeed) {
+  console.error('');
+  console.error('REFUSING TO SEED A PRODUCTION-LIKE DATABASE.');
+  console.error('Seeding can duplicate or modify important production records.');
+  console.error('For intentional production reference-data seeding, set ALLOW_PRODUCTION_SEED=I_UNDERSTAND_THIS_WILL_MODIFY_PRODUCTION_DATA.');
+  console.error('');
+  process.exit(1);
+}
+
 const client = new Client({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined
@@ -197,3 +234,4 @@ main().catch(error => {
   console.error(error);
   process.exit(1);
 });
+
