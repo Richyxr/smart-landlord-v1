@@ -3,6 +3,30 @@ import { setSessionToken } from '../lib/session.js';
 import { auth } from '../lib/firebase.js';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
+function getFriendlyAuthError(error) {
+  switch (error?.code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'Invalid email or password. Please check your details and try again.';
+    case 'auth/too-many-requests':
+      return 'Too many failed attempts. Please wait a few minutes and try again.';
+    case 'auth/network-request-failed':
+      return 'Network error. Please check your connection and try again.';
+    case 'auth/user-disabled':
+      return 'This account has been disabled. Please contact support.';
+    case 'auth/email-already-in-use':
+      return 'An account already exists for this email. Please sign in instead.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return 'Google sign-in was cancelled.';
+    case 'auth/popup-blocked':
+      return 'Your browser blocked the Google sign-in popup. Please allow popups and try again.';
+    default:
+      return 'Sign in failed. Please try again.';
+  }
+}
+
 export default function Auth({ onAuthSuccess }) {
   const [screen, setScreen] = useState('welcome'); // welcome, login, register, verify_email, verify_phone, pin_setup
   
@@ -106,7 +130,7 @@ export default function Auth({ onAuthSuccess }) {
       setSessionToken(data.auth_token);
       setScreen('pin_setup');
     } catch (err) {
-      setError(err.message);
+      setError(getFriendlyAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -135,7 +159,7 @@ export default function Auth({ onAuthSuccess }) {
 
       onAuthSuccess(data.user, data.role, data.organization, data.auth_token);
     } catch (err) {
-      setError(err.message);
+      setError(getFriendlyAuthError(err));
     } finally {
       setLoading(false);
     }
@@ -163,7 +187,7 @@ export default function Auth({ onAuthSuccess }) {
 
       onAuthSuccess(data.user, data.role, data.organization, data.auth_token);
     } catch (err) {
-      setError(err.message);
+      setError(getFriendlyAuthError(err));
     } finally {
       setLoading(false);
     }
