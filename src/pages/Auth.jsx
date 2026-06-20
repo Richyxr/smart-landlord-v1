@@ -209,11 +209,11 @@ export default function Auth({ onAuthSuccess }) {
   };
 
   return (
-    <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center' }}>
+    <div className="auth-page">
       
       {/* WELCOME SCREEN */}
       {screen === 'welcome' && (
-        <div className="auth-welcome-block" style={{ textAlign: 'center' }}>
+        <div className="auth-panel auth-welcome-block" style={{ textAlign: 'center' }}>
           <img
             src="/icons/maskable-512.png"
             alt="Smart Landlord"
@@ -549,6 +549,7 @@ export default function Auth({ onAuthSuccess }) {
     </div>
   );
 }
+
 
 
 
