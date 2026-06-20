@@ -259,6 +259,15 @@ After successful registration:
 - Organization setup
 - Create security PIN
 
+### 5.7 Auth Provider Policy
+
+- Gmail / Googlemail addresses must use Continue with Google.
+- The app blocks @gmail.com and @googlemail.com from email/password registration.
+- Do not add password setup/linking for Google-authenticated accounts.
+- Do not use `createUserWithEmailAndPassword`, `linkWithCredential`, or `updatePassword` to convert a Google/Gmail account into an app-password account.
+- Email/password registration remains allowed for non-Gmail addresses.
+- Existing invalid email/password login failures should remain generic: “Invalid email or password. Please check your details and try again.”
+
 ---
 
 ## 6. Role-Based Access Control
