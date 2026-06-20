@@ -19,9 +19,33 @@ import { getAuth as getFirebaseAdminAuth } from 'firebase-admin/auth';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const IS_APP_HOSTING =
+  Boolean(process.env.K_SERVICE) ||
+  Boolean(process.env.GAE_SERVICE) ||
+  Boolean(process.env.FIREBASE_CONFIG);
+
+const IS_PRODUCTION =
+  process.env.NODE_ENV === 'production' ||
+  process.env.APP_ENV === 'production' ||
+  IS_APP_HOSTING;
+
+const DATA_BACKEND = process.env.DATA_BACKEND || (IS_PRODUCTION ? 'postgres' : 'json');
 const DEMO_MODE = process.env.DEMO_MODE === 'true' || (!IS_PRODUCTION && process.env.DEMO_MODE !== 'false');
-const DATA_BACKEND = process.env.DATA_BACKEND || 'json';
+
+if (IS_PRODUCTION) {
+  if (process.env.DEMO_MODE === 'true') {
+    throw new Error('Refusing to start production with DEMO_MODE=true.');
+  }
+
+  if (DATA_BACKEND !== 'postgres') {
+    throw new Error('Refusing to start production without DATA_BACKEND=postgres.');
+  }
+
+  if (!process.env.DATABASE_URL) {
+    throw new Error('Refusing to start production without DATABASE_URL. Configure a persistent PostgreSQL database.');
+  }
+}
+
 const pgDb = DATA_BACKEND === 'postgres' ? createPostgresDb() : null;
 const SESSION_SECRET = process.env.SESSION_SECRET || (IS_PRODUCTION ? null : 'smart-landlord-dev-session-secret');
 const SESSION_TTL_SECONDS = parseInt(process.env.SESSION_TTL_SECONDS || '86400', 10);
