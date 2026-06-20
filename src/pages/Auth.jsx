@@ -3,6 +3,11 @@ import { setSessionToken } from '../lib/session.js';
 import { auth } from '../lib/firebase.js';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
+const isGoogleHostedEmail = (value) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized.endsWith('@gmail.com') || normalized.endsWith('@googlemail.com');
+};
+
 function getFriendlyAuthError(error) {
   switch (error?.code) {
     case 'auth/invalid-credential':
@@ -98,8 +103,15 @@ export default function Auth({ onAuthSuccess }) {
       setLoading(false);
       return;
     }
+
     if (!password || password.length < 6) {
       setError('Password must be at least 6 characters.');
+      setLoading(false);
+      return;
+    }
+
+    if (isGoogleHostedEmail(email)) {
+      setError('Gmail accounts must use Continue with Google. Please sign in with Google instead.');
       setLoading(false);
       return;
     }
@@ -266,6 +278,9 @@ export default function Auth({ onAuthSuccess }) {
             >
               {loading ? 'Connecting...' : 'Continue with Google'}
             </button>
+            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '-8px', marginBottom: '8px', textAlign: 'center' }}>
+              Use Continue with Google for Gmail accounts.
+            </p>
           </div>
         </div>
       )}
@@ -318,6 +333,9 @@ export default function Auth({ onAuthSuccess }) {
           >
             {loading ? 'Connecting...' : 'Continue with Google'}
           </button>
+          <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '6px', textAlign: 'center' }}>
+            Use Continue with Google for Gmail accounts.
+          </p>
 
           <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => setScreen('welcome')}>
             Go Back
@@ -457,16 +475,21 @@ export default function Auth({ onAuthSuccess }) {
           </form>
 
           {!isCompany && (
-            <button
-              type="button"
-              aria-label="Register Google Sign In"
-              className="btn btn-secondary"
-              disabled={loading}
-              style={{ marginTop: '12px' }}
-              onClick={handleGoogleSignIn}
-            >
-              {loading ? 'Connecting...' : 'Continue with Google'}
-            </button>
+            <>
+              <button
+                type="button"
+                aria-label="Register Google Sign In"
+                className="btn btn-secondary"
+                disabled={loading}
+                style={{ marginTop: '12px' }}
+                onClick={handleGoogleSignIn}
+              >
+                {loading ? 'Connecting...' : 'Continue with Google'}
+              </button>
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '6px', textAlign: 'center' }}>
+                Use Continue with Google for Gmail accounts.
+              </p>
+            </>
           )}
 
           <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => setScreen('welcome')}>
