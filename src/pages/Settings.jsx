@@ -1,6 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
 
+const DEFAULT_NOTIFICATION_SETTINGS = {
+  sms_provider: 'None',
+  rent_reminders_enabled: false,
+  reminder_days_before_due: 3,
+  payment_confirmation_enabled: true,
+  unmatched_payment_alert_enabled: true,
+  meter_reading_alert_enabled: false,
+  billing_alerts_enabled: true
+};
+
 export default function Settings({ organization, refreshTrigger, onRefresh }) {
   const [activeTab, setActiveTab] = useState('readiness'); // readiness, integrations, archive, audits, compliance, readings
   const [checklist, setChecklist] = useState({});
@@ -41,7 +51,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
   const [showDataAccess, setShowDataAccess] = useState(false);
   
   // Notification State
-  const [notifSettings, setNotifSettings] = useState(null);
+  const [notifSettings, setNotifSettings] = useState(DEFAULT_NOTIFICATION_SETTINGS);
   const [notifLogs, setNotifLogs] = useState([]);
   const [smsProviderVal, setSmsProviderVal] = useState('None');
 
@@ -62,45 +72,66 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
           throw new Error(errData.error || errData.message || 'Failed to fetch readiness status.');
         }
         const data = await res.json();
-        setChecklist(data.checklist || {});
+        setChecklist(data && typeof data === 'object' && data.checklist ? data.checklist : {});
       } else if (activeTab === 'integrations') {
         const res = await fetch('/api/integrations', { headers });
         if (!res.ok) throw new Error('Failed to fetch integrations.');
-        setIntegrations(await res.json());
+        const data = await res.json();
+        setIntegrations(Array.isArray(data) ? data : (data && Array.isArray(data.integrations) ? data.integrations : []));
       } else if (activeTab === 'archive') {
         // Calculate transactions count before archive date
         const res = await fetch('/api/payments', { headers });
         if (!res.ok) throw new Error('Failed to fetch payments.');
         const txs = await res.json();
-        const count = txs.filter(t => new Date(t.transaction_date) < new Date(archiveDate) && t.status === 'reconciled').length;
+        const txsArray = Array.isArray(txs) ? txs : (txs && Array.isArray(txs.payments) ? txs.payments : []);
+        const count = txsArray.filter(t => t && t.transaction_date && new Date(t.transaction_date) < new Date(archiveDate) && t.status === 'reconciled').length;
         setArchiveCount(count);
       } else if (activeTab === 'audits') {
         const res = await fetch('/api/settings/audit-logs', { headers });
         if (!res.ok) throw new Error('Failed to fetch audit logs.');
-        setAuditLogs(await res.json());
+        const data = await res.json();
+        setAuditLogs(Array.isArray(data) ? data : (data && Array.isArray(data.audit_logs) ? data.audit_logs : []));
       } else if (activeTab === 'compliance') {
         const [resLog, resTenants] = await Promise.all([
-          fetch('/api/compliance/delete-request', { headers }),
-          fetch('/api/tenants', { headers })
+          fetch('/api/compliance/delete-request', { headers }).catch(() => ({ ok: false })),
+          fetch('/api/tenants', { headers }).catch(() => ({ ok: false }))
         ]);
-        if (resLog.ok) setDeletionLog(await resLog.json());
-        if (resTenants.ok) setTenantsList(await resTenants.json());
+        if (resLog && resLog.ok) {
+          const data = await resLog.json();
+          setDeletionLog(Array.isArray(data) ? data : (data && Array.isArray(data.deletion_log) ? data.deletion_log : []));
+        } else {
+          setDeletionLog([]);
+        }
+        if (resTenants && resTenants.ok) {
+          const data = await resTenants.json();
+          setTenantsList(Array.isArray(data) ? data : (data && Array.isArray(data.tenants) ? data.tenants : []));
+        } else {
+          setTenantsList([]);
+        }
       } else if (activeTab === 'readings') {
         const res = await fetch('/api/meter-readings', { headers });
         if (!res.ok) throw new Error('Failed to fetch meter readings.');
-        setMeterReadings(await res.json());
+        const data = await res.json();
+        setMeterReadings(Array.isArray(data) ? data : (data && Array.isArray(data.meter_readings) ? data.meter_readings : []));
       } else if (activeTab === 'notifications') {
-        const settingsRes = await fetch('/api/settings/notifications', { headers });
-        if (settingsRes.ok) {
-          const settingsData = await settingsRes.json();
-          if (settingsData) {
-            setNotifSettings(settingsData);
-            setSmsProviderVal(settingsData.sms_provider || 'None');
-          }
+        const settingsRes = await fetch('/api/settings/notifications', { headers }).catch(() => ({ ok: false }));
+        let settingsData = null;
+        if (settingsRes && settingsRes.ok) {
+          settingsData = await settingsRes.json().catch(() => null);
         }
-        const logsRes = await fetch('/api/settings/notification-logs', { headers });
-        if (logsRes.ok) {
-          setNotifLogs(await logsRes.json());
+        const mergedSettings = {
+          ...DEFAULT_NOTIFICATION_SETTINGS,
+          ...(settingsData || {})
+        };
+        setNotifSettings(mergedSettings);
+        setSmsProviderVal(mergedSettings.sms_provider || 'None');
+
+        const logsRes = await fetch('/api/settings/notification-logs', { headers }).catch(() => ({ ok: false }));
+        if (logsRes && logsRes.ok) {
+          const data = await logsRes.json().catch(() => []);
+          setNotifLogs(Array.isArray(data) ? data : (data && Array.isArray(data.notification_logs) ? data.notification_logs : []));
+        } else {
+          setNotifLogs([]);
         }
       }
     } catch (e) {
@@ -114,10 +145,21 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
   // Archive Trigger change handler
   const handleArchiveDateChange = async (date) => {
     setArchiveDate(date);
-    const res = await fetch('/api/payments', { headers });
-    const txs = await res.json();
-    const count = txs.filter(t => new Date(t.transaction_date) < new Date(date) && t.status === 'reconciled').length;
-    setArchiveCount(count);
+    try {
+      const res = await fetch('/api/payments', { headers });
+      if (!res.ok) {
+        setArchiveCount(0);
+        setError('Could not load payment records for archive preview.');
+        return;
+      }
+      const txs = await res.json();
+      const txsArray = Array.isArray(txs) ? txs : [];
+      const count = txsArray.filter(t => t && t.transaction_date && new Date(t.transaction_date) < new Date(date) && t.status === 'reconciled').length;
+      setArchiveCount(count);
+    } catch (e) {
+      setArchiveCount(0);
+      setError('Could not load payment records for archive preview.');
+    }
   };
 
   const handleSaveIntegration = async (e) => {
@@ -165,16 +207,20 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
     setLoading(true);
     setError('');
     try {
+      const safeSettings = {
+        ...DEFAULT_NOTIFICATION_SETTINGS,
+        ...(notifSettings || {})
+      };
       const res = await fetch('/api/settings/notifications', {
         method: 'PUT',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          rent_reminders_enabled: notifSettings.rent_reminders_enabled,
-          reminder_days_before_due: notifSettings.reminder_days_before_due,
-          payment_confirmation_enabled: notifSettings.payment_confirmation_enabled,
-          unmatched_payment_alert_enabled: notifSettings.unmatched_payment_alert_enabled,
-          meter_reading_alert_enabled: notifSettings.meter_reading_alert_enabled,
-          billing_alerts_enabled: notifSettings.billing_alerts_enabled,
+          rent_reminders_enabled: safeSettings.rent_reminders_enabled,
+          reminder_days_before_due: safeSettings.reminder_days_before_due,
+          payment_confirmation_enabled: safeSettings.payment_confirmation_enabled,
+          unmatched_payment_alert_enabled: safeSettings.unmatched_payment_alert_enabled,
+          meter_reading_alert_enabled: safeSettings.meter_reading_alert_enabled,
+          billing_alerts_enabled: safeSettings.billing_alerts_enabled,
           sms_provider: smsProviderVal
         })
       });
@@ -332,8 +378,19 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
   };
 
   const formatCurrency = (val) => {
-    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: organization.billing_currency || 'KES', maximumFractionDigits: 0 }).format(val);
+    const currency = organization?.billing_currency || 'KES';
+    return new Intl.NumberFormat('en-KE', { style: 'currency', currency, maximumFractionDigits: 0 }).format(val);
   };
+
+  if (!organization) {
+    return (
+      <div className="card" style={{ padding: '20px', textAlign: 'center', margin: '20px' }}>
+        <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+          Organization profile is still loading. Please try again in a moment.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -343,7 +400,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
         <SecurityPinModal
           isOpen={!!pinAction}
           onClose={() => setPinAction(null)}
-          organizationId={organization.id}
+          organizationId={organization?.id}
           onSuccess={handlePinSuccess}
         />
       )}
@@ -806,7 +863,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
       )}
 
       {/* NOTIFICATIONS TAB */}
-      {activeTab === 'notifications' && !selectedInt && notifSettings && (
+      {activeTab === 'notifications' && !selectedInt && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="card">
             <h3 className="card-title">Notification Settings</h3>
