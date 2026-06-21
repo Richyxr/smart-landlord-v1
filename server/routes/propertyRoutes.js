@@ -1,4 +1,6 @@
 import express from 'express';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -60,6 +62,143 @@ export function createPropertyRoutes(pgDb) {
   const router = express.Router();
 
   router.use(requireAuthenticatedContext);
+
+  router.get('/properties/caretakers', requireLandlord, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
+
+    // Get all caretakers in this organization
+    const result = await pgDb.query(`
+      SELECT u.id, u.name, u.email, u.phone_number, u.status
+      FROM organization_members om
+      JOIN users u ON u.id = om.user_id
+      WHERE om.organization_id = $1 AND om.role = 'caretaker' AND om.status = 'active'
+    `, [orgId]);
+    const caretakers = result.rows;
+
+    // Get all property assignments for caretakers in this organization
+    const assignmentsResult = await pgDb.query(`
+      SELECT sa.caretaker_user_id, p.id AS property_id, p.name AS property_name
+      FROM staff_assignments sa
+      JOIN staff_assignment_properties sap ON sap.staff_assignment_id = sa.id AND sap.organization_id = sa.organization_id
+      JOIN properties p ON p.id = sap.property_id AND p.organization_id = sa.organization_id
+      WHERE sa.organization_id = $1 AND p.organization_id = $1 AND sa.status = 'active' AND p.deleted_at IS NULL
+    `, [orgId]);
+    const assignments = assignmentsResult.rows;
+
+    const caretakersWithProps = caretakers.map(ct => {
+      const ctProps = assignments
+        .filter(a => Number(a.caretaker_user_id) === Number(ct.id))
+        .map(a => ({ id: a.property_id, name: a.property_name }));
+      return {
+        ...ct,
+        properties: ctProps
+      };
+    });
+
+    res.json(caretakersWithProps);
+  }));
+
+  router.post('/properties/caretakers', requireLandlord, asyncHandler(async (req, res) => {
+    const { orgId, userId, role } = getContext(req);
+    const { name, email, phone_number, assigned_properties } = req.body;
+
+    if (!name || !phone_number) {
+      return res.status(400).json({ error: 'Name and phone number are required.' });
+    }
+
+    // Check if caretaker already exists by phone number
+    let user = await pgDb.findOne('users', { phone_number });
+    if (user) {
+      const existingMembership = await pgDb.findOne('organization_members', { user_id: user.id });
+      if (existingMembership) {
+        return res.status(400).json({ error: 'This phone number is already registered to another user.' });
+      }
+    }
+
+    // Validate assigned properties
+    const propIds = Array.isArray(assigned_properties) ? assigned_properties : [];
+    const uniquePropIds = [];
+    for (const id of propIds) {
+      const parsed = parseInt(id, 10);
+      if (isNaN(parsed) || String(id).trim() === '' || parsed.toString() !== String(id).trim()) {
+        return res.status(400).json({ error: 'One or more selected properties are invalid.' });
+      }
+      if (!uniquePropIds.includes(parsed)) {
+        uniquePropIds.push(parsed);
+      }
+    }
+
+    if (uniquePropIds.length > 0) {
+      const propCheckResult = await pgDb.query(
+        `SELECT id FROM properties WHERE organization_id = $1 AND id = ANY($2::bigint[]) AND deleted_at IS NULL`,
+        [orgId, uniquePropIds]
+      );
+      const validatedIds = propCheckResult.rows.map(row => Number(row.id));
+      if (validatedIds.length !== uniquePropIds.length) {
+        return res.status(400).json({ error: 'One or more selected properties are invalid.' });
+      }
+    }
+
+    // Generate 6-digit PIN securely
+    const pin = crypto.randomInt(100000, 1000000).toString();
+    const salt = bcrypt.genSaltSync(10);
+    const pinHash = bcrypt.hashSync(pin, salt);
+
+    if (!user) {
+      user = await pgDb.insert('users', {
+        name,
+        email: email || null,
+        phone_number,
+        caretaker_pin_hash: pinHash,
+        status: 'active',
+        email_verified: false,
+        phone_verified: false
+      });
+    } else {
+      await pgDb.update('users', user.id, { caretaker_pin_hash: pinHash });
+      user = await pgDb.findOne('users', { id: user.id });
+    }
+
+    // Create organization member
+    await pgDb.insert('organization_members', {
+      organization_id: orgId,
+      user_id: user.id,
+      role: 'caretaker',
+      status: 'active'
+    });
+
+    // Create staff assignment
+    const assignment = await pgDb.insert('staff_assignments', {
+      organization_id: orgId,
+      caretaker_user_id: user.id,
+      access_level: 'caretaker',
+      status: 'active',
+      created_by: userId
+    });
+
+    // Create property links
+    for (const propId of uniquePropIds) {
+      await pgDb.insert('staff_assignment_properties', {
+        organization_id: orgId,
+        staff_assignment_id: assignment.id,
+        property_id: propId
+      });
+    }
+
+    await pgDb.logAudit(orgId, userId, role, 'caretaker_created', 'user', user.id, null, { id: user.id, name: user.name });
+
+    res.status(201).json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone_number: user.phone_number,
+        status: user.status
+      },
+      temporary_pin: pin
+    });
+  }));
 
   router.get('/properties', asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);

@@ -59,6 +59,7 @@ const publicApiPaths = new Set([
   '/api/auth/login',
   '/api/auth/register',
   '/api/auth/firebase-profile',
+  '/api/auth/caretaker/login',
   '/api/webhooks/payment',
   '/api/webhooks/mpesa/c2b',
   '/api/webhooks/mpesa/stk',
@@ -581,6 +582,56 @@ app.post('/api/auth/verify-pin', (req, res) => {
   res.json({ success: true });
 });
 
+// Caretaker Login
+app.post('/api/auth/caretaker/login', async (req, res) => {
+  try {
+    const { phone_number, pin } = req.body;
+    if (!phone_number || !pin) {
+      return res.status(400).json({ error: 'Phone number and PIN are required.' });
+    }
+
+    const user = await activeFindOne('users', { phone_number });
+    if (!user || !user.caretaker_pin_hash) {
+      return res.status(401).json({ error: 'Invalid phone number or PIN.' });
+    }
+
+    const isValid = bcrypt.compareSync(pin, user.caretaker_pin_hash);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid phone number or PIN.' });
+    }
+
+    const membership = await activeFindOne('organization_members', { user_id: user.id, role: 'caretaker', status: 'active' });
+    if (!membership) {
+      return res.status(403).json({ error: 'Access denied. Account is not configured as caretaker or is inactive.' });
+    }
+
+    const organization = await activeFindOne('organizations', { id: membership.organization_id });
+    const token = createSessionToken(user, 'caretaker', organization);
+
+    if (pgDb) {
+      await pgDb.logAudit(organization.id, user.id, 'caretaker', 'login', 'user', user.id, null, null, 'Caretaker logged in successfully', 'success');
+    } else {
+      db.logAudit(organization.id, user.id, 'caretaker', 'login', 'user', user.id, null, null, 'Caretaker logged in successfully', 'success');
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone_number: user.phone_number,
+        status: user.status
+      },
+      role: 'caretaker',
+      organization,
+      auth_token: token
+    });
+  } catch (error) {
+    console.error('Caretaker login server error:', error);
+    res.status(500).json({ error: 'Caretaker login is temporarily unavailable.' });
+  }
+});
+
 // --- ROUTE-LEVEL AUTHORIZATION GUARDS ---
 
 app.use('/api/properties', requireAuthenticated, requireAnyRole('landlord', 'caretaker'));
@@ -619,6 +670,153 @@ app.use('/api', createSaasBillingRoutes(pgDb, {
 }));
 
 // --- PROPERTIES / UNITS / TENANTS API ---
+
+// Caretakers (JSON DB)
+app.get('/api/properties/caretakers', (req, res) => {
+  const orgId = req.auth?.organizationId;
+  const role = req.auth?.role;
+
+  if (role !== 'landlord') {
+    return res.status(403).json({ error: 'ACCESS_DENIED', message: 'Only landlords can manage staff.' });
+  }
+
+  const members = db.find('organization_members', { organization_id: orgId, role: 'caretaker', status: 'active' });
+  const caretakers = members.map(m => {
+    const u = db.findOne('users', { id: m.user_id });
+    if (!u) return null;
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      phone_number: u.phone_number,
+      status: u.status
+    };
+  }).filter(Boolean);
+
+  const caretakersWithProps = caretakers.map(ct => {
+    const assignments = db.find('staff_assignments', { caretaker_user_id: ct.id, organization_id: orgId, status: 'active' });
+    const assignmentIds = assignments.map(a => a.id);
+    const sapLinks = db.get('staff_assignment_properties').filter(link => assignmentIds.includes(link.staff_assignment_id));
+    const properties = sapLinks.map(link => {
+      const p = db.findOne('properties', { id: link.property_id });
+      if (p && Number(p.organization_id) === Number(orgId) && !p.deleted_at) {
+        return { id: p.id, name: p.name };
+      }
+      return null;
+    }).filter(Boolean);
+
+    return {
+      ...ct,
+      properties
+    };
+  });
+
+  res.json(caretakersWithProps);
+});
+
+app.post('/api/properties/caretakers', (req, res) => {
+  const orgId = req.auth?.organizationId;
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
+  const { name, email, phone_number, assigned_properties } = req.body;
+
+  if (role !== 'landlord') {
+    return res.status(403).json({ error: 'ACCESS_DENIED', message: 'Only landlords can manage staff.' });
+  }
+
+  if (!name || !phone_number) {
+    return res.status(400).json({ error: 'Name and phone number are required.' });
+  }
+
+  // Check if caretaker already exists by phone number
+  let user = db.findOne('users', { phone_number });
+  if (user) {
+    const existingMembership = db.findOne('organization_members', { user_id: user.id });
+    if (existingMembership) {
+      return res.status(400).json({ error: 'This phone number is already registered to another user.' });
+    }
+  }
+
+  // Validate assigned properties
+  const propIds = Array.isArray(assigned_properties) ? assigned_properties : [];
+  const uniquePropIds = [];
+  for (const id of propIds) {
+    const parsed = parseInt(id, 10);
+    if (isNaN(parsed) || String(id).trim() === '' || parsed.toString() !== String(id).trim()) {
+      return res.status(400).json({ error: 'One or more selected properties are invalid.' });
+    }
+    if (!uniquePropIds.includes(parsed)) {
+      uniquePropIds.push(parsed);
+    }
+  }
+
+  for (const propId of uniquePropIds) {
+    const property = db.findOne('properties', { id: propId });
+    if (!property || Number(property.organization_id) !== Number(orgId) || property.deleted_at) {
+      return res.status(400).json({ error: 'One or more selected properties are invalid.' });
+    }
+  }
+
+  // Generate 6-digit PIN securely using Node crypto
+  const pin = crypto.randomInt(100000, 1000000).toString();
+  const salt = bcrypt.genSaltSync(10);
+  const pinHash = bcrypt.hashSync(pin, salt);
+
+  if (!user) {
+    user = db.insert('users', {
+      name,
+      email: email || null,
+      phone_number,
+      caretaker_pin_hash: pinHash,
+      status: 'active',
+      email_verified: false,
+      phone_verified: false
+    });
+  } else {
+    db.update('users', user.id, { caretaker_pin_hash: pinHash });
+    user = db.findOne('users', { id: user.id });
+  }
+
+  // Create organization member
+  db.insert('organization_members', {
+    organization_id: orgId,
+    user_id: user.id,
+    role: 'caretaker',
+    status: 'active'
+  });
+
+  // Create staff assignment
+  const assignment = db.insert('staff_assignments', {
+    organization_id: orgId,
+    caretaker_user_id: user.id,
+    access_level: 'caretaker',
+    status: 'active',
+    created_by: userId
+  });
+
+  // Create property links
+  for (const propId of uniquePropIds) {
+    db.insert('staff_assignment_properties', {
+      organization_id: orgId,
+      staff_assignment_id: assignment.id,
+      property_id: propId
+    });
+  }
+
+  db.logAudit(orgId, userId, role, 'caretaker_created', 'user', user.id, null, { id: user.id, name: user.name });
+
+  res.status(201).json({
+    success: true,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone_number: user.phone_number,
+      status: user.status
+    },
+    temporary_pin: pin
+  });
+});
 
 // Properties
 app.get('/api/properties', (req, res) => {

@@ -55,6 +55,9 @@ export default function Auth({ onAuthSuccess }) {
   // Login State
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginTab, setLoginTab] = useState('landlord'); // landlord, caretaker
+  const [caretakerPhone, setCaretakerPhone] = useState('');
+  const [caretakerPin, setCaretakerPin] = useState('');
 
   // Pin State
   const [pin, setPin] = useState('');
@@ -177,6 +180,61 @@ export default function Auth({ onAuthSuccess }) {
     }
   };
 
+  const handleCaretakerLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    const phoneRegex = /^\+[1-9]\d{1,14}$/;
+    if (!phoneRegex.test(caretakerPhone)) {
+      setError('Phone Number must be in E.164 format (e.g. +254722111222).');
+      setLoading(false);
+      return;
+    }
+    if (!caretakerPin || caretakerPin.length !== 6) {
+      setError('Caretaker PIN must be exactly 6 digits.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/auth/caretaker/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone_number: caretakerPhone, pin: caretakerPin })
+      });
+
+      const raw = await res.text();
+      let data = {};
+      let isJson = true;
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        isJson = false;
+      }
+
+      const isHtml = typeof raw === 'string' && (raw.trim().startsWith('<!DOCTYPE') || raw.trim().startsWith('<html'));
+
+      if (!isJson || isHtml) {
+        setError('Caretaker login is temporarily unavailable. Please try again later.');
+        setLoading(false);
+        return;
+      }
+
+      if (!res.ok) {
+        setError(data.error || data.message || 'Caretaker login is temporarily unavailable. Please try again later.');
+        setLoading(false);
+        return;
+      }
+
+      onAuthSuccess(data.user, data.role, data.organization, data.auth_token);
+    } catch (err) {
+      setError('Caretaker login is temporarily unavailable. Please try again later.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     setError('');
     setLoading(true);
@@ -291,51 +349,129 @@ export default function Auth({ onAuthSuccess }) {
           <h2 style={{ fontSize: '24px', marginBottom: '8px' }}>Welcome Back</h2>
           <p style={{ marginBottom: '24px' }}>Sign in to access your properties and payments.</p>
 
-          <form onSubmit={handleLogin}>
-            <div className="form-group">
-              <label className="form-label">Email Address</label>
-              <input
-                type="email"
-                required
-                className="form-control"
-                placeholder="landlord@demo.com or caretaker@demo.com"
-                value={loginEmail}
-                onChange={e => setLoginEmail(e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Password</label>
-              <input
-                type="password"
-                required
-                className="form-control"
-                placeholder="••••••••"
-                value={loginPassword}
-                onChange={e => setLoginPassword(e.target.value)}
-              />
-            </div>
-
-            {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
-
-            <button type="submit" className="btn btn-primary" disabled={loading} style={{ marginTop: '10px' }}>
-              {loading ? 'Signing In...' : 'Sign In'}
+          <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-surface-elevated)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '20px' }}>
+            <button
+              type="button"
+              style={{
+                flex: 1,
+                background: loginTab === 'landlord' ? 'var(--primary)' : 'none',
+                color: loginTab === 'landlord' ? 'white' : 'var(--text-secondary)',
+                border: 'none',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onClick={() => { setLoginTab('landlord'); setError(''); }}
+            >
+              Landlord Login
             </button>
-          </form>
+            <button
+              type="button"
+              style={{
+                flex: 1,
+                background: loginTab === 'caretaker' ? 'var(--primary)' : 'none',
+                color: loginTab === 'caretaker' ? 'white' : 'var(--text-secondary)',
+                border: 'none',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onClick={() => { setLoginTab('caretaker'); setError(''); }}
+            >
+              Caretaker Login
+            </button>
+          </div>
 
-          <button
-            type="button"
-            aria-label="Login Google Sign In"
-            className="btn btn-secondary"
-            disabled={loading}
-            style={{ marginTop: '12px' }}
-            onClick={handleGoogleSignIn}
-          >
-            {loading ? 'Connecting...' : 'Continue with Google'}
-          </button>
-          <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '6px', textAlign: 'center' }}>
-            Use Continue with Google for Gmail accounts.
-          </p>
+          {loginTab === 'landlord' ? (
+            <>
+              <form onSubmit={handleLogin}>
+                <div className="form-group">
+                  <label className="form-label">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    className="form-control"
+                    placeholder="landlord@demo.com"
+                    value={loginEmail}
+                    onChange={e => setLoginEmail(e.target.value)}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Password</label>
+                  <input
+                    type="password"
+                    required
+                    className="form-control"
+                    placeholder="••••••••"
+                    value={loginPassword}
+                    onChange={e => setLoginPassword(e.target.value)}
+                  />
+                </div>
+
+                {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
+
+                <button type="submit" className="btn btn-primary" disabled={loading} style={{ marginTop: '10px' }}>
+                  {loading ? 'Signing In...' : 'Sign In'}
+                </button>
+              </form>
+
+              <button
+                type="button"
+                aria-label="Login Google Sign In"
+                className="btn btn-secondary"
+                disabled={loading}
+                style={{ marginTop: '12px' }}
+                onClick={handleGoogleSignIn}
+              >
+                {loading ? 'Connecting...' : 'Continue with Google'}
+              </button>
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '6px', textAlign: 'center' }}>
+                Use Continue with Google for Gmail accounts.
+              </p>
+            </>
+          ) : (
+            <form onSubmit={handleCaretakerLogin}>
+              <div className="form-group">
+                <label className="form-label">Phone Number (E.164)</label>
+                <input
+                  type="tel"
+                  required
+                  className="form-control"
+                  placeholder="+254722111222"
+                  value={caretakerPhone}
+                  onChange={e => setCaretakerPhone(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Caretaker PIN (6 digits)</label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  required
+                  className="form-control"
+                  placeholder="••••••"
+                  maxLength="6"
+                  value={caretakerPin}
+                  onChange={e => setCaretakerPin(e.target.value.replace(/[^0-9]/g, ''))}
+                  style={{ textAlign: 'center', fontSize: '20px', letterSpacing: '4px' }}
+                />
+              </div>
+
+              {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
+
+              <button type="submit" className="btn btn-primary" disabled={loading} style={{ marginTop: '10px' }}>
+                {loading ? 'Signing In...' : 'Sign In as Caretaker'}
+              </button>
+            </form>
+          )}
 
           <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => setScreen('welcome')}>
             Go Back

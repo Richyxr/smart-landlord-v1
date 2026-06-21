@@ -86,21 +86,12 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
         setProperties(await resProps.json());
         setUnits(await resUnits.json());
       } else if (activeTab === 'caretakers') {
-        // Fetch users matching caretaker role or assignment list
-        // For simple demo caretaker management
-        const resProps = await fetch('/api/properties', { headers });
+        const [resProps, resCt] = await Promise.all([
+          fetch('/api/properties', { headers }),
+          fetch('/api/properties/caretakers', { headers })
+        ]);
         setProperties(await resProps.json());
-        
-        // Simulating caretaker list from organization members
-        const resCt = await fetch('/api/messages', { headers }); // Let's simulate caretaker profiles or list
-        const ctChats = await resCt.json();
-        setCaretakers(ctChats.map(c => ({
-          id: c.partner_id,
-          name: c.partner_name,
-          email: `${c.partner_name.toLowerCase().replace(' ', '')}@demo.com`,
-          phone_number: '+254722111222',
-          status: 'active'
-        })));
+        setCaretakers(await resCt.json());
       }
     } catch (e) {
       setError('Failed to fetch data.');
@@ -301,32 +292,61 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
     }
   };
 
-  const handleInviteCaretaker = (e) => {
+  const handleInviteCaretaker = async (e) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
     const phoneRegex = /^\+[1-9]\d{1,14}$/;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!ctName.trim()) {
       setError('Caretaker name is required.');
+      setLoading(false);
       return;
     }
-    if (!emailRegex.test(ctEmail)) {
+    if (ctEmail && !emailRegex.test(ctEmail)) {
       setError('Invalid caretaker email address.');
+      setLoading(false);
       return;
     }
     if (!phoneRegex.test(ctPhone)) {
       setError('Caretaker phone number must be in E.164 format (e.g. +254722111222).');
+      setLoading(false);
       return;
     }
 
-    alert(`Caretaker invitation sent to ${ctEmail}!\nThey have been assigned to ${ctAssignedProps.length} property(ies).`);
-    setShowAddForm(false);
-    setCtEmail('');
-    setCtName('');
-    setCtPhone('');
-    setCtAssignedProps([]);
+    try {
+      const res = await fetch('/api/properties/caretakers', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: ctName,
+          email: ctEmail || null,
+          phone_number: ctPhone,
+          assigned_properties: ctAssignedProps
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to create caretaker.');
+      }
+
+      alert(`Caretaker created successfully!\n\nName: ${data.user.name}\nPhone: ${data.user.phone_number}\nSystem-Generated PIN: ${data.temporary_pin}\n\nIMPORTANT: Please copy and share this PIN with the caretaker. It will not be shown again!`);
+      
+      setShowAddForm(false);
+      setCtEmail('');
+      setCtName('');
+      setCtPhone('');
+      setCtAssignedProps([]);
+      fetchData();
+      onRefresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const resetPropertyForm = () => {
@@ -589,7 +609,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
               <div className="grid-2">
                 <div className="form-group">
                   <label className="form-label">Email</label>
-                  <input type="email" required className="form-control" placeholder="juma@demo.com" value={ctEmail} onChange={e => setCtEmail(e.target.value)} />
+                  <input type="email" className="form-control" placeholder="juma@demo.com (optional)" value={ctEmail} onChange={e => setCtEmail(e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Phone</label>
@@ -804,10 +824,18 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
                       <h3 className="card-title" style={{ margin: 0 }}>🛠️ {ct.name}</h3>
                       <span className="badge badge-success">assigned</span>
                     </div>
-                    <p style={{ fontSize: '12px', marginTop: '4px' }}>✉️ {ct.email} • 📞 {ct.phone_number}</p>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                    <p style={{ fontSize: '12px', marginTop: '4px' }}>{ct.email ? `✉️ ${ct.email} • ` : ''}📞 {ct.phone_number}</p>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px', alignItems: 'center' }}>
                       <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Properties: </span>
-                      <span className="badge badge-info" style={{ fontSize: '10px', padding: '2px 6px' }}>Sunset Heights Apartments</span>
+                      {ct.properties && ct.properties.length > 0 ? (
+                        ct.properties.map(p => (
+                          <span key={p.id} className="badge badge-info" style={{ fontSize: '10px', padding: '2px 6px' }}>
+                            {p.name}
+                          </span>
+                        ))
+                      ) : (
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>None assigned</span>
+                      )}
                     </div>
                   </div>
                 ))
