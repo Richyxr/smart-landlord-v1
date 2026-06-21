@@ -385,7 +385,18 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
   };
 
   const getVacantUnitsForProp = (propId) => {
-    return units.filter(u => u.property_id === parseInt(propId) && u.status === 'vacant' && !u.deleted_at);
+    const selectedPropertyId = String(propId ?? '');
+    return units.filter(u => {
+      const unitPropertyId = String(
+        u.property_id ??
+        u.propertyId ??
+        u.property?.id ??
+        ''
+      );
+      const unitStatus = String(u.status ?? '').toLowerCase();
+      const isDeleted = u.deleted_at !== null && u.deleted_at !== undefined;
+      return unitPropertyId === selectedPropertyId && unitStatus === 'vacant' && !isDeleted;
+    });
   };
 
   return (
@@ -529,7 +540,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
                   <label className="form-label">Select Vacant Unit</label>
                   <select required className="form-control" value={tenantUnitId} onChange={e => {
                     setTenantUnitId(e.target.value);
-                    const unit = units.find(u => u.id === parseInt(e.target.value));
+                    const unit = units.find(u => String(u.id ?? '') === String(e.target.value));
                     if (unit) setTenantRent(unit.rent_amount);
                   }}>
                     <option value="">-- Select Unit --</option>
@@ -728,8 +739,8 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
                   <div className="flex-row">
                     <h3 className="card-title" style={{ margin: 0 }}>🚪 Unit {u.unit_code}</h3>
                     <span className={`badge ${
-                      u.status === 'occupied' ? 'badge-success' : 
-                      u.status === 'vacant' ? 'badge-info' : 'badge-warning'
+                      String(u.status || '').toLowerCase() === 'occupied' ? 'badge-success' : 
+                      String(u.status || '').toLowerCase() === 'vacant' ? 'badge-info' : 'badge-warning'
                     }`}>{u.status}</span>
                   </div>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Property: <strong>{u.property_name}</strong> • Type: {u.unit_type}</p>
