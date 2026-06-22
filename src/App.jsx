@@ -28,7 +28,23 @@ export default function App() {
   const [role, setRole] = useState('landlord'); // landlord, caretaker, super_admin
   const [organization, setOrganization] = useState(null);
   const [activeTab, setActiveTab] = useState('landlord_dashboard');
+  const [propertiesSubTab, setPropertiesSubTab] = useState(null);
+  const [settingsSubTab, setSettingsSubTab] = useState(null);
+  const [invoicesSubTab, setInvoicesSubTab] = useState(null);
   const [authRestoring, setAuthRestoring] = useState(true);
+
+  const handleNavigate = (page, subTab) => {
+    setActiveTab(page);
+    if (page === 'landlord_properties' && subTab) {
+      setPropertiesSubTab(subTab);
+    }
+    if (page === 'landlord_settings' && subTab) {
+      setSettingsSubTab(subTab);
+    }
+    if (page === 'landlord_invoices' && subTab) {
+      setInvoicesSubTab(subTab);
+    }
+  };
   
   // Impersonation Support Session
   const [impersonationSession, setImpersonationSession] = useState(null); // { id, orgName }
@@ -248,15 +264,41 @@ export default function App() {
     switch (activeTab) {
       // Landlord Pages
       case 'landlord_dashboard':
-        return <LandlordDashboard organization={organization} onNavigate={setActiveTab} refreshTrigger={refreshTrigger} />;
+        return <LandlordDashboard organization={organization} onNavigate={handleNavigate} refreshTrigger={refreshTrigger} />;
       case 'landlord_properties':
-        return <Properties organization={organization} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
+        return (
+          <Properties
+            organization={organization}
+            refreshTrigger={refreshTrigger}
+            onRefresh={triggerRefresh}
+            initialSubTab={propertiesSubTab}
+            clearInitialSubTab={() => setPropertiesSubTab(null)}
+          />
+        );
       case 'landlord_invoices':
-        return <Invoices organization={organization} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
+        return (
+          <Invoices
+            organization={organization}
+            refreshTrigger={refreshTrigger}
+            onRefresh={triggerRefresh}
+            initialSubTab={invoicesSubTab}
+            clearInitialSubTab={() => setInvoicesSubTab(null)}
+            onNavigate={handleNavigate}
+          />
+        );
       case 'landlord_reconciliation':
         return <Reconciliation organization={organization} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
       case 'landlord_settings':
-        return <Settings organization={organization} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
+        return (
+          <Settings
+            organization={organization}
+            refreshTrigger={refreshTrigger}
+            onRefresh={triggerRefresh}
+            initialSubTab={settingsSubTab}
+            clearInitialSubTab={() => setSettingsSubTab(null)}
+            onNavigate={handleNavigate}
+          />
+        );
       
       // Caretaker Pages
       case 'caretaker_dashboard':

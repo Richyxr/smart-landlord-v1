@@ -182,12 +182,14 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
           label="Total Properties"
           value={stats.propertiesCount}
           icon={Building2}
+          onClick={() => onNavigate('landlord_properties', 'properties')}
         />
         <MetricCard
           label="Occupancy"
           value={`${stats.occupiedCount} / ${stats.unitsCount}`}
           helper="Units occupied"
           icon={Home}
+          onClick={() => onNavigate('landlord_properties', 'units')}
         />
         <MetricCard
           label="Collected"
@@ -195,6 +197,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
           helper="Current month"
           icon={Wallet}
           tone="success"
+          onClick={() => onNavigate('landlord_reconciliation')}
         />
         <MetricCard
           label="Arrears"
@@ -202,6 +205,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
           helper="Outstanding balance"
           icon={AlertTriangle}
           tone={stats.arrears > 0 ? 'danger' : 'default'}
+          onClick={() => onNavigate('landlord_invoices', 'due_tenants')}
         />
       </div>
 

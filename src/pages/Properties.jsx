@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { Building2, Home, MapPin, DoorOpen, User, Phone, Mail, CreditCard, Calendar, Wrench, Plus, Check } from 'lucide-react';
 
-export default function Properties({ organization, refreshTrigger, onRefresh }) {
-  const [activeTab, setActiveTab] = useState('properties'); // properties, units, tenants, caretakers
+export default function Properties({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab }) {
+  const [activeTab, setActiveTab] = useState(initialSubTab || 'properties'); // properties, units, tenants, caretakers
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveTab(initialSubTab);
+      clearInitialSubTab?.();
+    }
+  }, [initialSubTab]);
   const [properties, setProperties] = useState([]);
   const [units, setUnits] = useState([]);
   const [tenants, setTenants] = useState([]);
@@ -661,7 +669,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
       {!showAddForm && (
         <button
           className="btn btn-primary"
-          style={{ marginBottom: '16px' }}
+          style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px' }}
           onClick={() => {
             setShowAddForm(true);
             setEditId(null);
@@ -670,7 +678,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
             resetTenantForm();
           }}
         >
-          ➕ Add {activeTab.charAt(0).toUpperCase() + activeTab.slice(1, -1)}
+          <Plus size={14} /> Add {activeTab.charAt(0).toUpperCase() + activeTab.slice(1, -1)}
         </button>
       )}
 
@@ -683,18 +691,24 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
           {/* PROPERTIES LIST */}
           {activeTab === 'properties' && (
             properties.length === 0 ? (
-              <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)' }}>
-                <span style={{ fontSize: '32px', display: 'block', marginBottom: '8px' }}>🏢</span>
+              <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <Building2 size={32} style={{ marginBottom: '8px', color: 'var(--text-secondary)' }} />
                 No rental properties registered yet. Click the button above to add your first property.
               </div>
             ) : (
               properties.map(p => (
                 <div key={p.id} className="card">
                   <div className="flex-row">
-                    <h3 className="card-title" style={{ margin: 0 }}>🏠 {p.name}</h3>
+                    <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Home size={18} style={{ color: 'var(--primary)' }} />
+                      <span>{p.name}</span>
+                    </h3>
                     <span className="badge badge-info">{p.property_type}</span>
                   </div>
-                  <p style={{ fontSize: '12px', marginTop: '4px' }}>📍 {p.location}</p>
+                  <p style={{ fontSize: '12px', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <MapPin size={12} style={{ color: 'var(--info)' }} />
+                    <span>{p.location}</span>
+                  </p>
                   
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', fontSize: '12px', background: 'var(--bg-surface-elevated)', padding: '8px', borderRadius: '6px' }}>
                     <span>Occupied: <strong>{p.occupied_units}</strong></span>
@@ -729,15 +743,18 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
           {/* UNITS LIST */}
           {activeTab === 'units' && (
             units.length === 0 ? (
-              <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)' }}>
-                <span style={{ fontSize: '32px', display: 'block', marginBottom: '8px' }}>🚪</span>
+              <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <DoorOpen size={32} style={{ marginBottom: '8px', color: 'var(--text-secondary)' }} />
                 No rental units registered yet. Click the button above to add your first unit.
               </div>
             ) : (
               units.map(u => (
                 <div key={u.id} className="card">
                   <div className="flex-row">
-                    <h3 className="card-title" style={{ margin: 0 }}>🚪 Unit {u.unit_code}</h3>
+                    <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <DoorOpen size={18} style={{ color: 'var(--primary)' }} />
+                      <span>Unit {u.unit_code}</span>
+                    </h3>
                     <span className={`badge ${
                       String(u.status || '').toLowerCase() === 'occupied' ? 'badge-success' : 
                       String(u.status || '').toLowerCase() === 'vacant' ? 'badge-info' : 'badge-warning'
@@ -779,15 +796,18 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
           {/* TENANTS LIST */}
           {activeTab === 'tenants' && (
             tenants.length === 0 ? (
-              <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)' }}>
-                <span style={{ fontSize: '32px', display: 'block', marginBottom: '8px' }}>👤</span>
+              <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <User size={32} style={{ marginBottom: '8px', color: 'var(--text-secondary)' }} />
                 No active tenants registered. Click the button above to occupy a vacant unit and add a tenant.
               </div>
             ) : (
               tenants.map(t => (
                 <div key={t.id} className="card">
                   <div className="flex-row">
-                    <h3 className="card-title" style={{ margin: 0 }}>👤 {t.full_name}</h3>
+                    <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <User size={18} style={{ color: 'var(--primary)' }} />
+                      <span>{t.full_name}</span>
+                    </h3>
                     <span className={`badge ${t.status === 'active' ? 'badge-success' : 'badge-danger'}`}>{t.status}</span>
                   </div>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
@@ -795,11 +815,11 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
                   </p>
                   <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
                   
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
-                    <div>📞 Phone: <strong>{t.phone_number}</strong></div>
-                    <div>✉️ Email: <strong>{t.email}</strong></div>
-                    <div>🏦 Account: <strong style={{ color: 'var(--primary)', letterSpacing: '0.5px' }}>{t.tenant_account_number}</strong></div>
-                    <div>📅 Moved In: {t.move_in_date}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Phone size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Phone: <strong>{t.phone_number}</strong></span></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Mail size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Email: <strong>{t.email}</strong></span></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><CreditCard size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Account: <strong style={{ color: 'var(--primary)', letterSpacing: '0.5px' }}>{t.tenant_account_number}</strong></span></div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Moved In: {t.move_in_date}</span></div>
                   </div>
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', background: 'var(--bg-surface-elevated)', padding: '8px', borderRadius: '6px' }}>
@@ -824,18 +844,24 @@ export default function Properties({ organization, refreshTrigger, onRefresh }) 
                 Assign caretakers to specific properties to allow them to submit meter readings and report issues.
               </p>
               {caretakers.length === 0 ? (
-                <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)' }}>
-                  <span style={{ fontSize: '32px', display: 'block', marginBottom: '8px' }}>🛠️</span>
+                <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <Wrench size={32} style={{ marginBottom: '8px', color: 'var(--text-secondary)' }} />
                   No caretaker staff assigned yet. Send an invitation above.
                 </div>
               ) : (
                 caretakers.map(ct => (
                   <div key={ct.id} className="card">
                     <div className="flex-row">
-                      <h3 className="card-title" style={{ margin: 0 }}>🛠️ {ct.name}</h3>
+                      <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Wrench size={18} style={{ color: 'var(--primary)' }} />
+                        <span>{ct.name}</span>
+                      </h3>
                       <span className="badge badge-success">assigned</span>
                     </div>
-                    <p style={{ fontSize: '12px', marginTop: '4px' }}>{ct.email ? `✉️ ${ct.email} • ` : ''}📞 {ct.phone_number}</p>
+                    <p style={{ fontSize: '12px', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                      {ct.email && <><Mail size={12} style={{ color: 'var(--text-secondary)' }} /> <span>{ct.email}</span> <span>•</span></>}
+                      <Phone size={12} style={{ color: 'var(--text-secondary)' }} /> <span>{ct.phone_number}</span>
+                    </p>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px', alignItems: 'center' }}>
                       <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Properties: </span>
                       {ct.properties && ct.properties.length > 0 ? (

@@ -1733,11 +1733,14 @@ app.post('/api/reconciliation/import-finalize', (req, res) => {
       invalid_rows: 0
     });
 
-    let autoMatchedCount = 0;
+    let probableCount = 0;
+    let possibleCount = 0;
     let unmatchedCount = 0;
     let duplicateCount = 0;
 
     const tenants = db.find('tenants', { organization_id: orgId });
+    const units = db.find('units', { organization_id: orgId, deleted_at: null });
+    const properties = db.find('properties', { organization_id: orgId, deleted_at: null });
     const invoices = db.find('invoices', { organization_id: orgId }).filter(inv => inv.status !== 'paid' && inv.status !== 'void');
 
     rows.forEach(line => {
@@ -1756,8 +1759,9 @@ app.post('/api/reconciliation/import-finalize', (req, res) => {
       const payerVal = rowData[mappings.payer_name] || '';
 
       // Check duplicates
-      const dupLedger = db.findOne('transactions', { reference_number: refVal, organization_id: orgId });
-      const dupStaging = db.findOne('reconciliation_staging_rows', { reference_number: refVal, organization_id: orgId });
+      const isRefProvided = refVal && String(refVal).trim() !== '';
+      const dupLedger = isRefProvided ? db.findOne('transactions', { reference_number: refVal, organization_id: orgId }) : null;
+      const dupStaging = isRefProvided ? db.findOne('reconciliation_staging_rows', { reference_number: refVal, organization_id: orgId }) : null;
 
       if (dupLedger || dupStaging) {
         duplicateCount++;
@@ -1777,63 +1781,133 @@ app.post('/api/reconciliation/import-finalize', (req, res) => {
         return;
       }
 
-      // Try Auto Matching
-      let matchedTenant = null;
-      let matchedInvoice = null;
-      let confidence = 0;
+      // Safe Deterministic Weighted Match Logic
+      let bestTenant = null;
+      let bestInvoice = null;
+      let maxScore = 0;
 
-      // 1. Match by tenant account number
-      if (accVal) {
-        matchedTenant = tenants.find(t => t.tenant_account_number.toLowerCase() === accVal.toLowerCase());
-      }
+      tenants.forEach(tenant => {
+        let score = 0;
 
-      // 2. Match by exact invoice number in description
-      if (!matchedTenant) {
-        const invNumMatch = descVal.match(/INV-2026-\d+/i);
-        if (invNumMatch) {
-          const invNum = invNumMatch[0].toUpperCase();
-          matchedInvoice = invoices.find(inv => inv.invoice_number === invNum);
-          if (matchedInvoice) {
-            matchedTenant = tenants.find(t => t.id === matchedInvoice.tenant_id);
-            confidence = 95;
+        // 1. Account number match
+        if (accVal && tenant.tenant_account_number) {
+          if (tenant.tenant_account_number.toLowerCase() === accVal.toLowerCase()) {
+            score += 80;
           }
         }
-      }
 
-      // 3. Match by unit code inside description
-      if (!matchedTenant) {
-        tenants.forEach(t => {
-          const unit = db.findOne('units', { id: t.unit_id });
-          if (unit && descVal.toLowerCase().includes(unit.unit_code.toLowerCase())) {
-            matchedTenant = t;
-            confidence = 80;
+        // 2. Phone match
+        if (tenant.phone_number) {
+          const cleanPhone = tenant.phone_number.replace(/\D/g, '');
+          if (cleanPhone && cleanPhone.length > 5) {
+            if (descVal.includes(cleanPhone) || payerVal.includes(cleanPhone) || accVal.includes(cleanPhone)) {
+              score += 70;
+            }
+          }
+        }
+
+        // 3. Name match
+        if (payerVal && tenant.full_name) {
+          const tenantNameLower = tenant.full_name.toLowerCase();
+          const payerValLower = payerVal.toLowerCase();
+          if (tenantNameLower === payerValLower || payerValLower.includes(tenantNameLower) || tenantNameLower.includes(payerValLower)) {
+            score += 50;
+          } else {
+            // Check word inclusion
+            const tenantWords = tenantNameLower.split(/\s+/).filter(w => w.length > 3);
+            const payerWords = payerValLower.split(/\s+/).filter(w => w.length > 3);
+            const commonWords = tenantWords.filter(w => payerWords.includes(w));
+            if (commonWords.length > 0) {
+              score += 25 * commonWords.length;
+            }
+          }
+        }
+
+        // 4. Unit code match
+        const unit = units.find(u => u.id === tenant.unit_id);
+        if (unit && unit.unit_code) {
+          const unitCodeLower = unit.unit_code.toLowerCase();
+          const descLower = descVal.toLowerCase();
+          if (descLower.includes(unitCodeLower)) {
+            score += 40;
+          }
+        }
+
+        // 5. Property name match
+        if (unit) {
+          const prop = properties.find(p => p.id === unit.property_id);
+          if (prop && prop.name) {
+            const propNameLower = prop.name.toLowerCase();
+            const descLower = descVal.toLowerCase();
+            if (descLower.includes(propNameLower)) {
+              score += 20;
+            }
+          }
+        }
+
+        // 6. Rent amount match
+        if (tenant.rent_amount && Math.abs(tenant.rent_amount - amountVal) < 0.01) {
+          score += 30;
+        }
+
+        // 7. Invoice matching
+        const tenantInvs = invoices.filter(inv => inv.tenant_id === tenant.id);
+        let invoiceMatch = null;
+        let invoiceScore = 0;
+
+        tenantInvs.forEach(inv => {
+          let invScore = 0;
+          
+          // Exact invoice number match in description
+          if (inv.invoice_number && descVal.toLowerCase().includes(inv.invoice_number.toLowerCase())) {
+            invScore += 100;
+          }
+
+          // Balance match
+          if (inv.balance && Math.abs(inv.balance - amountVal) < 0.01) {
+            invScore += 40;
+          }
+
+          // Date proximity
+          if (inv.due_date && dateVal) {
+            const daysDiff = Math.abs(new Date(inv.due_date) - new Date(dateVal)) / (1000 * 60 * 60 * 24);
+            if (daysDiff <= 5) {
+              invScore += 20;
+            }
+          }
+
+          if (invScore > invoiceScore) {
+            invoiceScore = invScore;
+            invoiceMatch = inv;
           }
         });
-      }
 
-      // 4. Match by tenant name
-      if (!matchedTenant && payerVal) {
-        matchedTenant = tenants.find(t => t.full_name.toLowerCase().includes(payerVal.toLowerCase()) || payerVal.toLowerCase().includes(t.full_name.toLowerCase()));
-        if (matchedTenant) confidence = 70;
-      }
+        score += invoiceScore;
 
-      // If tenant found but not invoice, get oldest unpaid invoice
-      if (matchedTenant && !matchedInvoice) {
-        const tenantInvs = invoices.filter(inv => inv.tenant_id === matchedTenant.id);
-        if (tenantInvs.length > 0) {
-          matchedInvoice = tenantInvs.sort((a, b) => new Date(a.due_date) - new Date(b.due_date))[0];
-          confidence = Math.max(confidence, 90);
-        } else {
-          confidence = 50; // Found tenant but no pending invoices
+        if (score > maxScore) {
+          maxScore = score;
+          bestTenant = tenant;
+          bestInvoice = invoiceMatch;
         }
-      }
+      });
+
+      // Caps the confidence score to 99% for safety
+      const confidence = Math.min(Math.round(maxScore), 99);
 
       let status = 'unmatched';
-      if (matchedTenant) {
-        status = confidence >= 80 ? 'auto_matched' : 'needs_review';
-        autoMatchedCount++;
+      // High threshold (probable) >= 70
+      // Medium threshold (possible) >= 40
+      if (bestTenant && confidence >= 40) {
+        status = 'needs_review';
+        if (confidence >= 70) {
+          probableCount++;
+        } else {
+          possibleCount++;
+        }
       } else {
         unmatchedCount++;
+        bestTenant = null;
+        bestInvoice = null;
       }
 
       db.insert('reconciliation_staging_rows', {
@@ -1847,9 +1921,9 @@ app.post('/api/reconciliation/import-finalize', (req, res) => {
         description: descVal,
         payer_name: payerVal,
         status,
-        suggested_tenant_id: matchedTenant ? matchedTenant.id : null,
-        suggested_unit_id: matchedTenant ? matchedTenant.unit_id : null,
-        suggested_invoice_id: matchedInvoice ? matchedInvoice.id : null,
+        suggested_tenant_id: bestTenant ? bestTenant.id : null,
+        suggested_unit_id: bestTenant ? bestTenant.unit_id : null,
+        suggested_invoice_id: bestInvoice ? bestInvoice.id : null,
         confidence_score: confidence
       });
     });
@@ -1857,7 +1931,7 @@ app.post('/api/reconciliation/import-finalize', (req, res) => {
     // Update batch status
     db.update('reconciliation_batches', batch.id, {
       status: 'reviewed',
-      matched_rows: autoMatchedCount,
+      matched_rows: probableCount + possibleCount,
       unmatched_rows: unmatchedCount,
       duplicate_rows: duplicateCount
     });
@@ -1869,7 +1943,17 @@ app.post('/api/reconciliation/import-finalize', (req, res) => {
       fs.unlinkSync(tempPath);
     } catch (_) {}
 
-    res.json({ success: true, batchId: batch.id });
+    res.json({ 
+      success: true, 
+      batchId: batch.id,
+      summary: {
+        total: rows.length,
+        probable: probableCount,
+        possible: possibleCount,
+        unmatched: unmatchedCount,
+        duplicates: duplicateCount
+      }
+    });
   } catch (error) {
     console.error('Import error:', error);
     res.status(500).json({ error: 'Failed to process and import CSV statement rows.' });
@@ -2001,13 +2085,27 @@ app.post('/api/reconciliation/ignore', (req, res) => {
   const userId = req.auth?.userId;
   const role = req.auth?.role;
 
-  const updated = db.update('reconciliation_staging_rows', { id: parseInt(row_id), organization_id: orgId }, {
-    status: 'ignored',
+  const row = db.findOne('reconciliation_staging_rows', { id: parseInt(row_id), organization_id: orgId });
+  if (!row) return res.status(404).json({ error: 'Staging row not found.' });
+
+  let newStatus = 'ignored';
+  let auditAction = 'csv_row_ignored';
+  let auditMsg = `Ignored statement row: ${row_id}`;
+
+  if (row.status === 'ignored' || row.status === 'duplicate') {
+    // Restore
+    newStatus = (row.suggested_tenant_id && row.confidence_score >= 40) ? 'needs_review' : 'unmatched';
+    auditAction = 'csv_row_restored';
+    auditMsg = `Restored statement row: ${row_id} to ${newStatus}`;
+  }
+
+  const updated = db.update('reconciliation_staging_rows', row.id, {
+    status: newStatus,
     reviewed_by: userId,
     reviewed_at: new Date().toISOString()
   });
 
-  db.logAudit(orgId, userId, role, 'csv_row_ignored', 'reconciliation_staging_rows', row_id, null, null, `Ignored statement row: ${row_id}`);
+  db.logAudit(orgId, userId, role, auditAction, 'reconciliation_staging_rows', row_id, null, null, auditMsg);
   res.json({ success: true });
 });
 

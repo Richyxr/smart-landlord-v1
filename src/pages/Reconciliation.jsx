@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
+import { Download, Loader2, Smartphone } from 'lucide-react';
 
 export default function Reconciliation({ organization, refreshTrigger, onRefresh }) {
   const [stagingRows, setStagingRows] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [uploadSummary, setUploadSummary] = useState(null);
   
   // Workbench Active View
   const [filterStatus, setFilterStatus] = useState('needs_review'); // needs_review, unmatched, reconciled, ignored
@@ -65,17 +68,22 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
   };
 
   const handleFileChange = (e) => {
-    if (e.target.files.length > 0) {
+    if (e.target.files && e.target.files.length > 0) {
       setFile(e.target.files[0]);
       setError('');
+    } else {
+      setFile(null);
     }
   };
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (!file) return;
+    if (!file) {
+      setError('Please choose a statement file before uploading.');
+      return;
+    }
 
-    setLoading(true);
+    setUploading(true);
     setError('');
 
     const formData = new FormData();
@@ -108,7 +116,7 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      setUploading(false);
     }
   };
 
@@ -128,10 +136,22 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
         })
       });
 
-      if (!res.ok) throw new Error('Reconciliation import failed.');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Reconciliation import failed.');
 
       setUploadData(null);
       setFile(null);
+      
+      // Save summary data
+      setUploadSummary(data.summary);
+
+      // Switch active tab depending on whether there are reviewable candidate rows
+      if (data.summary && (data.summary.probable + data.summary.possible > 0)) {
+        setFilterStatus('needs_review');
+      } else {
+        setFilterStatus('unmatched');
+      }
+
       fetchStaging();
       onRefresh();
     } catch (err) {
@@ -139,6 +159,26 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDownloadDemoCSV = (e) => {
+    e.preventDefault();
+    const csvContent = [
+      ["Date", "Description", "Reference", "Debit", "Credit", "Balance"],
+      ["2026-06-01", "Rent Payment Unit A1 - Maina Kamau", "MPESA-KCB-98217", "", "45000", "45000"],
+      ["2026-06-02", "Rent Payment Unit B3 - Sarah Wanjiku", "MPESA-EQUITY-1029", "", "35000", "80000"],
+      ["2026-06-05", "Utility Bill Unit C2 - John Doe", "MPESA-COOP-8821", "", "2500", "82500"]
+    ].map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n");
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "smart-landlord-bank-statement-template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleConfirmAutoMatch = async (row) => {
@@ -200,7 +240,12 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
   };
 
   const getFilteredRows = () => {
-    return stagingRows.filter(r => r.status === filterStatus);
+    return stagingRows.filter(r => {
+      if (filterStatus === 'ignored') {
+        return r.status === 'ignored' || r.status === 'duplicate';
+      }
+      return r.status === filterStatus;
+    });
   };
 
   const getUnpaidInvoicesForTenant = (tenantId) => {
@@ -238,17 +283,90 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
           </p>
 
           <form onSubmit={handleUpload}>
-            <div className="form-group">
-              <input type="file" accept=".csv" onChange={handleFileChange} style={{ fontSize: '13px' }} />
+            <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
+              <input 
+                type="file" 
+                id="statement-file-input"
+                accept=".csv" 
+                onChange={handleFileChange} 
+                style={{ display: 'none' }} 
+              />
+              <label 
+                htmlFor="statement-file-input" 
+                className={`btn btn-sm ${!file ? 'btn-primary pulse-primary' : 'btn-secondary'}`}
+                style={{ 
+                  cursor: 'pointer', 
+                  display: 'inline-flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  gap: '8px',
+                  padding: '8px 16px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontWeight: '600',
+                  fontSize: '13px',
+                  transition: 'all 0.2s',
+                  width: 'auto'
+                }}
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    document.getElementById('statement-file-input').click();
+                  }
+                }}
+              >
+                Choose Statement
+              </label>
+              {file && (
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', animation: 'slideInUp 0.15s ease' }}>
+                  Selected: <strong>{file.name}</strong> ({(file.size / 1024).toFixed(1)} KB)
+                </span>
+              )}
             </div>
             
-            <div className="flex-gap" style={{ marginTop: '12px' }}>
-              <a href="/api/reconciliation/sample-csv" download className="btn btn-secondary btn-sm" style={{ flex: 1, textAlign: 'center' }}>
-                📥 Get Demo Bank CSV
-              </a>
-              <button type="submit" className="btn btn-primary btn-sm" style={{ flex: 1 }} disabled={!file || loading}>
-                {loading ? 'Uploading...' : 'Upload Statement'}
+            <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <button 
+                type="submit" 
+                className={`btn btn-sm ${file && !uploading && !loading ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ 
+                  width: '100%', 
+                  opacity: (file && !uploading && !loading) ? 1 : 0.6,
+                  cursor: (file && !uploading && !loading) ? 'pointer' : 'not-allowed',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                }} 
+                disabled={!file || uploading || loading}
+              >
+                {uploading ? (
+                  <>
+                    <Loader2 size={14} style={{ animation: 'sl-spin 1s linear infinite' }} />
+                    Uploading Statement...
+                  </>
+                ) : (
+                  'Upload Statement'
+                )}
               </button>
+              
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: '4px' }}>
+                <a 
+                  href="#"
+                  onClick={handleDownloadDemoCSV} 
+                  style={{ 
+                    fontSize: '11px', 
+                    color: 'var(--text-muted)', 
+                    textDecoration: 'underline', 
+                    display: 'inline-flex', 
+                    alignItems: 'center', 
+                    gap: '4px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Download size={12} /> Download Demo Bank CSV Template
+                </a>
+              </div>
             </div>
           </form>
         </div>
@@ -339,6 +457,35 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
       {!uploadData && !matchingRow && (
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
           
+          {/* UPLOAD SUMMARY REPORT */}
+          {uploadSummary && (
+            <div className="card" style={{ borderLeft: '4px solid var(--success)', marginBottom: '16px', position: 'relative' }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary btn-sm" 
+                onClick={() => setUploadSummary(null)} 
+                style={{ position: 'absolute', right: '12px', top: '12px', padding: '2px 8px' }}
+              >
+                Dismiss
+              </button>
+              <h4 style={{ fontWeight: '700', color: 'var(--success)', marginBottom: '10px', fontSize: '14px' }}>Statement Import Summary</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
+                <div>Total rows processed: <strong>{uploadSummary.total}</strong></div>
+                <div style={{ color: 'var(--success)' }}>Probable matches (confidence &gt;= 70%): <strong>{uploadSummary.probable}</strong></div>
+                <div style={{ color: 'var(--warning)' }}>Possible matches (40% - 69%): <strong>{uploadSummary.possible}</strong></div>
+                <div style={{ color: 'var(--text-secondary)' }}>Unmatched rows (no candidate): <strong>{uploadSummary.unmatched}</strong></div>
+                {uploadSummary.duplicates > 0 && (
+                  <div style={{ color: 'var(--danger)' }}>Duplicates ignored: <strong>{uploadSummary.duplicates}</strong></div>
+                )}
+                <div style={{ marginTop: '6px', fontWeight: '600', borderTop: '1px solid var(--border)', paddingTop: '6px' }}>
+                  Next action: {uploadSummary.probable + uploadSummary.possible > 0 
+                    ? 'Please review probable/possible matches in the "Needs Review" queue.'
+                    : 'All rows are unmatched. Please match them manually.'}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* TAB HEADERS */}
           <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px' }}>
             <button
@@ -377,7 +524,15 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
               getFilteredRows().map(row => (
                 <div key={row.id} className="card" style={{ borderLeft: filterStatus === 'needs_review' ? '4px solid var(--primary)' : '1px solid var(--border)' }}>
                   <div className="flex-row">
-                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Ref: {row.reference_number}</span>
+                    <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center' }}>
+                      Ref: {row.reference_number}
+                      {((row.reference_number && row.reference_number.toLowerCase().includes('mpesa')) || 
+                        (row.description && row.description.toLowerCase().includes('mpesa'))) && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', marginLeft: '6px', color: 'var(--success)' }}>
+                          <Smartphone size={11} /> <span style={{ fontSize: '10px', fontWeight: 'bold' }}>Lipa na M-Pesa</span>
+                        </span>
+                      )}
+                    </span>
                     <span style={{ color: 'var(--success)', fontWeight: '700' }}>{formatCurrency(row.amount)}</span>
                   </div>
                   
@@ -391,11 +546,18 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
                   {/* Auto match suggestions details */}
                   {row.status === 'needs_review' && (
                     <div style={{ marginTop: '8px', padding: '10px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '6px', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
-                      <span className="badge badge-success" style={{ fontSize: '9px', padding: '2px 6px', marginBottom: '6px' }}>
-                        Suggest Match ({row.confidence_score}%)
-                      </span>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '6px' }}>
+                        <span className={`badge ${row.confidence_score >= 70 ? 'badge-success' : 'badge-warning'}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
+                          {row.confidence_score >= 70 ? 'Probable Match' : 'Possible Match'} ({row.confidence_score}%)
+                        </span>
+                      </div>
                       <div style={{ fontSize: '12px' }}>
                         Tenant: <strong>{getTenantName(row.suggested_tenant_id)}</strong>
+                        {row.suggested_invoice_id && (
+                          <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                            Suggested Invoice: <strong>{invoices.find(i => i.id === row.suggested_invoice_id)?.invoice_number || `#${row.suggested_invoice_id}`}</strong>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -403,12 +565,13 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
                   <div style={{ display: 'flex', gap: '6px', marginTop: '12px', justifyContent: 'flex-end' }}>
                     {filterStatus === 'needs_review' && (
                       <>
+                        <button className="btn btn-secondary btn-sm" onClick={() => handleIgnoreRow(row.id)}>Ignore</button>
                         <button className="btn btn-secondary btn-sm" onClick={() => {
                           setMatchingRow(row);
                           setSelectedTenantId(row.suggested_tenant_id);
                           setSelectedInvoiceId(row.suggested_invoice_id || '');
-                        }}>Map Custom</button>
-                        <button className="btn btn-primary btn-sm" onClick={() => handleConfirmAutoMatch(row)}>Approve Match</button>
+                        }}>Match Manually</button>
+                        <button className="btn btn-primary btn-sm" onClick={() => handleConfirmAutoMatch(row)}>Confirm Match</button>
                       </>
                     )}
                     

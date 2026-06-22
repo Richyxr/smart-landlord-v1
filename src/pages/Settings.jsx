@@ -1,5 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
+import { MessageSquare, Coins, Archive, Lock, FileText, Search, Check, X, Smartphone } from 'lucide-react';
+
+const getChecklistLabel = (key) => {
+  switch (key) {
+    case 'property_created': return 'Property Created';
+    case 'unit_created': return 'Unit Created';
+    case 'tenant_added': return 'Tenant Added';
+    case 'sms_configured': return 'SMS Gateway Configured';
+    case 'mpesa_configured': return 'Lipa na M-Pesa Configured';
+    case 'saas_billing_active': return 'SaaS Billing Active';
+    case 'profile_complete': return 'Organization Profile Completed';
+    case 'pin_created': return 'Security PIN Created';
+    default: return key.replace(/_/g, ' ');
+  }
+};
 
 const DEFAULT_NOTIFICATION_SETTINGS = {
   sms_provider: 'None',
@@ -11,8 +26,8 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
   billing_alerts_enabled: true
 };
 
-export default function Settings({ organization, refreshTrigger, onRefresh }) {
-  const [activeTab, setActiveTab] = useState('readiness'); // readiness, integrations, archive, audits, compliance, readings
+export default function Settings({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab, onNavigate }) {
+  const [activeTab, setActiveTab] = useState(initialSubTab || 'readiness'); // readiness, integrations, archive, audits, compliance, readings
   const [checklist, setChecklist] = useState({});
   const [integrations, setIntegrations] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
@@ -56,6 +71,13 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
   const [smsProviderVal, setSmsProviderVal] = useState('None');
 
   const headers = {};
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveTab(initialSubTab);
+      clearInitialSubTab?.();
+    }
+  }, [initialSubTab]);
 
   useEffect(() => {
     fetchData();
@@ -139,6 +161,35 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
       setError(e.message || 'Failed to load settings data.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleChecklistRowClick = (key) => {
+    switch (key) {
+      case 'property_created':
+        onNavigate?.('landlord_properties', 'properties');
+        break;
+      case 'unit_created':
+        onNavigate?.('landlord_properties', 'units');
+        break;
+      case 'tenant_added':
+        onNavigate?.('landlord_properties', 'tenants');
+        break;
+      case 'sms_configured':
+      case 'mpesa_configured':
+        setActiveTab('integrations');
+        break;
+      case 'saas_billing_active':
+        onNavigate?.('landlord_invoices', 'overview');
+        break;
+      case 'profile_complete':
+        alert('Organization profile details are configured during initial registration.');
+        break;
+      case 'pin_created':
+        alert('Your 6-digit security PIN was configured during registration to protect financial actions.');
+        break;
+      default:
+        break;
     }
   };
 
@@ -458,7 +509,10 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
       {/* MAPPING INTEGRATION FORMS */}
       {selectedInt && (
         <div className="card">
-          <h3 className="card-title">Setup {selectedInt.provider_name}</h3>
+          <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {selectedInt.provider_type === 'mpesa' && <Smartphone size={16} />}
+            Setup {selectedInt.provider_name}
+          </h3>
           <form onSubmit={handleSaveIntegration}>
             <div className="form-group">
               <label className="form-label">Environment</label>
@@ -488,7 +542,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
             {selectedInt.provider_type === 'mpesa' && (
               <>
                 <div className="form-group">
-                  <label className="form-label">Shortcode / Till Number</label>
+                  <label className="form-label">Lipa na M-Pesa Paybill / Till Number</label>
                   <input type="text" required className="form-control" placeholder="174379" value={shortcode} onChange={e => setShortcode(e.target.value)} />
                 </div>
                 <div className="form-group">
@@ -523,10 +577,35 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {checklist && Object.keys(checklist).map(key => (
-                <div key={key} className="flex-row" style={{ fontSize: '13px', paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>
-                  <span style={{ textTransform: 'capitalize' }}>{key.replace(/_/g, ' ')}</span>
-                  <span className={`badge ${checklist[key] ? 'badge-success' : 'badge-danger'}`}>
-                    {checklist[key] ? '✓ Ready' : '✗ Pending'}
+                <div 
+                  key={key} 
+                  className="flex-row setup-row sl-clickable" 
+                  onClick={() => handleChecklistRowClick(key)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleChecklistRowClick(key);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  style={{ 
+                    fontSize: '13px', 
+                    padding: '8px 10px', 
+                    borderBottom: '1px solid var(--border)',
+                    cursor: 'pointer',
+                    borderRadius: 'var(--radius-sm)',
+                    transition: 'all 0.2s',
+                    outline: 'none'
+                  }}
+                >
+                  <span>{getChecklistLabel(key)}</span>
+                  <span className={`badge ${checklist[key] ? 'badge-success' : 'badge-danger'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    {checklist[key] ? (
+                      <><Check size={12} /> Ready</>
+                    ) : (
+                      <><X size={12} /> Pending</>
+                    )}
                   </span>
                 </div>
               ))}
@@ -541,7 +620,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
           {/* SMS integration */}
           <div className="card">
             <div className="flex-row">
-              <h4 style={{ fontWeight: 'bold' }}>💬 SMS Gateway (Africa's Talking)</h4>
+              <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} /> SMS Gateway (Africa's Talking)</h4>
               <span className={`badge ${integrations.some(i => i.provider_type === 'sms') ? 'badge-success' : 'badge-warning'}`}>
                 {integrations.some(i => i.provider_type === 'sms') ? 'connected' : 'draft'}
               </span>
@@ -561,14 +640,14 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
           {/* M-Pesa Integration */}
           <div className="card">
             <div className="flex-row">
-              <h4 style={{ fontWeight: 'bold' }}>💸 Safaricom M-Pesa C2B / STK</h4>
+              <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> Safaricom M-Pesa C2B / STK</h4>
               <span className={`badge ${integrations.some(i => i.provider_type === 'mpesa') ? 'badge-success' : 'badge-warning'}`}>
                 {integrations.some(i => i.provider_type === 'mpesa') ? 'connected' : 'draft'}
               </span>
             </div>
             <p style={{ fontSize: '12px', marginTop: '6px' }}>Automates payments matching and reconciliation via webhook callbacks.</p>
             <div className="flex-gap" style={{ marginTop: '12px' }}>
-              <button className="btn btn-secondary btn-sm" onClick={() => setSelectedInt({ provider_type: 'mpesa', provider_name: 'Safaricom Daraja API' })}>Configure</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setSelectedInt({ provider_type: 'mpesa', provider_name: 'Safaricom M-Pesa API' })}>Configure</button>
               {integrations.some(i => i.provider_type === 'mpesa') && (
                 <>
                   <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(integrations.find(i => i.provider_type === 'mpesa').id)}>Test</button>
@@ -624,7 +703,9 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
       {/* FINANCIAL ARCHIVING */}
       {activeTab === 'archive' && !selectedInt && (
         <div className="card">
-          <h3 className="card-title">⚙️ Financial Archiving</h3>
+          <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Archive size={18} /> Financial Archiving
+          </h3>
           <p style={{ fontSize: '12px', marginBottom: '16px' }}>
             Hides old reconciled transaction records to clean up dashboards. Archived transactions can still be audited by Super Admin.
           </p>
@@ -700,7 +781,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
                   style={{ width: '100%', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
                   onClick={() => setShowPrivacy(!showPrivacy)}
                 >
-                  <span>🔒 Privacy Policy</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Lock size={14} /> Privacy Policy</span>
                   <span>{showPrivacy ? '▲' : '▼'}</span>
                 </button>
                 {showPrivacy && (
@@ -720,7 +801,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
                   style={{ width: '100%', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
                   onClick={() => setShowTerms(!showTerms)}
                 >
-                  <span>📜 Terms of Service</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><FileText size={14} /> Terms of Service</span>
                   <span>{showTerms ? '▲' : '▼'}</span>
                 </button>
                 {showTerms && (
@@ -739,7 +820,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh }) {
                   style={{ width: '100%', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
                   onClick={() => setShowDataAccess(!showDataAccess)}
                 >
-                  <span>🔍 Data Access & API Transparency</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Search size={14} /> Data Access & API Transparency</span>
                   <span>{showDataAccess ? '▲' : '▼'}</span>
                 </button>
                 {showDataAccess && (

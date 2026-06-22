@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { getSessionToken } from '../lib/session.js';
+import { Wrench, Users, Zap, CreditCard } from 'lucide-react';
 
 export default function DevSwitcher({ currentRole, onChangeRole, currentOrgId, onTriggerLockout, onRefreshData }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -74,13 +75,16 @@ export default function DevSwitcher({ currentRole, onChangeRole, currentOrgId, o
         className="dev-switcher-btn"
         onClick={() => setIsOpen(!isOpen)}
         title="Developer Testing Panel"
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >
-        🛠️
+        <Wrench size={16} />
       </button>
 
       {isOpen && (
         <div className="dev-switcher-panel">
-          <div className="dev-section-title">🎭 Switch Role</div>
+          <div className="dev-section-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Users size={14} /> Switch Role
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
             <button 
               className={`btn btn-secondary btn-sm ${currentRole === 'landlord' ? 'btn-primary' : ''}`}
@@ -107,7 +111,9 @@ export default function DevSwitcher({ currentRole, onChangeRole, currentOrgId, o
 
           <div style={{ borderTop: '1px solid var(--border)', margin: '6px 0' }} />
 
-          <div className="dev-section-title">⚡ Simulate M-Pesa Callback</div>
+          <div className="dev-section-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Zap size={14} /> Simulate M-Pesa Callback
+          </div>
           <form onSubmit={triggerWebhook} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <div className="grid-2">
               <input 
@@ -152,7 +158,9 @@ export default function DevSwitcher({ currentRole, onChangeRole, currentOrgId, o
 
           <div style={{ borderTop: '1px solid var(--border)', margin: '6px 0' }} />
 
-          <div className="dev-section-title">💳 SaaS Billing Test</div>
+          <div className="dev-section-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <CreditCard size={14} /> SaaS Billing Test
+          </div>
           <button 
             className="btn btn-danger btn-sm" 
             onClick={handleTriggerLockout}

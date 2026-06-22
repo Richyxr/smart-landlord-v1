@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Mail, Smartphone, Lock } from 'lucide-react';
 import { setSessionToken } from '../lib/session.js';
 import { auth } from '../lib/firebase.js';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
@@ -637,7 +638,9 @@ export default function Auth({ onAuthSuccess }) {
       {/* VERIFY EMAIL */}
       {screen === 'verify_email' && (
         <div style={{ textAlign: 'center' }}>
-          <span style={{ fontSize: '48px' }}>✉️</span>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px', color: 'var(--primary)' }}>
+            <Mail size={48} />
+          </div>
           <h2 style={{ fontSize: '24px', margin: '12px 0 6px 0' }}>Verify Your Email</h2>
           <p style={{ marginBottom: '24px', fontSize: '13px' }}>
             We've sent a mock verification email to <strong>{email}</strong>.
@@ -661,7 +664,9 @@ export default function Auth({ onAuthSuccess }) {
       {/* VERIFY PHONE */}
       {screen === 'verify_phone' && (
         <div style={{ textAlign: 'center' }}>
-          <span style={{ fontSize: '48px' }}>📱</span>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px', color: 'var(--primary)' }}>
+            <Smartphone size={48} />
+          </div>
           <h2 style={{ fontSize: '24px', margin: '12px 0 6px 0' }}>Verify Phone Number</h2>
           <p style={{ marginBottom: '24px', fontSize: '13px' }}>
             We've sent a mock SMS code to <strong>{phone}</strong>.
@@ -685,7 +690,9 @@ export default function Auth({ onAuthSuccess }) {
       {/* PIN SETUP */}
       {screen === 'pin_setup' && (
         <div>
-          <h2 style={{ fontSize: '24px', marginBottom: '8px' }}>🔒 Create Security PIN</h2>
+          <h2 style={{ fontSize: '24px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Lock size={24} /> Create Security PIN
+          </h2>
           <p style={{ marginBottom: '24px', fontSize: '13px' }}>
             Define a 6-digit security PIN to protect critical financial actions like payment matches, voids, and archives.
           </p>

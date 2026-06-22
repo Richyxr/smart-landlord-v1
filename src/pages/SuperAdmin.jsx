@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Settings, Building2 } from 'lucide-react';
 
 export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTrigger, onRefresh }) {
   const routeTabMap = {
@@ -310,7 +311,9 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
 
           {/* PRICING SETTINGS FORM */}
           <div className="card">
-            <h3 className="card-title">⚙️ Global Platform Pricing</h3>
+            <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Settings size={18} /> Global Platform Pricing
+            </h3>
             <form onSubmit={handlePricingSubmit}>
               <div className="form-group">
                 <label className="form-label">Price per Active Tenant (Monthly KES)</label>
@@ -347,7 +350,10 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           {landlords.map(org => (
             <div key={org.id} className="card">
               <div className="flex-row">
-                <h3 className="card-title" style={{ margin: 0 }}>🏢 {org.name}</h3>
+                <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Building2 size={18} style={{ color: 'var(--primary)' }} />
+                  <span>{org.name}</span>
+                </h3>
                 <span className={`badge ${org.is_locked ? 'badge-danger' : 'badge-success'}`}>
                   {org.is_locked ? 'locked' : 'active'}
                 </span>

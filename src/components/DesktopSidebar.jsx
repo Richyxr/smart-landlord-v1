@@ -34,7 +34,7 @@ export default function DesktopSidebar({ role, activeTab, onChangeTab }) {
         return [
           { id: 'landlord_dashboard', label: 'Home', icon: Home },
           { id: 'landlord_properties', label: 'Properties', icon: Building2 },
-          { id: 'landlord_invoices', label: 'Bills', icon: ReceiptText },
+          { id: 'landlord_invoices', label: 'Billing', icon: ReceiptText },
           { id: 'landlord_reconciliation', label: 'Reconcile', icon: Handshake },
           { id: 'landlord_settings', label: 'Settings', icon: Settings }
         ];

@@ -5,10 +5,27 @@ export default function MetricCard({
   value,
   helper,
   icon: Icon,
-  tone = 'default'
+  tone = 'default',
+  onClick
 }) {
+  const isClickable = !!onClick;
+  
+  const handleKeyDown = (e) => {
+    if (onClick && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      onClick();
+    }
+  };
+
   return (
-    <div className={`sl-metric-card sl-metric-${tone}`}>
+    <div 
+      className={`sl-metric-card sl-metric-${tone} ${isClickable ? 'sl-clickable' : ''}`}
+      onClick={onClick}
+      onKeyDown={handleKeyDown}
+      role={isClickable ? 'button' : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      style={isClickable ? { cursor: 'pointer' } : undefined}
+    >
       <div className="sl-metric-top">
         <span className="sl-metric-label">{label}</span>
         {Icon && (

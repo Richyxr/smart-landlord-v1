@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Building2, MapPin, ClipboardList, Search, FileEdit, Droplets, Zap, User, Check, MessageSquare, Phone, Mail } from 'lucide-react';
 
 export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh }) {
   const routeTabMap = {
@@ -284,8 +285,12 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
             <h4 className="card-title">My Assignments</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
               {assignedProperties.map(p => (
-                <div key={p.id} style={{ fontSize: '13px', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
-                  🏢 <strong>{p.name}</strong> • 📍 {p.location}
+                <div key={p.id} style={{ fontSize: '13px', padding: '6px 0', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <Building2 size={14} style={{ color: 'var(--primary)' }} />
+                  <strong>{p.name}</strong> 
+                  <span style={{ color: 'var(--text-muted)' }}>•</span>
+                  <MapPin size={14} style={{ color: 'var(--info)' }} />
+                  <span>{p.location}</span>
                 </div>
               ))}
             </div>
@@ -327,11 +332,15 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
                 fontSize: '12px',
                 fontWeight: '600',
                 cursor: 'pointer',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px'
               }}
               onClick={() => setSubmitMode('list')}
             >
-              📋 Unit List Keying
+              <ClipboardList size={14} /> Unit List Keying
             </button>
             <button
               type="button"
@@ -345,17 +354,22 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
                 fontSize: '12px',
                 fontWeight: '600',
                 cursor: 'pointer',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px'
               }}
               onClick={() => setSubmitMode('search')}
             >
-              🔍 Search Unit Code
+              <Search size={14} /> Search Unit Code
             </button>
           </div>
 
           <div className="card">
             <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span>📝 Submit readings</span>
+              <FileEdit size={16} />
+              <span>Submit readings</span>
               <span className="badge badge-info" style={{ textTransform: 'uppercase', fontSize: '9px' }}>{meterType}</span>
             </h3>
             
@@ -374,7 +388,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
                       setUnitId('');
                     }}
                   />
-                  💧 Water Meter
+                  <Droplets size={14} /> Water Meter
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', color: meterType === 'electricity' ? 'var(--primary)' : 'var(--text-secondary)', fontWeight: meterType === 'electricity' ? '600' : 'normal' }}>
                   <input
@@ -387,7 +401,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
                       setUnitId('');
                     }}
                   />
-                  ⚡ Electricity Meter
+                  <Zap size={14} /> Electricity Meter
                 </label>
               </div>
             </div>
@@ -422,12 +436,16 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
                               <div className="flex-row">
                                 <div>
                                   <strong style={{ fontSize: '14px' }}>Unit {u.unit_code}</strong>
-                                  <span style={{ marginLeft: '8px', fontSize: '11px', color: u.status === 'occupied' ? 'var(--success)' : 'var(--text-muted)' }}>
-                                    {u.status === 'occupied' ? `👤 ${u.tenant_name || 'Occupied'}` : 'Vacant'}
+                                  <span style={{ marginLeft: '8px', fontSize: '11px', color: u.status === 'occupied' ? 'var(--success)' : 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                    {u.status === 'occupied' ? (
+                                      <>
+                                        <User size={12} /> {u.tenant_name || 'Occupied'}
+                                      </>
+                                    ) : 'Vacant'}
                                   </span>
                                 </div>
                                 {isSubmitted ? (
-                                  <span className="badge badge-success">✓ Submitted</span>
+                                  <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Check size={10} /> Submitted</span>
                                 ) : (
                                   <span className="badge badge-warning" style={{ fontSize: '9px' }}>Pending</span>
                                 )}
@@ -513,12 +531,16 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
                                 <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: '8px' }}>
                                   ({prop ? prop.name : 'Property'})
                                 </span>
-                                <div style={{ fontSize: '11px', color: u.status === 'occupied' ? 'var(--success)' : 'var(--text-muted)', marginTop: '2px' }}>
-                                  {u.status === 'occupied' ? `👤 Tenant: ${u.tenant_name || 'Occupied'}` : 'Vacant'}
+                                <div style={{ fontSize: '11px', color: u.status === 'occupied' ? 'var(--success)' : 'var(--text-muted)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  {u.status === 'occupied' ? (
+                                    <>
+                                      <User size={12} /> Tenant: {u.tenant_name || 'Occupied'}
+                                    </>
+                                  ) : 'Vacant'}
                                 </div>
                               </div>
                               {isSubmitted ? (
-                                <span className="badge badge-success">✓ Submitted</span>
+                                <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}><Check size={10} /> Submitted</span>
                               ) : (
                                 <span className="badge badge-warning" style={{ fontSize: '9px' }}>Pending</span>
                               )}
@@ -631,7 +653,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
                 /* Active Chat Window */
                 <div className="chat-window">
                   <div className="flex-row" style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
-                    <strong>💬 Landlord: Maina Kamau</strong>
+                    <strong style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={14} /> Landlord: Maina Kamau</strong>
                     <button className="btn btn-secondary btn-sm" onClick={() => setActivePartnerId(null)}>Close Chat</button>
                   </div>
 
@@ -671,8 +693,10 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
       {activeTab === 'profile' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           
-          <div className="card" style={{ textAlign: 'center' }}>
-            <span style={{ fontSize: '64px' }}>👤</span>
+          <div className="card" style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px', color: 'var(--text-secondary)' }}>
+              <User size={64} />
+            </div>
             <h2 style={{ fontSize: '22px', marginTop: '10px' }}>{user.name}</h2>
             <p style={{ fontSize: '13px' }}>Role: Caretaker</p>
             <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Email: {user.email} • Phone: {user.phone_number}</p>
@@ -683,14 +707,14 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
             <p style={{ fontSize: '12px', marginBottom: '14px' }}>Quick links to initiate contact with the Property Landlord.</p>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <a href={`tel:${user.phone_number}`} className="btn btn-secondary" style={{ textDecoration: 'none' }}>
-                📞 Call Landlord Direct
+              <a href={`tel:${user.phone_number}`} className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <Phone size={14} /> Call Landlord Direct
               </a>
-              <a href="https://wa.me/254712345678" target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ textDecoration: 'none' }}>
-                💬 WhatsApp Message
+              <a href="https://wa.me/254712345678" target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <MessageSquare size={14} /> WhatsApp Message
               </a>
-              <a href={`sms:${user.phone_number}`} className="btn btn-secondary" style={{ textDecoration: 'none' }}>
-                ✉️ Send SMS Message
+              <a href={`sms:${user.phone_number}`} className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <Mail size={14} /> Send SMS Message
               </a>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Lock } from 'lucide-react';
 
 export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizationId }) {
   const [pin, setPin] = useState('');
@@ -52,8 +53,8 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizat
   return (
     <div className="modal-backdrop">
       <div className="modal-content">
-        <h3 className="card-title" style={{ fontSize: '18px', textAlign: 'center', marginBottom: '10px' }}>
-          🔒 Enter Security PIN
+        <h3 className="card-title" style={{ fontSize: '18px', textAlign: 'center', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          <Lock size={18} /> Enter Security PIN
         </h3>
         <p style={{ fontSize: '13px', textAlign: 'center', marginBottom: '20px' }}>
           This is a protected action. Please input your 6-digit security PIN to confirm.

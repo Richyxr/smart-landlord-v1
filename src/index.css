@@ -3107,3 +3107,46 @@ html[data-theme="light"] .sl-loading-spinner {
     0 0 14px rgba(124, 58, 237, 0.18),
     0 0 10px rgba(234, 88, 12, 0.14);
 }
+
+/* Interactive Clickable Metrics & Readiness Cards */
+.sl-metric-card.sl-clickable,
+.setup-row.sl-clickable {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.sl-metric-card.sl-clickable:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+  background-color: rgba(18, 20, 32, 0.95);
+}
+
+.sl-metric-card.sl-clickable:focus-visible,
+.setup-row.sl-clickable:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.sl-metric-card.sl-clickable:active {
+  transform: translateY(0);
+  background-color: rgba(18, 20, 32, 0.98);
+}
+
+/* Checklist row interactive hover */
+.setup-row.sl-clickable:hover {
+  background-color: var(--bg-surface-elevated) !important;
+  border-color: var(--primary) !important;
+  padding-left: 14px !important;
+}
+
+.setup-row.sl-clickable:active {
+  transform: scale(0.995);
+}
+
+/* Light theme overrides for clickable cards */
+html[data-theme="light"] .sl-metric-card.sl-clickable:hover {
+  border-color: var(--primary);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+  background-color: rgba(255, 255, 255, 1);
+}
