@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
-import { CircleDollarSign, AlertTriangle, CheckCircle, Users, Zap, FileText, Printer, Bell, Check, CheckCircle2, Plus, DoorOpen, Droplets, Pencil, Clock, Mail, Phone, MessageSquare, Smartphone } from 'lucide-react';
+import { CircleDollarSign, AlertTriangle, CheckCircle, Users, Zap, FileText, Printer, Bell, Check, CheckCircle2, Plus, DoorOpen, Droplets, Pencil, Clock, Mail, Phone, MessageSquare, Smartphone, ChevronRight } from 'lucide-react';
 
 export default function Invoices({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab, onNavigate }) {
   const [invoices, setInvoices] = useState([]);
@@ -1005,13 +1005,14 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                       tabIndex={0}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedMobileTenant(t); } }}
                     >
-                      <div className="flex-row">
+                      <div className="flex-row" style={{ width: '100%' }}>
                         <span style={{ fontWeight: '700', fontSize: '14px', color: 'var(--text-primary)' }}>{t.full_name}</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <span className={`sl-status-badge ${arrearsVal > 0 ? 'sl-status-danger' : 'sl-status-success'}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
                             {arrearsVal > 0 ? 'Arrears' : 'No Arrears'}
                           </span>
                           <span style={{ fontWeight: '800', fontSize: '14px', color: 'var(--text-primary)' }}>{formatCurrency(dueVal)}</span>
+                          <ChevronRight size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
                         </div>
                       </div>
                     </div>

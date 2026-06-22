@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, MapPin, ClipboardList, Search, FileEdit, Droplets, Zap, User, Check, MessageSquare, Phone, Mail } from 'lucide-react';
+import { Building2, MapPin, ClipboardList, Search, FileEdit, Droplets, Zap, User, Check, MessageSquare, Phone, Mail, X } from 'lucide-react';
 
 export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh }) {
   const routeTabMap = {
@@ -41,6 +41,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
 
   const headers = {};
 
@@ -169,15 +170,17 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
   };
 
   const handleInlineSubmit = async (uId, pId) => {
+    setInfoMessage('');
+    setError('');
     const readingVal = bulkReadings[uId];
     if (!readingVal) {
-      alert('Please enter a reading value.');
+      setError('Please enter a reading value.');
       return;
     }
 
     const prevVal = getPrevReadingForUnit(uId);
     if (parseInt(readingVal) < prevVal) {
-      alert(`Current reading cannot be lower than the previous reading of ${prevVal}.`);
+      setError(`Current reading cannot be lower than the previous reading of ${prevVal}.`);
       return;
     }
 
@@ -185,10 +188,9 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
     try {
       await submitReading(pId, uId, parseInt(readingVal), bulkNotes[uId]);
       setSubmittedUnitIds(prev => [...prev, parseInt(uId)]);
-      alert(`Unit reading submitted successfully!`);
+      setInfoMessage(`Unit reading submitted successfully!`);
       fetchData(); // Refresh history and units state
     } catch (err) {
-      alert(err.message);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -199,6 +201,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
     e.preventDefault();
     setLoading(true);
     setError('');
+    setInfoMessage('');
 
     const prevVal = getPrevReadingForUnit(unitId);
     const currVal = parseInt(currentReading);
@@ -217,7 +220,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
 
     try {
       await submitReading(propId, unitId, currVal, notes);
-      alert('Meter reading submitted successfully!');
+      setInfoMessage('Meter reading submitted successfully!');
       setActiveTab('history');
       setPropId('');
       setUnitId('');
@@ -237,37 +240,67 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)' }}>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'dashboard' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'dashboard' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '12px', cursor: 'pointer' }}
-          onClick={() => { setActiveTab('dashboard'); setActivePartnerId(null); }}
+          onClick={() => { setActiveTab('dashboard'); setActivePartnerId(null); setError(''); setInfoMessage(''); }}
         >
           Dashboard
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'submit' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'submit' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '12px', cursor: 'pointer' }}
-          onClick={() => { setActiveTab('submit'); setActivePartnerId(null); }}
+          onClick={() => { setActiveTab('submit'); setActivePartnerId(null); setError(''); setInfoMessage(''); }}
         >
           New Reading
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'history' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'history' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '12px', cursor: 'pointer' }}
-          onClick={() => { setActiveTab('history'); setActivePartnerId(null); }}
+          onClick={() => { setActiveTab('history'); setActivePartnerId(null); setError(''); setInfoMessage(''); }}
         >
           History
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'messages' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'messages' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '12px', cursor: 'pointer' }}
-          onClick={() => setActiveTab('messages')}
+          onClick={() => { setActiveTab('messages'); setError(''); setInfoMessage(''); }}
         >
           Messages
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'profile' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'profile' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '12px', cursor: 'pointer' }}
-          onClick={() => { setActiveTab('profile'); setActivePartnerId(null); }}
+          onClick={() => { setActiveTab('profile'); setActivePartnerId(null); setError(''); setInfoMessage(''); }}
         >
           Profile
         </button>
       </div>
 
-      {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>{error}</div>}
+      {error && <div role="alert" className="badge badge-danger" style={{ display: 'block', padding: '10px 14px', borderRadius: 'var(--radius-sm)', fontSize: '13px', marginBottom: '12px', textAlign: 'left', fontWeight: '500', width: '100%', boxSizing: 'border-box' }}>{error}</div>}
+
+      {infoMessage && (
+        <div
+          role="status"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-sm)',
+            background: 'var(--primary-glow)',
+            border: '1px solid var(--primary)',
+            color: 'var(--text-primary)',
+            fontSize: '13px',
+            marginBottom: '12px',
+            lineHeight: '1.4'
+          }}
+        >
+          <Check size={16} style={{ color: 'var(--primary)' }} />
+          <span style={{ flex: 1 }}>{infoMessage}</span>
+          <button
+            type="button"
+            className="btn-ghost"
+            style={{ padding: '2px', minHeight: 'auto', width: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+            onClick={() => setInfoMessage('')}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* DASHBOARD VIEW */}
       {activeTab === 'dashboard' && (

@@ -35,6 +35,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
   const [deletionLog, setDeletionLog] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
 
   // Profile Form State
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -233,6 +234,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
   };
 
   const handleChecklistRowClick = (key) => {
+    setInfoMessage('');
+    setError('');
     switch (key) {
       case 'property_created':
         onNavigate?.('landlord_properties', 'properties');
@@ -254,7 +257,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         setShowProfileModal(true);
         break;
       case 'pin_created':
-        alert('Your 6-digit security PIN was configured during registration to protect financial actions.');
+        setInfoMessage('Your 6-digit security PIN was configured during registration to protect financial actions.');
         break;
       default:
         break;
@@ -345,7 +348,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       });
 
       if (!res.ok) throw new Error('Failed to save notification settings.');
-      alert('Notification settings saved successfully.');
+      setInfoMessage('Notification settings saved successfully.');
+      setError('');
       fetchData();
     } catch (err) {
       setError(err.message);
@@ -365,10 +369,11 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         const data = await res.json();
         throw new Error(data.error || 'Retry failed.');
       }
-      alert('Retry delivery initiated.');
+      setInfoMessage('Notification retry delivery initiated successfully.');
+      setError('');
       fetchData();
     } catch (err) {
-      alert(err.message);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -380,10 +385,11 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       const res = await fetch(`/api/integrations/${id}/test`, { method: 'POST', headers });
       if (!res.ok) throw new Error('Test failed.');
       const data = await res.json();
-      alert(`Test Result: ${data.status.toUpperCase()}\n${data.response_summary}`);
+      setInfoMessage(`Connection test result: ${data.status.toUpperCase()}. ${data.response_summary}`);
+      setError('');
       fetchData();
     } catch (e) {
-      alert('Failed to connect to gateway Sandbox.');
+      setError('Failed to connect to integration gateway Sandbox. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -395,7 +401,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
 
   const handleArchiveTrigger = () => {
     if (archiveCount === 0) {
-      alert('No reconciled transactions found before this date.');
+      setError('No reconciled transactions found before the selected date.');
       return;
     }
     setPinAction({ type: 'archive_tx' });
@@ -416,7 +422,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
           const data = await res.json();
           throw new Error(data.error || 'Failed to delete credentials.');
         }
-        alert('Credentials deleted.');
+        setInfoMessage('Integration credentials deleted successfully.');
+        setError('');
       } else if (pinAction.type === 'archive_tx') {
         const res = await fetch('/api/settings/archive', {
           method: 'POST',
@@ -429,7 +436,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Archive action failed.');
-        alert(`Successfully archived ${data.count} transaction records!`);
+        setInfoMessage(`Successfully archived ${data.count} transaction records.`);
+        setError('');
       }
 
       setPinAction(null);
@@ -485,7 +493,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         const data = await res.json();
         throw new Error(data.error || 'Deletion request failed.');
       }
-      alert('Data deletion request submitted successfully. Support team will review within 30 days.');
+      setInfoMessage('Data deletion request submitted successfully. The support team will review it within 30 days.');
+      setError('');
       setDeletionReason('');
       setTargetTenantId('');
       fetchData();
@@ -638,11 +647,15 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
               </div>
 
               <div className="form-group">
-                <label className="form-label">ID Number</label>
+                <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>ID Number</span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontWeight: 'normal' }}>National ID / Passport</span>
+                </label>
                 <input
                   type="text"
                   required
                   className="form-control"
+                  placeholder="e.g. 12345678"
                   value={profileIdNumber}
                   onChange={e => setProfileIdNumber(e.target.value)}
                 />
@@ -740,6 +753,9 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                   </select>
                 </div>
               </div>
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '-8px', marginBottom: '8px' }}>
+                Selecting a country automatically presets the standard currency (Kenya → KES, Uganda → UGX, Tanzania → TZS).
+              </p>
 
               <div className="form-group">
                 <label className="form-label">Business/Organization Name (Optional)</label>
@@ -785,9 +801,9 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       {!selectedInt && (
         <div className="settings-tabs">
           {[
-            { id: 'readiness', label: 'Checklist' },
-            { id: 'integrations', label: 'Gateways' },
-            { id: 'readings', label: 'Readings' },
+            { id: 'readiness', label: 'Setup Checklist' },
+            { id: 'integrations', label: 'Integrations' },
+            { id: 'readings', label: 'Caretaker Readings' },
             { id: 'archive', label: 'Archive' },
             { id: 'audits', label: 'Audit Logs' },
             { id: 'notifications', label: 'Notifications' },
@@ -797,7 +813,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
               key={tab.id}
               type="button"
               className={`settings-tab ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => { setActiveTab(tab.id); setError(''); setInfoMessage(''); }}
             >
               {tab.label}
             </button>
@@ -805,7 +821,37 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         </div>
       )}
 
-      {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>{error}</div>}
+      {error && <div role="alert" className="badge badge-danger" style={{ display: 'block', padding: '10px 14px', borderRadius: 'var(--radius-sm)', fontSize: '13px', marginBottom: '12px', textAlign: 'left', fontWeight: '500', width: '100%', boxSizing: 'border-box' }}>{error}</div>}
+
+      {infoMessage && (
+        <div
+          role="status"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-sm)',
+            background: 'var(--primary-glow)',
+            border: '1px solid var(--primary)',
+            color: 'var(--text-primary)',
+            fontSize: '13px',
+            marginBottom: '12px',
+            lineHeight: '1.4'
+          }}
+        >
+          <Check size={16} style={{ color: 'var(--primary)' }} />
+          <span style={{ flex: 1 }}>{infoMessage}</span>
+          <button
+            type="button"
+            className="btn-ghost"
+            style={{ padding: '2px', minHeight: 'auto', width: 'auto', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}
+            onClick={() => setInfoMessage('')}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* MAPPING INTEGRATION FORMS */}
       {selectedInt && (
@@ -827,15 +873,16 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
               <>
                 <div className="form-group">
                   <label className="form-label">Username</label>
-                  <input type="text" required className="form-control" placeholder="sandbox" value={apiUsername} onChange={e => setApiUsername(e.target.value)} />
+                  <input type="text" required className="form-control" placeholder="Use 'sandbox' for testing" value={apiUsername} onChange={e => setApiUsername(e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">API Key</label>
-                  <input type="password" required className="form-control" placeholder="API Key" value={apiKey} onChange={e => setApiKey(e.target.value)} />
+                  <input type="password" required className="form-control" placeholder="Africa's Talking API Key" value={apiKey} onChange={e => setApiKey(e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Sender ID</label>
-                  <input type="text" required className="form-control" placeholder="SMARTLAND" value={senderId} onChange={e => setSenderId(e.target.value)} />
+                  <input type="text" required className="form-control" placeholder="Approved Sender ID (e.g., SMARTLAND)" value={senderId} onChange={e => setSenderId(e.target.value)} />
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Required for custom branded SMS alerts.</span>
                 </div>
               </>
             )}
@@ -844,19 +891,20 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
               <>
                 <div className="form-group">
                   <label className="form-label">Lipa na M-Pesa Paybill / Till Number</label>
-                  <input type="text" required className="form-control" placeholder="174379" value={shortcode} onChange={e => setShortcode(e.target.value)} />
+                  <input type="text" required className="form-control" placeholder="e.g. 174379" value={shortcode} onChange={e => setShortcode(e.target.value)} />
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Use Sandbox Paybill 174379 for testing.</span>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Consumer Key</label>
-                  <input type="text" required className="form-control" placeholder="Consumer Key" value={consumerKey} onChange={e => setConsumerKey(e.target.value)} />
+                  <input type="text" required className="form-control" placeholder="Consumer Key from Safaricom Developer Portal" value={consumerKey} onChange={e => setConsumerKey(e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Consumer Secret</label>
-                  <input type="password" required className="form-control" placeholder="Consumer Secret" value={consumerSecret} onChange={e => setConsumerSecret(e.target.value)} />
+                  <input type="password" required className="form-control" placeholder="Consumer Secret from Safaricom Developer Portal" value={consumerSecret} onChange={e => setConsumerSecret(e.target.value)} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Passkey</label>
-                  <input type="password" required className="form-control" placeholder="Passkey" value={passkey} onChange={e => setPasskey(e.target.value)} />
+                  <input type="password" required className="form-control" placeholder="Lipa Na M-Pesa Online Passkey" value={passkey} onChange={e => setPasskey(e.target.value)} />
                 </div>
               </>
             )}
@@ -874,7 +922,9 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div className="card">
             <h3 className="card-title">Setup & Readiness Checklist</h3>
-            <p style={{ fontSize: '12px', marginBottom: '14px' }}>Verify your dashboard config state before receiving live payments.</p>
+            <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
+              Complete the setup tasks below to verify your account configuration before billing tenants. Tap any pending item to configure it.
+            </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {checklist && Object.keys(checklist).map(key => (
