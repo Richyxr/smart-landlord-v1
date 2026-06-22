@@ -107,7 +107,7 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       org = {
         ...org,
         is_locked: false,
-        subscription_status: 'active'
+        subscription_status: org.subscription_status || 'active'
       };
     }
 
@@ -524,9 +524,27 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         paid_at: new Date().toISOString()
       });
 
+      const org = await pgDb.findOne('organizations', { id: parseInt(payment.organization_id) });
+      let baseTime = Date.now();
+      if (org) {
+        if (org.subscription_status === 'trial' && org.trial_ends_at) {
+          const trialEnd = new Date(org.trial_ends_at).getTime();
+          if (!isNaN(trialEnd) && trialEnd > Date.now()) {
+            baseTime = trialEnd;
+          }
+        } else if (org.subscription_status === 'active' && org.subscription_expires_at) {
+          const currentExpires = new Date(org.subscription_expires_at).getTime();
+          if (!isNaN(currentExpires) && currentExpires > Date.now()) {
+            baseTime = currentExpires;
+          }
+        }
+      }
+      const newExpires = new Date(baseTime + 30 * 24 * 60 * 60 * 1000).toISOString();
+
       await pgDb.update('organizations', parseInt(payment.organization_id), {
         is_locked: false,
-        subscription_status: 'active'
+        subscription_status: 'active',
+        subscription_expires_at: newExpires
       });
 
       await pgDb.insert('system_audit_logs', {
@@ -549,9 +567,27 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         paid_at: new Date().toISOString()
       });
 
+      const org = localDb.findOne('organizations', { id: payment.organization_id });
+      let baseTime = Date.now();
+      if (org) {
+        if (org.subscription_status === 'trial' && org.trial_ends_at) {
+          const trialEnd = new Date(org.trial_ends_at).getTime();
+          if (!isNaN(trialEnd) && trialEnd > Date.now()) {
+            baseTime = trialEnd;
+          }
+        } else if (org.subscription_status === 'active' && org.subscription_expires_at) {
+          const currentExpires = new Date(org.subscription_expires_at).getTime();
+          if (!isNaN(currentExpires) && currentExpires > Date.now()) {
+            baseTime = currentExpires;
+          }
+        }
+      }
+      const newExpires = new Date(baseTime + 30 * 24 * 60 * 60 * 1000).toISOString();
+
       localDb.update('organizations', payment.organization_id, {
         is_locked: false,
-        subscription_status: 'active'
+        subscription_status: 'active',
+        subscription_expires_at: newExpires
       });
 
       localDb.insert('system_audit_logs', {

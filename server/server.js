@@ -235,20 +235,41 @@ async function attachSessionContext(req, res, next) {
 // Helper for Organization Billing / Lockout check
 async function checkOrganizationLock(req, res, next) {
   try {
-    // Demo/MVP deployments should not lock newly registered landlord accounts.
-    // Real SaaS lock enforcement should be re-enabled only after billing/payment flows are production-ready.
-    if (DEMO_MODE) {
-      return next();
-    }
-
     const orgId = req.auth?.organizationId;
     if (orgId) {
-      const org = await activeFindOne('organizations', { id: orgId });
-      if (org && org.is_locked && !req.path.startsWith('/api/saas') && !req.path.startsWith('/api/admin')) {
-        return res.status(403).json({
-          error: 'LOCKED',
-          message: 'Your account is temporarily locked due to an overdue platform invoice. Please complete payment to restore access.'
-        });
+      const activeDb = pgDb || db;
+      let org = await activeDb.findOne('organizations', { id: orgId });
+      if (org) {
+        let needsUpdate = false;
+        let subscriptionStatus = org.subscription_status;
+        let isLocked = org.is_locked;
+
+        if (org.subscription_status === 'trial' && org.trial_ends_at && Date.now() > new Date(org.trial_ends_at).getTime()) {
+          subscriptionStatus = 'overdue';
+          isLocked = true;
+          needsUpdate = true;
+        } else if (org.subscription_status === 'active' && org.subscription_expires_at && Date.now() > new Date(org.subscription_expires_at).getTime()) {
+          subscriptionStatus = 'overdue';
+          isLocked = true;
+          needsUpdate = true;
+        }
+
+        if (needsUpdate) {
+          await activeDb.update('organizations', org.id, {
+            subscription_status: subscriptionStatus,
+            is_locked: isLocked
+          });
+          org = await activeDb.findOne('organizations', { id: orgId });
+        }
+
+        // Demo/MVP deployments should not lock newly registered landlord accounts.
+        // Real SaaS lock enforcement should be re-enabled only after billing/payment flows are production-ready.
+        if (!DEMO_MODE && org.is_locked && !req.path.startsWith('/api/saas') && !req.path.startsWith('/api/admin')) {
+          return res.status(403).json({
+            error: 'LOCKED',
+            message: 'Your account is temporarily locked due to an overdue platform invoice. Please complete payment to restore access.'
+          });
+        }
       }
     }
     next();
@@ -331,7 +352,7 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
       : null;
 
     if (!organization) {
-      const orgName = profile.type === 'company' ? displayName : `${displayName}'s Rental Org`;
+      const orgName = displayName;
 
       organization = await activeInsert('organizations', {
         owner_user_id: user.id,
@@ -344,7 +365,10 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
         country: profile.country || 'Kenya',
         billing_currency: profile.billing_currency || 'KES',
         subscription_tier: 'standard',
-        subscription_status: 'active',
+        subscription_status: 'trial',
+        trial_start_at: new Date().toISOString(),
+        trial_ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        subscription_expires_at: null,
         is_locked: false,
         security_pin_hash: '',
         status: 'active'
@@ -491,7 +515,7 @@ app.post('/api/auth/register', (req, res) => {
   });
 
   // 2. Create organization
-  const orgName = type === 'company' ? name : `${name}'s Rental Org`;
+  const orgName = name;
   const org = db.insert('organizations', {
     owner_user_id: user.id,
     name: orgName,
@@ -503,7 +527,10 @@ app.post('/api/auth/register', (req, res) => {
     country: country || 'Kenya',
     billing_currency: billing_currency || 'KES',
     subscription_tier: 'standard',
-    subscription_status: 'active',
+    subscription_status: 'trial',
+    trial_start_at: new Date().toISOString(),
+    trial_ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    subscription_expires_at: null,
     is_locked: false,
     security_pin_hash: '', // Set later
     status: 'active'
@@ -2849,9 +2876,11 @@ app.get('/api/settings/readiness', async (req, res) => {
   const tenants = await activeDb.find('tenants', { organization_id: orgId, deleted_at: null });
   const integrations = await activeDb.find('organization_integrations', { organization_id: orgId });
   const pinSet = org.security_pin_hash ? true : false;
+  const profileNameParts = (org.name || '').trim().split(/\s+/).filter(Boolean);
+  const hasPersonName = org.name !== 'Rental Org' && profileNameParts.length >= 2;
 
   const checklist = {
-    profile_complete: org.registration_number || org.tax_identifier ? true : false,
+    profile_complete: (hasPersonName && org.phone_number && org.email && org.country && org.billing_currency) ? true : false,
     pin_created: pinSet,
     property_created: props.length > 0,
     unit_created: units.length > 0,
@@ -2865,6 +2894,58 @@ app.get('/api/settings/readiness', async (req, res) => {
     checklist,
     is_ready: Object.values(checklist).every(v => v === true)
   });
+});
+
+// Update Organization Profile details
+app.put('/api/settings/profile', async (req, res) => {
+  const orgId = req.auth?.organizationId;
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
+  const activeDb = pgDb || db;
+
+  if (!orgId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const org = await activeDb.findOne('organizations', { id: orgId });
+  if (!org) return res.status(404).json({ error: 'Organization not found' });
+
+  const { first_name, last_name, name, email, phone_number, alt_phone_number, id_number, country, billing_currency, type, business_name, registration_number, tax_identifier } = req.body;
+  const personName = [first_name, last_name].map(part => (part || '').trim()).filter(Boolean).join(' ');
+  const normalizedName = name !== undefined ? name : (personName || undefined);
+
+  const updates = {
+    name: normalizedName !== undefined ? normalizedName : org.name,
+    email: email !== undefined ? email : org.email,
+    phone_number: phone_number !== undefined ? phone_number : org.phone_number,
+    alt_phone_number: alt_phone_number !== undefined ? alt_phone_number : org.alt_phone_number,
+    id_number: id_number !== undefined ? id_number : org.id_number,
+    country: country !== undefined ? country : org.country,
+    billing_currency: billing_currency !== undefined ? billing_currency : org.billing_currency,
+    type: type !== undefined ? type : org.type,
+    business_name: business_name !== undefined ? business_name : org.business_name,
+    registration_number: registration_number !== undefined ? registration_number : org.registration_number,
+    tax_identifier: tax_identifier !== undefined ? tax_identifier : org.tax_identifier
+  };
+
+  // For individual landlords, keep registration_number synced with id_number if provided
+  if (updates.type === 'individual' && updates.id_number) {
+    updates.registration_number = updates.id_number;
+  }
+
+  await activeDb.update('organizations', orgId, updates);
+  const updatedOrg = await activeDb.findOne('organizations', { id: orgId });
+
+  // Sync owner user details
+  if (updatedOrg.owner_user_id) {
+    await activeDb.update('users', updatedOrg.owner_user_id, {
+      name: updatedOrg.name,
+      email: updatedOrg.email,
+      phone_number: updatedOrg.phone_number
+    });
+  }
+
+  await activeDb.logAudit(orgId, userId, role, 'profile_updated', 'organizations', orgId, org, updatedOrg, 'Landlord profile details updated.');
+
+  res.json({ organization: updatedOrg });
 });
 
 // Financial Archive (Requires PIN)

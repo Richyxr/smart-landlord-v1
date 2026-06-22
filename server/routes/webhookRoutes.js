@@ -822,9 +822,27 @@ export function createWebhookRoutes(pgDb, { demoMode = false } = {}) {
           paid_at: new Date().toISOString()
         });
 
+        const org = await pgDb.findOne('organizations', { id: parseInt(matchedOrgId) });
+        let baseTime = Date.now();
+        if (org) {
+          if (org.subscription_status === 'trial' && org.trial_ends_at) {
+            const trialEnd = new Date(org.trial_ends_at).getTime();
+            if (!isNaN(trialEnd) && trialEnd > Date.now()) {
+              baseTime = trialEnd;
+            }
+          } else if (org.subscription_status === 'active' && org.subscription_expires_at) {
+            const currentExpires = new Date(org.subscription_expires_at).getTime();
+            if (!isNaN(currentExpires) && currentExpires > Date.now()) {
+              baseTime = currentExpires;
+            }
+          }
+        }
+        const newExpires = new Date(baseTime + 30 * 24 * 60 * 60 * 1000).toISOString();
+
         await pgDb.update('organizations', parseInt(matchedOrgId), {
           is_locked: false,
-          subscription_status: 'active'
+          subscription_status: 'active',
+          subscription_expires_at: newExpires
         });
 
         await pgDb.insert('system_audit_logs', {
@@ -852,9 +870,27 @@ export function createWebhookRoutes(pgDb, { demoMode = false } = {}) {
           paid_at: new Date().toISOString()
         });
 
+        const org = db.findOne('organizations', { id: matchedOrgId });
+        let baseTime = Date.now();
+        if (org) {
+          if (org.subscription_status === 'trial' && org.trial_ends_at) {
+            const trialEnd = new Date(org.trial_ends_at).getTime();
+            if (!isNaN(trialEnd) && trialEnd > Date.now()) {
+              baseTime = trialEnd;
+            }
+          } else if (org.subscription_status === 'active' && org.subscription_expires_at) {
+            const currentExpires = new Date(org.subscription_expires_at).getTime();
+            if (!isNaN(currentExpires) && currentExpires > Date.now()) {
+              baseTime = currentExpires;
+            }
+          }
+        }
+        const newExpires = new Date(baseTime + 30 * 24 * 60 * 60 * 1000).toISOString();
+
         db.update('organizations', matchedOrgId, {
           is_locked: false,
-          subscription_status: 'active'
+          subscription_status: 'active',
+          subscription_expires_at: newExpires
         });
 
         db.insert('system_audit_logs', {
@@ -957,9 +993,27 @@ export function createWebhookRoutes(pgDb, { demoMode = false } = {}) {
             paid_at: new Date().toISOString()
           });
 
+          const org = await pgDb.findOne('organizations', { id: parseInt(platformPayment.organization_id) });
+          let baseTime = Date.now();
+          if (org) {
+            if (org.subscription_status === 'trial' && org.trial_ends_at) {
+              const trialEnd = new Date(org.trial_ends_at).getTime();
+              if (!isNaN(trialEnd) && trialEnd > Date.now()) {
+                baseTime = trialEnd;
+              }
+            } else if (org.subscription_status === 'active' && org.subscription_expires_at) {
+              const currentExpires = new Date(org.subscription_expires_at).getTime();
+              if (!isNaN(currentExpires) && currentExpires > Date.now()) {
+                baseTime = currentExpires;
+              }
+            }
+          }
+          const newExpires = new Date(baseTime + 30 * 24 * 60 * 60 * 1000).toISOString();
+
           await pgDb.update('organizations', parseInt(platformPayment.organization_id), {
             is_locked: false,
-            subscription_status: 'active'
+            subscription_status: 'active',
+            subscription_expires_at: newExpires
           });
 
           await pgDb.insert('system_audit_logs', {
@@ -981,9 +1035,27 @@ export function createWebhookRoutes(pgDb, { demoMode = false } = {}) {
             paid_at: new Date().toISOString()
           });
 
+          const org = db.findOne('organizations', { id: platformPayment.organization_id });
+          let baseTime = Date.now();
+          if (org) {
+            if (org.subscription_status === 'trial' && org.trial_ends_at) {
+              const trialEnd = new Date(org.trial_ends_at).getTime();
+              if (!isNaN(trialEnd) && trialEnd > Date.now()) {
+                baseTime = trialEnd;
+              }
+            } else if (org.subscription_status === 'active' && org.subscription_expires_at) {
+              const currentExpires = new Date(org.subscription_expires_at).getTime();
+              if (!isNaN(currentExpires) && currentExpires > Date.now()) {
+                baseTime = currentExpires;
+              }
+            }
+          }
+          const newExpires = new Date(baseTime + 30 * 24 * 60 * 60 * 1000).toISOString();
+
           db.update('organizations', platformPayment.organization_id, {
             is_locked: false,
-            subscription_status: 'active'
+            subscription_status: 'active',
+            subscription_expires_at: newExpires
           });
 
           db.insert('system_audit_logs', {

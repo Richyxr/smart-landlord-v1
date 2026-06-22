@@ -238,6 +238,10 @@ export default function App() {
     triggerRefresh();
   };
 
+  const handleUpdateOrganization = (updatedOrg) => {
+    setOrganization(updatedOrg);
+  };
+
   if (authRestoring) {
     return (
       <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center', textAlign: 'center' }}>
@@ -297,6 +301,7 @@ export default function App() {
             initialSubTab={settingsSubTab}
             clearInitialSubTab={() => setSettingsSubTab(null)}
             onNavigate={handleNavigate}
+            onUpdateOrganization={handleUpdateOrganization}
           />
         );
       

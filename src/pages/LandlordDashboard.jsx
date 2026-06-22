@@ -22,7 +22,10 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
     unmatchedCount: 0,
     pendingReadingsCount: 0,
     saasLocked: false,
-    readinessStatus: false
+    readinessStatus: false,
+    subscriptionStatus: 'active',
+    trialEndsAt: null,
+    subscriptionExpiresAt: null
   });
   const [recentPayments, setRecentPayments] = useState([]);
   const [recentInvoices, setRecentInvoices] = useState([]);
@@ -88,7 +91,10 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
         unmatchedCount: staging.filter((r) => r.status === 'unmatched' || r.status === 'needs_review').length,
         pendingReadingsCount: readings.filter((r) => r.status === 'submitted').length,
         saasLocked: saas.organization.is_locked,
-        readinessStatus: readiness.is_ready
+        readinessStatus: readiness.is_ready,
+        subscriptionStatus: saas.organization.subscription_status,
+        trialEndsAt: saas.organization.trial_ends_at,
+        subscriptionExpiresAt: saas.organization.subscription_expires_at
       });
 
       setRecentPayments(payments.slice(0, 3));
@@ -106,6 +112,38 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
       currency: organization.billing_currency || 'KES',
       maximumFractionDigits: 0
     }).format(val);
+  };
+
+  const getSubscriptionStatusText = () => {
+    if (stats.saasLocked) {
+      return 'Locked';
+    }
+    if (stats.subscriptionStatus === 'trial') {
+      if (stats.trialEndsAt) {
+        const dateStr = new Date(stats.trialEndsAt).toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+        return `Trial expires: ${dateStr}`;
+      }
+      return 'Trial';
+    }
+    if (stats.subscriptionStatus === 'active') {
+      if (stats.subscriptionExpiresAt) {
+        const dateStr = new Date(stats.subscriptionExpiresAt).toLocaleDateString('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+        return `Expiry: ${dateStr}`;
+      }
+      return 'Active Subscription';
+    }
+    if (stats.subscriptionStatus === 'overdue') {
+      return 'Subscription Overdue';
+    }
+    return 'Active Subscription';
   };
 
   const invoiceStatusTone = (status) => {
@@ -128,13 +166,15 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
   return (
     <div className="sl-dashboard-stack">
       <DashboardCard accent="primary">
-        <p className="kpi-lbl" style={{ color: 'var(--primary)' }}>Organization</p>
+        <p className="kpi-lbl" style={{ color: 'var(--primary)' }}>
+          {organization.type === 'company' ? 'Company' : 'Landlord'}
+        </p>
         <h2 style={{ fontSize: '20px', fontWeight: '800', fontFamily: 'var(--font-title)', marginTop: '2px' }}>
           {organization.name}
         </h2>
         <div className="flex-row" style={{ marginTop: '12px' }}>
-          <StatusBadge tone={stats.saasLocked ? 'danger' : 'success'}>
-            {stats.saasLocked ? 'Locked' : 'Active Subscription'}
+          <StatusBadge tone={(stats.saasLocked || stats.subscriptionStatus === 'overdue') ? 'danger' : 'success'}>
+            {getSubscriptionStatusText()}
           </StatusBadge>
           <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
             Currency: <strong>{organization.billing_currency}</strong>
