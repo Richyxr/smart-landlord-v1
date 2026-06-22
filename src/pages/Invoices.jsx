@@ -493,8 +493,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                 <Printer size={14} /> Print
               </button>
               <button
-                className="btn btn-sm"
-                style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', padding: '6px 14px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}
+                className="btn btn-warning btn-sm"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                 onClick={() => openReminderModal(viewInvoice.id)}
                 disabled={loading}
               >
@@ -650,8 +650,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                 Cancel
               </button>
               <button
-                className="btn btn-primary"
-                style={{ flex: 2, background: 'linear-gradient(135deg, #f59e0b, #d97706)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                className="btn btn-warning"
+                style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                 onClick={confirmSendReminder}
                 disabled={loading}
               >
@@ -1092,8 +1092,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                   )}
                   {(inv.status === 'issued' || inv.status === 'overdue') && (
                     <button
-                      className="btn btn-sm"
-                      style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', padding: '5px 10px', fontWeight: '600' }}
+                      className="btn btn-warning btn-sm"
                       onClick={() => openReminderModal(inv.id)}
                       disabled={loading}
                     >
