@@ -3531,3 +3531,119 @@ html[data-theme="light"] .app-header {
     display: flex !important;
   }
 }
+
+/* Polished Settings segmented tab bar */
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 18px;
+}
+
+.settings-tab {
+  flex: 1 1 calc(33.333% - 6px);
+  min-width: 80px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 11px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: center;
+  transition: all var(--transition-fast);
+}
+
+.settings-tab:hover {
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.settings-tab.active {
+  color: #fff !important;
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.25);
+}
+
+/* Light mode support for settings tabs */
+html[data-theme="light"] .settings-tabs {
+  background-color: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+}
+
+html[data-theme="light"] .settings-tab {
+  color: #475569 !important;
+}
+
+html[data-theme="light"] .settings-tab:hover {
+  color: #0f172a !important;
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+html[data-theme="light"] .settings-tab.active {
+  color: #fff !important;
+  background: linear-gradient(135deg, var(--primary), var(--accent)) !important;
+  border-color: transparent !important;
+}
+
+/* Bottom Nav active & hover refinements */
+.nav-item {
+  position: relative;
+  transition: all var(--transition-fast);
+}
+
+.nav-item:hover {
+  color: var(--text-primary) !important;
+}
+
+.nav-item-active {
+  color: #a78bfa !important;
+}
+
+html[data-theme="light"] .nav-item:hover {
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .nav-item-active {
+  color: var(--primary) !important;
+  text-shadow: 0 1px 2px rgba(99, 102, 241, 0.1);
+}
+
+html[data-theme="light"] .nav-item-active .nav-icon {
+  filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.3)) !important;
+}
+
+/* Sidebar Item Active/Hover Indicator Refinements */
+.sidebar-item {
+  position: relative;
+  transition: all var(--transition-fast);
+  border-right: 3px solid transparent;
+}
+
+.sidebar-item:hover {
+  color: var(--text-primary) !important;
+  background-color: rgba(124, 58, 237, 0.06);
+}
+
+.sidebar-item.active {
+  border-right-color: var(--primary);
+  background-color: rgba(124, 58, 237, 0.16);
+  box-shadow: 0 10px 26px rgba(99, 102, 241, 0.10);
+}
+
+html[data-theme="light"] .sidebar-item:hover {
+  background-color: rgba(99, 102, 241, 0.05) !important;
+  color: var(--primary) !important;
+}
+
+html[data-theme="light"] .sidebar-item.active {
+  background-color: rgba(99, 102, 241, 0.10) !important;
+  color: var(--primary) !important;
+  border-right-color: var(--primary) !important;
+}

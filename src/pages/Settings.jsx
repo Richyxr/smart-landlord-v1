@@ -783,49 +783,25 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
 
       {/* SETTINGS MENU TABS */}
       {!selectedInt && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)' }}>
-          <button
-            style={{ flex: '1 1 30%', padding: '10px 0', border: 'none', background: 'none', color: activeTab === 'readiness' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'readiness' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-            onClick={() => setActiveTab('readiness')}
-          >
-            Checklist
-          </button>
-          <button
-            style={{ flex: '1 1 30%', padding: '10px 0', border: 'none', background: 'none', color: activeTab === 'integrations' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'integrations' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-            onClick={() => setActiveTab('integrations')}
-          >
-            Gateways
-          </button>
-          <button
-            style={{ flex: '1 1 30%', padding: '10px 0', border: 'none', background: 'none', color: activeTab === 'readings' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'readings' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-            onClick={() => setActiveTab('readings')}
-          >
-            Readings
-          </button>
-          <button
-            style={{ flex: '1 1 30%', padding: '10px 0', border: 'none', background: 'none', color: activeTab === 'archive' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'archive' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-            onClick={() => setActiveTab('archive')}
-          >
-            Archive
-          </button>
-          <button
-            style={{ flex: '1 1 30%', padding: '10px 0', border: 'none', background: 'none', color: activeTab === 'audits' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'audits' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-            onClick={() => setActiveTab('audits')}
-          >
-            Audit Logs
-          </button>
-          <button
-            style={{ flex: '1 1 30%', padding: '10px 0', border: 'none', background: 'none', color: activeTab === 'notifications' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'notifications' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-            onClick={() => setActiveTab('notifications')}
-          >
-            Notifications
-          </button>
-          <button
-            style={{ flex: '1 1 30%', padding: '10px 0', border: 'none', background: 'none', color: activeTab === 'compliance' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'compliance' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-            onClick={() => setActiveTab('compliance')}
-          >
-            Compliance
-          </button>
+        <div className="settings-tabs">
+          {[
+            { id: 'readiness', label: 'Checklist' },
+            { id: 'integrations', label: 'Gateways' },
+            { id: 'readings', label: 'Readings' },
+            { id: 'archive', label: 'Archive' },
+            { id: 'audits', label: 'Audit Logs' },
+            { id: 'notifications', label: 'Notifications' },
+            { id: 'compliance', label: 'Compliance' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              className={`settings-tab ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
       )}
 
