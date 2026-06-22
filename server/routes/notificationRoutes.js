@@ -1,5 +1,6 @@
 import express from 'express';
 import { NotificationService } from '../notificationService.js';
+import { EmailNotConfiguredError, getMailerStatus, sendEmail } from '../mailerService.js';
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -27,6 +28,19 @@ function requireAuthenticatedContext(req, res, next) {
     return res.status(401).json({
       error: 'AUTHENTICATION_REQUIRED',
       message: 'A valid Smart Landlord session is required.'
+    });
+  }
+
+  next();
+}
+
+function requireSuperAdminContext(req, res, next) {
+  const { userId, role } = getContext(req);
+
+  if (!userId || role !== 'super_admin') {
+    return res.status(403).json({
+      error: 'SUPER_ADMIN_REQUIRED',
+      message: 'Super admin access is required.'
     });
   }
 
@@ -265,6 +279,86 @@ export function createNotificationRoutes(pgDb) {
     }
 
     res.json(updatedLog);
+  }));
+
+  // =========================================================================
+  // GET /admin/email-status — Super admin SMTP configuration status
+  // =========================================================================
+  router.get('/admin/email-status', requireSuperAdminContext, asyncHandler(async (_req, res) => {
+    res.json(getMailerStatus());
+  }));
+
+  // =========================================================================
+  // POST /admin/email-test — Super admin smoke test for SMTP delivery
+  // =========================================================================
+  router.post('/admin/email-test', requireSuperAdminContext, asyncHandler(async (req, res) => {
+    const { userId } = getContext(req);
+    const { to, subject, text, html } = req.body || {};
+
+    let recipient = to;
+    if (!recipient) {
+      if (pgDb) {
+        const user = await pgDb.findOne('users', { id: userId });
+        recipient = user?.email;
+      } else {
+        const { db } = await import('../db.js');
+        recipient = db.findOne('users', { id: userId })?.email;
+      }
+    }
+
+    if (!recipient) {
+      return res.status(400).json({
+        error: 'EMAIL_RECIPIENT_REQUIRED',
+        message: 'Provide a recipient email address.'
+      });
+    }
+
+    try {
+      const result = await sendEmail({
+        to: recipient,
+        subject: subject || 'Smart Landlord Email Smoke Test',
+        text: text || 'Smart Landlord SMTP email delivery is configured.',
+        html: html || '<p>Smart Landlord SMTP email delivery is configured.</p>'
+      });
+
+      if (pgDb) {
+        await pgDb.logAudit(
+          null,
+          userId,
+          'super_admin',
+          'email_smoke_test_sent',
+          'email',
+          null,
+          null,
+          { to: recipient, message_id: result.messageId },
+          'Super admin sent SMTP smoke test email.'
+        );
+      } else {
+        const { db } = await import('../db.js');
+        db.logAudit(
+          null,
+          userId,
+          'super_admin',
+          'email_smoke_test_sent',
+          'email',
+          null,
+          null,
+          { to: recipient, message_id: result.messageId },
+          'Super admin sent SMTP smoke test email.'
+        );
+      }
+
+      res.json({ success: true, message_id: result.messageId });
+    } catch (error) {
+      if (error instanceof EmailNotConfiguredError || error.code === 'email_not_configured') {
+        return res.status(503).json({
+          error: 'email_not_configured',
+          missing: error.missingVars || getMailerStatus().missing || []
+        });
+      }
+
+      throw error;
+    }
   }));
 
   return router;

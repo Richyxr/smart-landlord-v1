@@ -453,7 +453,7 @@ app.post('/api/auth/login', (req, res) => {
   }
 
   const { email, role: requestedRole } = req.body;
-  
+
   // Find user by email
   let user = db.findOne('users', { email });
   if (!user) {
@@ -578,7 +578,7 @@ app.post('/api/auth/setup-pin', (req, res) => {
   const hash = bcrypt.hashSync(pin, salt);
 
   db.update('organizations', parseInt(organization_id), { security_pin_hash: hash });
-  
+
   const org = db.findOne('organizations', { id: parseInt(organization_id) });
 
   db.logAudit(parseInt(organization_id), org.owner_user_id, 'landlord', 'security_pin_created', 'organization', org.id, null, null, 'Security PIN configured', 'success');
@@ -859,7 +859,7 @@ app.get('/api/properties', (req, res) => {
     const assignmentIds = assignments.map(a => a.id);
     const assignedPropLinks = db.get('staff_assignment_properties').filter(link => assignmentIds.includes(link.staff_assignment_id));
     const assignedPropIds = assignedPropLinks.map(link => link.property_id);
-    
+
     properties = properties.filter(p => assignedPropIds.includes(p.id));
   }
 
@@ -873,7 +873,7 @@ app.get('/api/properties', (req, res) => {
     const vacantCount = propUnits.filter(u => u.status === 'vacant').length;
     const occupiedCount = propUnits.filter(u => u.status === 'occupied').length;
     const underMaintCount = propUnits.filter(u => u.status === 'under_maintenance').length;
-    
+
     // Financial stats (June 2026 expected)
     const expected = propUnits.reduce((acc, curr) => acc + (curr.rent_amount || 0), 0);
     const paid = invoices
@@ -929,7 +929,7 @@ app.put('/api/properties/:id', (req, res) => {
   const oldVal = db.findOne('properties', { id: propId, organization_id: orgId });
 
   const updated = db.update('properties', { id: propId, organization_id: orgId }, req.body);
-  
+
   db.logAudit(orgId, userId, role, 'property_updated', 'property', propId, oldVal, updated[0]);
   res.json(updated[0]);
 });
@@ -968,7 +968,7 @@ app.get('/api/units', (req, res) => {
     const assignmentIds = assignments.map(a => a.id);
     const assignedPropLinks = db.get('staff_assignment_properties').filter(link => assignmentIds.includes(link.staff_assignment_id));
     const assignedPropIds = assignedPropLinks.map(link => link.property_id);
-    
+
     units = units.filter(u => assignedPropIds.includes(u.property_id));
   }
 
@@ -1021,7 +1021,7 @@ app.put('/api/units/:id', (req, res) => {
   const oldVal = db.findOne('units', { id: unitId, organization_id: orgId });
 
   const updated = db.update('units', { id: unitId, organization_id: orgId }, req.body);
-  
+
   db.logAudit(orgId, userId, role, 'unit_updated', 'unit', unitId, oldVal, updated[0]);
   res.json(updated[0]);
 });
@@ -1054,7 +1054,7 @@ app.get('/api/tenants', (req, res) => {
     const assignmentIds = assignments.map(a => a.id);
     const assignedPropLinks = db.get('staff_assignment_properties').filter(link => assignmentIds.includes(link.staff_assignment_id));
     const assignedPropIds = assignedPropLinks.map(link => link.property_id);
-    
+
     tenants = tenants.filter(t => assignedPropIds.includes(t.property_id));
   }
 
@@ -1066,7 +1066,7 @@ app.get('/api/tenants', (req, res) => {
   const detailedTenants = tenants.map(t => {
     const prop = properties.find(p => p.id === t.property_id);
     const unit = units.find(u => u.id === t.unit_id);
-    
+
     // Balance calculation
     const unpaidInvoices = invoices.filter(inv => inv.tenant_id === t.id && inv.status !== 'paid' && inv.status !== 'void');
     const totalArrears = unpaidInvoices.reduce((sum, inv) => sum + (inv.balance || 0), 0);
@@ -1683,7 +1683,7 @@ app.get('/api/reconciliation/sample-csv', (req, res) => {
 2026-06-16,15000,KCB-TR-88883,ACC-0020-G01,Bedsitter G01,John Mwangi
 2026-06-16,10000,KCB-TR-88884,ACC-0010-A2,Partial Payment,Alice Wambui
 2026-06-16,5000,KCB-TR-88885,,Cash Deposit,Samuel Nderitu`;
-  
+
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename=sample_bank_statement.csv');
   res.send(csvContent);
@@ -1698,7 +1698,7 @@ app.post('/api/reconciliation/upload', upload.single('file'), (req, res) => {
 
   try {
     const fileContent = fs.readFileSync(req.file.path, 'utf8');
-    
+
     // Simple line by line CSV parser
     const lines = fileContent.split('\n').map(line => line.trim()).filter(line => line.length > 0);
     if (lines.length < 2) {
@@ -1709,7 +1709,7 @@ app.post('/api/reconciliation/upload', upload.single('file'), (req, res) => {
     const rawRows = lines.slice(1).map((line, index) => {
       // Split by comma ignoring commas inside quotes if present (simplified regex for safety)
       const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.replace(/^"|"$/g, '').trim());
-      
+
       const row = {};
       headers.forEach((header, idx) => {
         row[header] = values[idx] || '';
@@ -1884,7 +1884,7 @@ app.post('/api/reconciliation/import-finalize', (req, res) => {
 
         tenantInvs.forEach(inv => {
           let invScore = 0;
-          
+
           // Exact invoice number match in description
           if (inv.invoice_number && descVal.toLowerCase().includes(inv.invoice_number.toLowerCase())) {
             invScore += 100;
@@ -1968,10 +1968,10 @@ app.post('/api/reconciliation/import-finalize', (req, res) => {
     // Delete temp upload file
     try {
       fs.unlinkSync(tempPath);
-    } catch (_) {}
+    } catch (_) { }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       batchId: batch.id,
       summary: {
         total: rows.length,
@@ -2140,7 +2140,7 @@ app.post('/api/reconciliation/ignore', (req, res) => {
 app.post('/api/webhooks/payment', (req, res) => {
   // Simulates MPesa Paybill callback format
   const { TransID, TransAmount, BillRefNumber, MSISDN, FirstName, MiddleName, LastName } = req.body;
-  
+
   if (!TransID || !TransAmount) {
     return res.status(400).json({ error: 'Invalid payload.' });
   }
@@ -2340,7 +2340,7 @@ app.get('/api/meter-readings', (req, res) => {
     const assignmentIds = assignments.map(a => a.id);
     const assignedPropLinks = db.get('staff_assignment_properties').filter(link => assignmentIds.includes(link.staff_assignment_id));
     const assignedPropIds = assignedPropLinks.map(link => link.property_id);
-    
+
     readings = readings.filter(r => assignedPropIds.includes(r.property_id));
   }
 
@@ -2380,7 +2380,7 @@ app.post('/api/meter-readings', (req, res) => {
   const previousReadings = db.find('meter_readings', { unit_id: unit.id, meter_type })
     .filter(r => r.status === 'approved' || r.status === 'reviewed' || r.status === 'billed')
     .sort((a, b) => new Date(b.reading_date) - new Date(a.reading_date));
-  
+
   const prevReading = previousReadings.length > 0 ? previousReadings[0].current_reading : 0;
   const usage = parseInt(current_reading) - prevReading;
 
@@ -2491,7 +2491,7 @@ app.post('/api/meter-readings/:id/review', (req, res) => {
     } else {
       // No existing rent invoice, create a consolidated monthly bill
       const randNum = Math.floor(1000 + Math.random() * 9000);
-      const dueDateVal = new Date(Date.now() + 5*24*60*60*1000).toISOString().split('T')[0];
+      const dueDateVal = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
       const newInvoice = db.insert('invoices', {
         organization_id: orgId,
@@ -2833,7 +2833,7 @@ app.post('/api/integrations/:id/delete', async (req, res) => {
   if (!integration) return res.status(404).json({ error: 'Integration not found.' });
 
   await activeDb.delete('organization_integrations', { id: integrationId, organization_id: orgId });
-  
+
   await activeDb.logAudit(orgId, userId, role, 'api_credential_deleted', 'organization_integrations', integrationId, integration, null, 'Deleted API keys from dashboard', 'success');
 
   res.json({ success: true, message: 'Credentials deleted successfully.' });
@@ -2876,11 +2876,9 @@ app.get('/api/settings/readiness', async (req, res) => {
   const tenants = await activeDb.find('tenants', { organization_id: orgId, deleted_at: null });
   const integrations = await activeDb.find('organization_integrations', { organization_id: orgId });
   const pinSet = org.security_pin_hash ? true : false;
-  const profileNameParts = (org.name || '').trim().split(/\s+/).filter(Boolean);
-  const hasPersonName = org.name !== 'Rental Org' && profileNameParts.length >= 2;
 
   const checklist = {
-    profile_complete: (hasPersonName && org.phone_number && org.email && org.country && org.billing_currency) ? true : false,
+    profile_complete: (org.name && org.phone_number && org.email && org.country && org.billing_currency) ? true : false,
     pin_created: pinSet,
     property_created: props.length > 0,
     unit_created: units.length > 0,
@@ -2908,16 +2906,12 @@ app.put('/api/settings/profile', async (req, res) => {
   const org = await activeDb.findOne('organizations', { id: orgId });
   if (!org) return res.status(404).json({ error: 'Organization not found' });
 
-  const { first_name, last_name, name, email, phone_number, alt_phone_number, id_number, country, billing_currency, type, business_name, registration_number, tax_identifier } = req.body;
-  const personName = [first_name, last_name].map(part => (part || '').trim()).filter(Boolean).join(' ');
-  const normalizedName = name !== undefined ? name : (personName || undefined);
+  const { name, email, phone_number, country, billing_currency, type, business_name, registration_number, tax_identifier } = req.body;
 
   const updates = {
-    name: normalizedName !== undefined ? normalizedName : org.name,
+    name: name !== undefined ? name : org.name,
     email: email !== undefined ? email : org.email,
     phone_number: phone_number !== undefined ? phone_number : org.phone_number,
-    alt_phone_number: alt_phone_number !== undefined ? alt_phone_number : org.alt_phone_number,
-    id_number: id_number !== undefined ? id_number : org.id_number,
     country: country !== undefined ? country : org.country,
     billing_currency: billing_currency !== undefined ? billing_currency : org.billing_currency,
     type: type !== undefined ? type : org.type,
@@ -2925,11 +2919,6 @@ app.put('/api/settings/profile', async (req, res) => {
     registration_number: registration_number !== undefined ? registration_number : org.registration_number,
     tax_identifier: tax_identifier !== undefined ? tax_identifier : org.tax_identifier
   };
-
-  // For individual landlords, keep registration_number synced with id_number if provided
-  if (updates.type === 'individual' && updates.id_number) {
-    updates.registration_number = updates.id_number;
-  }
 
   await activeDb.update('organizations', orgId, updates);
   const updatedOrg = await activeDb.findOne('organizations', { id: orgId });
@@ -2974,7 +2963,7 @@ app.post('/api/settings/archive', async (req, res) => {
       archived_at: new Date().toISOString(),
       transaction_snapshot: JSON.stringify(tx)
     });
-    
+
     // 2. Mark ledger status
     await activeDb.update('transactions', tx.id, { status: 'archived' });
   }
@@ -3034,7 +3023,7 @@ app.get('/api/admin/compliance/delete-requests', async (req, res) => {
     const requests = db.get('deletion_requests');
     const users = db.get('users');
     const orgs = db.get('organizations');
-    
+
     const detailed = requests.map(r => {
       const u = users.find(user => user.id === r.requested_by);
       const o = orgs.find(org => org.id === r.organization_id);
@@ -3065,7 +3054,7 @@ app.post('/api/admin/compliance/delete-requests/:id/process', async (req, res) =
       status: 'rejected',
       completed_at: new Date().toISOString()
     });
-    
+
     await activeDb.logAudit(request.organization_id, userId, role, 'account_deletion_rejected', 'deletion_requests', requestId, request, null, `Rejected: ${reject_reason || 'No reason specified'}`);
     return res.json({ success: true, status: 'rejected' });
   }
@@ -3085,7 +3074,7 @@ app.post('/api/admin/compliance/delete-requests/:id/process', async (req, res) =
           deleted_at: new Date().toISOString(),
           security_pin_hash: null
         });
-        
+
         const members = await pgDb.find('organization_members', { organization_id: orgId });
         for (const m of members) {
           const userUuid = Math.floor(1000 + Math.random() * 9000);
@@ -3106,7 +3095,7 @@ app.post('/api/admin/compliance/delete-requests/:id/process', async (req, res) =
           deleted_at: new Date().toISOString(),
           security_pin_hash: null
         });
-        
+
         const members = db.find('organization_members', { organization_id: orgId });
         for (const m of members) {
           const userUuid = Math.floor(1000 + Math.random() * 9000);
@@ -3122,7 +3111,7 @@ app.post('/api/admin/compliance/delete-requests/:id/process', async (req, res) =
           config_json_encrypted: null
         });
       }
-    } 
+    }
     else if (request.request_type === 'tenant_data') {
       const tenantId = request.target_tenant_id;
       if (tenantId) {
@@ -3151,7 +3140,7 @@ app.post('/api/admin/compliance/delete-requests/:id/process', async (req, res) =
           });
         }
       }
-    } 
+    }
     else if (request.request_type === 'api_credentials') {
       if (pgDb) {
         await pgDb.update('organization_integrations', { organization_id: orgId }, {
@@ -3187,7 +3176,7 @@ app.get('/api/maintenance', (req, res) => {
     const assignmentIds = assignments.map(a => a.id);
     const assignedPropLinks = db.get('staff_assignment_properties').filter(link => assignmentIds.includes(link.staff_assignment_id));
     const assignedPropIds = assignedPropLinks.map(link => link.property_id);
-    
+
     requests = requests.filter(r => assignedPropIds.includes(r.property_id));
   }
 

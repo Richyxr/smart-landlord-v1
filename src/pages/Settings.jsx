@@ -69,10 +69,6 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
     return countryPrefixes[country] || '+254';
   };
 
-  const clearProfileError = () => {
-    if (profileError) setProfileError('');
-  };
-
   const stripPrefix = (phone, country) => {
     if (!phone) return '';
     const currentPrefix = getPrefixForCountry(country);
@@ -88,61 +84,17 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
     return phone;
   };
 
-  const normalizeLocalPhone = (localValue, country, { optional = false } = {}) => {
-    const prefix = getPrefixForCountry(country);
-    const raw = (localValue || '').trim();
-
-    if (!raw) {
-      return optional ? '' : null;
-    }
-
-    let digits = raw.replace(/[\s\-().]/g, '');
-
-    if (digits.startsWith('+')) {
-      if (!digits.startsWith(prefix)) return null;
-      digits = digits.substring(prefix.length);
-    } else if (digits.startsWith('00')) {
-      const countryCode = prefix.substring(1);
-      if (!digits.startsWith(`00${countryCode}`)) return null;
-      digits = digits.substring(countryCode.length + 2);
-    } else {
-      const countryCode = prefix.substring(1);
-      if (digits.startsWith(countryCode)) {
-        digits = digits.substring(countryCode.length);
-      }
-    }
-
-    digits = digits.replace(/\D/g, '').replace(/^0+/, '');
-
-    if (!digits) return optional ? '' : null;
-    if (country === 'Kenya' && !/^7\d{8}$/.test(digits)) return null;
-
-    const normalized = `${prefix}${digits}`;
-    return /^\+[1-9]\d{1,14}$/.test(normalized) ? normalized : null;
-  };
-
-  const handleProfileCountryChange = (country) => {
-    setProfileCountry(country);
-    setProfileCurrency(countryCurrencies[country] || 'KES');
-    setLocalPhone(stripPrefix(localPhone, country));
-    setLocalAltPhone(stripPrefix(localAltPhone, country));
-    clearProfileError();
-  };
-
   useEffect(() => {
     if (organization) {
-      const storedName = (organization.name || '').trim();
-      const nameForPerson = storedName && storedName !== 'Rental Org' ? storedName : '';
-      const parts = nameForPerson.split(/\s+/).filter(Boolean);
-      const orgType = organization.type || 'individual';
-
+      const rawName = organization.name || '';
+      const parts = (rawName === 'Rental Org' ? '' : rawName).trim().split(/\s+/).filter(Boolean);
       setProfileFirstName(parts[0] || '');
       setProfileLastName(parts.slice(1).join(' ') || '');
-      setProfileIdNumber(organization.id_number || (orgType === 'individual' ? organization.registration_number : '') || '');
+      setProfileIdNumber(organization.id_number || organization.registration_number || '');
       setProfileEmail(organization.email || '');
       setProfileCountry(organization.country || 'Kenya');
       setProfileCurrency(organization.billing_currency || 'KES');
-      setProfileType(orgType);
+      setProfileType(organization.type || 'individual');
       setProfileBusinessName(organization.business_name || '');
       setProfileRegNum(organization.registration_number || '');
       setProfileTaxId(organization.tax_identifier || '');
@@ -180,7 +132,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showDataAccess, setShowDataAccess] = useState(false);
-  
+
   // Notification State
   const [notifSettings, setNotifSettings] = useState(DEFAULT_NOTIFICATION_SETTINGS);
   const [notifLogs, setNotifLogs] = useState([]);
@@ -547,38 +499,54 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     setProfileError('');
-    
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const firstName = profileFirstName.trim();
-    const lastName = profileLastName.trim();
-    const fullName = [firstName, lastName].filter(Boolean).join(' ');
-    const businessName = profileBusinessName.trim();
-    const email = profileEmail.trim();
-    const normalizedPhone = normalizeLocalPhone(localPhone, profileCountry);
-    const normalizedAltPhone = normalizeLocalPhone(localAltPhone, profileCountry, { optional: true });
 
-    if (!firstName) {
+    if (!profileFirstName.trim()) {
       setProfileError('First Name is required.');
       return;
     }
-    if (!lastName) {
+    if (!profileLastName.trim()) {
       setProfileError('Last Name is required.');
       return;
     }
-    if (!emailRegex.test(email)) {
+    if (!profileIdNumber.trim()) {
+      setProfileError('ID Number is required.');
+      return;
+    }
+    if (!profileEmail.trim()) {
+      setProfileError('Email is required.');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(profileEmail)) {
       setProfileError('Invalid email address format.');
       return;
     }
-    if (!normalizedPhone) {
-      setProfileError(profileCountry === 'Kenya'
-        ? 'Phone Number must be a valid Kenyan mobile number, e.g. 712345678.'
-        : 'Phone Number must be a valid local number for the selected country.');
+
+    // Phone validation
+    const currentPrefix = countryPrefixes[profileCountry] || '+254';
+    const cleanPhone = localPhone.trim().replace(/\D/g, '');
+    if (!cleanPhone) {
+      setProfileError('Phone Number is required.');
       return;
     }
-    if (localAltPhone.trim() && !normalizedAltPhone) {
-      setProfileError('Alternative Phone Number must be valid for the selected country.');
+    if (cleanPhone.length < 7 || cleanPhone.length > 15) {
+      setProfileError('Invalid Phone Number length.');
       return;
     }
+    const finalPhone = currentPrefix + cleanPhone;
+
+    let finalAltPhone = '';
+    if (localAltPhone.trim()) {
+      const cleanAlt = localAltPhone.trim().replace(/\D/g, '');
+      if (cleanAlt.length < 7 || cleanAlt.length > 15) {
+        setProfileError('Invalid Alternative Phone Number length.');
+        return;
+      }
+      finalAltPhone = currentPrefix + cleanAlt;
+    }
+
+    const fullName = `${profileFirstName.trim()} ${profileLastName.trim()}`;
 
     setProfileSaving(true);
     try {
@@ -589,19 +557,17 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
           ...headers
         },
         body: JSON.stringify({
-          first_name: firstName,
-          last_name: lastName,
+          first_name: profileFirstName.trim(),
+          last_name: profileLastName.trim(),
           name: fullName,
           id_number: profileIdNumber.trim(),
-          email,
-          phone_number: normalizedPhone,
-          alt_phone_number: normalizedAltPhone,
+          phone_number: finalPhone,
+          alt_phone_number: finalAltPhone,
+          email: profileEmail.trim(),
           country: profileCountry,
           billing_currency: profileCurrency,
           type: profileType,
-          business_name: businessName,
-          registration_number: profileType === 'company' ? profileRegNum.trim() : '',
-          tax_identifier: profileType === 'company' ? profileTaxId.trim() : ''
+          business_name: profileBusinessName.trim()
         })
       });
 
@@ -646,36 +612,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
             <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px', marginBottom: '12px' }}>
               Edit Profile
             </h3>
-            
-            <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div className="form-group">
-                <label className="form-label">Profile Type</label>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button
-                    type="button"
-                    className={`btn ${profileType === 'individual' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
-                    style={{ flex: 1 }}
-                    onClick={() => {
-                      setProfileType('individual');
-                      clearProfileError();
-                    }}
-                  >
-                    Individual
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn ${profileType === 'company' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
-                    style={{ flex: 1 }}
-                    onClick={() => {
-                      setProfileType('company');
-                      clearProfileError();
-                    }}
-                  >
-                    Company
-                  </button>
-                </div>
-              </div>
 
+            <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div className="grid-2">
                 <div className="form-group">
                   <label className="form-label">First Name</label>
@@ -684,10 +622,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                     required
                     className="form-control"
                     value={profileFirstName}
-                    onChange={e => {
-                      setProfileFirstName(e.target.value);
-                      clearProfileError();
-                    }}
+                    onChange={e => setProfileFirstName(e.target.value)}
                   />
                 </div>
                 <div className="form-group">
@@ -697,11 +632,112 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                     required
                     className="form-control"
                     value={profileLastName}
-                    onChange={e => {
-                      setProfileLastName(e.target.value);
-                      clearProfileError();
-                    }}
+                    onChange={e => setProfileLastName(e.target.value)}
                   />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">ID Number</label>
+                <input
+                  type="text"
+                  required
+                  className="form-control"
+                  value={profileIdNumber}
+                  onChange={e => setProfileIdNumber(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Phone Number</label>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  <span style={{
+                    padding: '8px 12px',
+                    background: 'var(--bg-muted)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius)',
+                    fontSize: '14px',
+                    color: 'var(--text-secondary)',
+                    userSelect: 'none'
+                  }}>
+                    {countryPrefixes[profileCountry] || '+254'}
+                  </span>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="e.g. 712345678"
+                    className="form-control"
+                    style={{ flex: 1 }}
+                    value={localPhone}
+                    onChange={e => setLocalPhone(e.target.value.replace(/\D/g, ''))}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Alternative Phone Number (Optional)</label>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  <span style={{
+                    padding: '8px 12px',
+                    background: 'var(--bg-muted)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius)',
+                    fontSize: '14px',
+                    color: 'var(--text-secondary)',
+                    userSelect: 'none'
+                  }}>
+                    {countryPrefixes[profileCountry] || '+254'}
+                  </span>
+                  <input
+                    type="tel"
+                    placeholder="e.g. 789654321"
+                    className="form-control"
+                    style={{ flex: 1 }}
+                    value={localAltPhone}
+                    onChange={e => setLocalAltPhone(e.target.value.replace(/\D/g, ''))}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  className="form-control"
+                  value={profileEmail}
+                  onChange={e => setProfileEmail(e.target.value)}
+                />
+              </div>
+
+              <div className="grid-2">
+                <div className="form-group">
+                  <label className="form-label">Country</label>
+                  <select
+                    className="form-control"
+                    value={profileCountry}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setProfileCountry(val);
+                      setProfileCurrency(countryCurrencies[val] || 'KES');
+                    }}
+                  >
+                    <option value="Kenya">Kenya</option>
+                    <option value="Uganda">Uganda</option>
+                    <option value="Tanzania">Tanzania</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Billing Currency</label>
+                  <select
+                    className="form-control"
+                    value={profileCurrency}
+                    onChange={e => setProfileCurrency(e.target.value)}
+                  >
+                    <option value="KES">KES</option>
+                    <option value="UGX">UGX</option>
+                    <option value="TZS">TZS</option>
+                  </select>
                 </div>
               </div>
 
@@ -712,139 +748,9 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                   className="form-control"
                   placeholder="e.g. Kamau Properties"
                   value={profileBusinessName}
-                  onChange={e => {
-                    setProfileBusinessName(e.target.value);
-                    clearProfileError();
-                  }}
+                  onChange={e => setProfileBusinessName(e.target.value)}
                 />
               </div>
-
-              <div className="form-group">
-                <label className="form-label">ID Number</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  value={profileIdNumber}
-                  onChange={e => {
-                    setProfileIdNumber(e.target.value);
-                    clearProfileError();
-                  }}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Email Address</label>
-                <input
-                  type="email"
-                  required
-                  className="form-control"
-                  value={profileEmail}
-                  onChange={e => {
-                    setProfileEmail(e.target.value);
-                    clearProfileError();
-                  }}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Phone Number</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '86px 1fr', gap: '8px' }}>
-                  <input
-                    type="text"
-                    className="form-control"
-                    value={getPrefixForCountry(profileCountry)}
-                    readOnly
-                    aria-label="Country phone prefix"
-                  />
-                  <input
-                    type="tel"
-                    required
-                    className="form-control"
-                    placeholder="712345678"
-                    value={localPhone}
-                    onChange={e => {
-                      setLocalPhone(e.target.value);
-                      clearProfileError();
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Alternative Phone Number (Optional)</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '86px 1fr', gap: '8px' }}>
-                  <input
-                    type="text"
-                    className="form-control"
-                    value={getPrefixForCountry(profileCountry)}
-                    readOnly
-                    aria-label="Alternative country phone prefix"
-                  />
-                  <input
-                    type="tel"
-                    className="form-control"
-                    placeholder="712345678"
-                    value={localAltPhone}
-                    onChange={e => {
-                      setLocalAltPhone(e.target.value);
-                      clearProfileError();
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Country</label>
-                  <select className="form-control" value={profileCountry} onChange={e => handleProfileCountryChange(e.target.value)}>
-                    <option value="Kenya">Kenya</option>
-                    <option value="Uganda">Uganda</option>
-                    <option value="Tanzania">Tanzania</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Billing Currency</label>
-                  <select className="form-control" value={profileCurrency} onChange={e => {
-                    setProfileCurrency(e.target.value);
-                    clearProfileError();
-                  }}>
-                    <option value="KES">KES</option>
-                    <option value="UGX">UGX</option>
-                    <option value="TZS">TZS</option>
-                  </select>
-                </div>
-              </div>
-
-              {profileType === 'company' && (
-                <div className="grid-2">
-                  <div className="form-group">
-                    <label className="form-label">Reg. Number</label>
-                    <input
-                      type="text"
-                      required
-                      className="form-control"
-                      value={profileRegNum}
-                      onChange={e => {
-                        setProfileRegNum(e.target.value);
-                        clearProfileError();
-                      }}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">KRA PIN</label>
-                    <input
-                      type="text"
-                      required
-                      className="form-control"
-                      value={profileTaxId}
-                      onChange={e => {
-                        setProfileTaxId(e.target.value);
-                        clearProfileError();
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
 
               {profileError && (
                 <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', fontWeight: '500' }}>
@@ -996,9 +902,9 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {checklist && Object.keys(checklist).map(key => (
-                <div 
-                  key={key} 
-                  className="flex-row setup-row sl-clickable" 
+                <div
+                  key={key}
+                  className="flex-row setup-row sl-clickable"
                   onClick={() => handleChecklistRowClick(key)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -1008,9 +914,9 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                   }}
                   role="button"
                   tabIndex={0}
-                  style={{ 
-                    fontSize: '13px', 
-                    padding: '8px 10px', 
+                  style={{
+                    fontSize: '13px',
+                    padding: '8px 10px',
                     borderBottom: '1px solid var(--border)',
                     cursor: 'pointer',
                     borderRadius: 'var(--radius-sm)',
@@ -1089,8 +995,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                 <div className="flex-row">
                   <span className="badge badge-info">{read.meter_type.toUpperCase()} Reading</span>
                   <span className={`badge ${read.status === 'billed' ? 'badge-success' :
-                      read.status === 'approved' ? 'badge-success' :
-                        read.status === 'rejected' ? 'badge-danger' : 'badge-warning'
+                    read.status === 'approved' ? 'badge-success' :
+                      read.status === 'rejected' ? 'badge-danger' : 'badge-warning'
                     }`}>{read.status}</span>
                 </div>
                 <h3 className="card-title" style={{ margin: '6px 0 2px 0' }}>Unit {read.unit_code} ({read.property_name})</h3>
@@ -1188,7 +1094,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       {/* PRIVACY & COMPLIANCE */}
       {activeTab === 'compliance' && !selectedInt && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          
+
           {/* COMPLIANCE DISCLOSURES */}
           <div className="card">
             <h3 className="card-title">Privacy & Compliance Disclosures</h3>
@@ -1349,10 +1255,9 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                     <div style={{ color: 'var(--text-secondary)' }}>Reason: {log.reason}</div>
                     <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Status: <strong>{log.status}</strong> • Created: {new Date(log.created_at).toLocaleDateString()}</div>
                   </div>
-                  <span className={`badge ${
-                    log.status === 'completed' ? 'badge-success' :
-                    log.status === 'rejected' ? 'badge-danger' : 'badge-warning'
-                  }`}>
+                  <span className={`badge ${log.status === 'completed' ? 'badge-success' :
+                      log.status === 'rejected' ? 'badge-danger' : 'badge-warning'
+                    }`}>
                     {log.status}
                   </span>
                 </div>
@@ -1378,7 +1283,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                   />
                   <label htmlFor="rent_reminders_enabled" style={{ fontWeight: '500', fontSize: '13px' }}>Rent & Due Reminders</label>
                 </div>
-                
+
                 {notifSettings.rent_reminders_enabled && (
                   <div className="form-group" style={{ marginLeft: '24px' }}>
                     <label className="form-label">Send due reminder (days before due date)</label>

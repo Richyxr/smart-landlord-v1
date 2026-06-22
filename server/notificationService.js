@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { db } from './db.js';
+import { EmailNotConfiguredError, sendEmail } from './mailerService.js';
 
 // Predefined templates for various notification types
 const TEMPLATES = {
@@ -102,7 +103,7 @@ export class NotificationService {
         organization_id: orgId,
         recipient_user_id: recipientUserId ? parseInt(recipientUserId) : null,
         tenant_id: tenantId ? parseInt(tenantId) : null,
-        phone_number: phoneNumber || email || 'System Alert',
+        phone_number: channel === 'email' ? (email || '') : (phoneNumber || email || 'System Alert'),
         channel: channel || 'sms',
         type,
         message,
@@ -216,8 +217,31 @@ export class NotificationService {
         });
 
         console.log(`[NotificationService] In-app notification delivered for log ${log.id}`);
+      } else if (log.channel === 'email') {
+        if (!log.phone_number) {
+          const error = new Error('email_recipient_missing');
+          error.code = 'email_recipient_missing';
+          throw error;
+        }
+
+        const subject = log.type.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        const result = await sendEmail({
+          to: log.phone_number,
+          subject,
+          text: log.message,
+          html: `<p>${escapeHtml(log.message).replace(/\n/g, '<br>')}</p>`
+        });
+
+        await this._updateLog(log.id, {
+          ...attemptData,
+          status: 'sent',
+          sent_at: nowStr,
+          provider_reference: result.messageId || `email-${log.id}`
+        });
+
+        console.log(`[NotificationService] Email notification delivered for log ${log.id}`);
       } else {
-        // External channels (sms, whatsapp, email) — simulate send with a 10% failure rate
+        // External channels (sms, whatsapp) — simulate send with a 10% failure rate
         const shouldFail = Math.random() < 0.10;
         
         // Add fake network delay
@@ -238,7 +262,8 @@ export class NotificationService {
         });
       }
     } catch (error) {
-      console.error(`[NotificationService ERROR] Log ${log.id} failed:`, error.message);
+      const publicError = error instanceof EmailNotConfiguredError ? error.code : error.message;
+      console.error(`[NotificationService ERROR] Log ${log.id} failed:`, publicError);
       
       const newRetryCount = (log.retry_count || 0) + 1;
       const isFailedPermanently = newRetryCount >= (log.max_retries || 3);
@@ -248,7 +273,7 @@ export class NotificationService {
         last_attempt_at: nowStr,
         retry_count: newRetryCount,
         status: nextStatus,
-        error_message: error.message
+        error_message: publicError
       });
 
       if (this.pgDb) {
@@ -256,7 +281,7 @@ export class NotificationService {
           log.organization_id,
           log.recipient_user_id,
           `NotificationService.sendImmediately:${log.channel}`,
-          `Delivery failure for log ${log.id}: ${error.message}`,
+          `Delivery failure for log ${log.id}: ${publicError}`,
           null,
           { log_id: log.id }
         );
@@ -326,4 +351,13 @@ export class NotificationService {
         return true;
     }
   }
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }

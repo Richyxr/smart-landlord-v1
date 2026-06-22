@@ -30,3 +30,7 @@ env:
     secret: SESSION_SECRET
     availability:
       - RUNTIME
+  - variable: APP_PUBLIC_URL
+    value: "https://smart-landlord-1e526.web.app"
+    availability:
+      - RUNTIME
