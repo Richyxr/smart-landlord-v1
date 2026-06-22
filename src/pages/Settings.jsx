@@ -608,7 +608,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       {/* PROFILE EDIT MODAL */}
       {showProfileModal && (
         <div className="modal-backdrop" style={{ zIndex: 1100 }}>
-          <div className="modal-content" style={{ maxWidth: '400px', maxHeight: '90vh', overflowY: 'auto' }}>
+          <div className="modal-content">
             <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px', marginBottom: '12px' }}>
               Edit Profile
             </h3>

@@ -121,13 +121,13 @@ p {
   justify-content: center;
   gap: 8px;
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
-  padding: 12px 20px;
+  padding: 10px 18px;
   border-radius: var(--radius-md);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: var(--transition-normal);
+  transition: all var(--transition-fast);
   text-decoration: none;
   width: 100%;
 }
@@ -135,14 +135,16 @@ p {
 .btn-primary {
   background: linear-gradient(135deg, var(--primary), var(--accent));
   color: #fff;
-  box-shadow: 0 4px 15px var(--primary-glow);
+  box-shadow: 0 4px 12px var(--primary-glow);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 .btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+  filter: brightness(1.05);
 }
 .btn-primary:active {
-  transform: translateY(0);
+  transform: translateY(1px);
 }
 
 .btn-secondary {
@@ -155,6 +157,9 @@ p {
   border-color: var(--text-muted);
   transform: translateY(-1px);
 }
+.btn-secondary:active {
+  transform: translateY(1px);
+}
 
 .btn-danger {
   background-color: var(--danger-glow);
@@ -164,7 +169,11 @@ p {
 .btn-danger:hover {
   background-color: var(--danger);
   color: #fff;
-  transform: translateY(-2px);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+.btn-danger:active {
+  transform: translateY(1px);
 }
 
 .btn-sm {
@@ -172,6 +181,12 @@ p {
   font-size: 12px;
   border-radius: var(--radius-sm);
   width: auto;
+}
+.btn-sm:hover {
+  transform: translateY(-1px);
+}
+.btn-sm:active {
+  transform: translateY(1px);
 }
 
 /* Forms */
@@ -183,30 +198,36 @@ p {
 }
 
 .form-label {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  margin-bottom: 2px;
 }
 
 .form-control {
-  background-color: var(--bg-surface);
+  background-color: var(--bg-surface-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 14px;
-  padding: 12px;
+  padding: 10px 14px;
   outline: none;
-  transition: var(--transition-fast);
+  transition: all var(--transition-fast);
   width: 100%;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.form-control::placeholder {
+  color: var(--text-muted);
+  opacity: 0.75;
 }
 
 .form-control:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-glow);
-  background-color: var(--bg-surface-elevated);
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--primary-glow) !important;
 }
 
 select.form-control {
@@ -465,8 +486,8 @@ select.form-control {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0,0,0,0.7);
-  backdrop-filter: blur(4px);
+  background-color: rgba(2, 6, 23, 0.74);
+  backdrop-filter: blur(8px);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -479,11 +500,16 @@ select.form-control {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   width: 100%;
-  max-width: 380px;
+  max-width: 420px;
   padding: 24px;
   box-shadow: var(--shadow-lg);
   position: relative;
   animation: scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 /* Lockout Overlay Screen */

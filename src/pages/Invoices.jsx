@@ -591,7 +591,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
       {/* REMINDER CHANNEL PICKER MODAL */}
       {reminderTarget && (
         <div className="modal-backdrop">
-          <div style={{ background: 'var(--bg-surface)', borderRadius: '16px', padding: '24px', width: '92%', maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="modal-content">
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'linear-gradient(135deg, #f59e0b, #d97706)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
@@ -666,7 +666,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
       {/* REMINDER SENT CONFIRMATION OVERLAY */}
       {reminderResult && (
         <div className="modal-backdrop">
-          <div style={{ background: 'var(--bg-surface)', borderRadius: '16px', padding: '24px', width: '92%', maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div className="modal-content">
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}><CheckCircle2 size={20} /></div>
               <div>
@@ -1205,7 +1205,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
           {/* UPDATE READING MODAL */}
           {readingUnitId && (
             <div className="modal-backdrop">
-              <form onSubmit={handleSaveReading} style={{ background: 'var(--bg-surface)', borderRadius: '16px', padding: '24px', width: '92%', maxWidth: '400px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <form onSubmit={handleSaveReading} className="modal-content">
                 <h3 style={{ fontWeight: '700', fontSize: '16px', margin: 0 }}>Update Unit Readings</h3>
                 
                 {enableWater && (
