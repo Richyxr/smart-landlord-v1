@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
-import { CircleDollarSign, AlertTriangle, CheckCircle, Users, Zap, FileText, Printer, Bell, Check, CheckCircle2, Plus, DoorOpen, Droplets, Pencil, Clock, Mail, Phone, MessageSquare } from 'lucide-react';
+import { CircleDollarSign, AlertTriangle, CheckCircle, Users, Zap, FileText, Printer, Bell, Check, CheckCircle2, Plus, DoorOpen, Droplets, Pencil, Clock, Mail, Phone, MessageSquare, Smartphone } from 'lucide-react';
 
 export default function Invoices({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab, onNavigate }) {
   const [invoices, setInvoices] = useState([]);
@@ -23,6 +23,9 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
   // PIN modal triggers
   const [pinTargetId, setPinTargetId] = useState(null);
+
+  // Selected due tenant details modal state for mobile view
+  const [selectedMobileTenant, setSelectedMobileTenant] = useState(null);
 
   // Form State for Invoice Creation
   const [selectedTenantId, setSelectedTenantId] = useState('');
@@ -705,6 +708,67 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
         </div>
       )}
 
+      {/* MOBILE DUE TENANT DETAIL MODAL */}
+      {selectedMobileTenant && (() => {
+        const t = selectedMobileTenant;
+        const arrearsVal = safeNumber(t.balance);
+        const rentVal = safeNumber(t.rent_amount);
+        const dueVal = rentVal + arrearsVal;
+        return (
+          <div className="modal-backdrop" onClick={() => setSelectedMobileTenant(null)}>
+            <div className="modal-content" style={{ maxWidth: '400px' }} onClick={e => e.stopPropagation()}>
+              <h3 style={{ fontWeight: '700', fontSize: '18px', marginBottom: '14px', fontFamily: 'var(--font-title)' }}>Due Tenant Details</h3>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
+                <div className="flex-row" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Tenant Name:</span>
+                  <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{t.full_name}</span>
+                </div>
+                <div className="flex-row" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Property / Unit:</span>
+                  <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
+                    {t.property_name} <span style={{ color: 'var(--text-muted)' }}>({t.unit_code})</span>
+                  </span>
+                </div>
+                <div className="flex-row" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Billing Day:</span>
+                  <span style={{ color: 'var(--info)', fontWeight: '600' }}>{t.billing_day || '1'}</span>
+                </div>
+                <div className="flex-row" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Monthly Rent:</span>
+                  <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{formatCurrency(rentVal)}</span>
+                </div>
+                <div className="flex-row" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Arrears:</span>
+                  <span style={{ color: arrearsVal > 0 ? 'var(--danger)' : 'var(--text-muted)', fontWeight: '600' }}>
+                    {arrearsVal > 0 ? formatCurrency(arrearsVal) : '--'}
+                  </span>
+                </div>
+                <div className="flex-row" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Status:</span>
+                  <span className={`sl-status-badge ${arrearsVal > 0 ? 'sl-status-danger' : 'sl-status-success'}`}>
+                    {arrearsVal > 0 ? 'Arrears' : 'No Arrears'}
+                  </span>
+                </div>
+                <div className="flex-row" style={{ paddingTop: '4px', fontSize: '15px' }}>
+                  <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>Total Amount Due:</span>
+                  <span style={{ fontWeight: '800', color: 'var(--text-primary)' }}>{formatCurrency(dueVal)}</span>
+                </div>
+              </div>
+              
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                style={{ marginTop: '20px' }} 
+                onClick={() => setSelectedMobileTenant(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* RENDER BILLING HEADER */}
       <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '22px', marginBottom: '4px' }}>Billing Operations</h2>
       <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Manage invoices, due tenants, utilities, and payment dispatching.</p>
@@ -882,45 +946,78 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
               No active due tenants found matching search filter.
             </div>
           ) : (
-            <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ backgroundColor: 'var(--bg-surface-elevated)', borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ padding: '10px' }}>Tenant</th>
-                    <th style={{ padding: '10px' }}>Property / Unit</th>
-                    <th style={{ padding: '10px', textAlign: 'center' }}>Day</th>
-                    <th style={{ padding: '10px', textAlign: 'right' }}>Rent</th>
-                    <th style={{ padding: '10px', textAlign: 'right' }}>Arrears</th>
-                    <th style={{ padding: '10px', textAlign: 'right' }}>Total Due</th>
-                    <th style={{ padding: '10px', textAlign: 'center' }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredTenants.map(t => {
-                    const arrearsVal = safeNumber(t.balance);
-                    const rentVal = safeNumber(t.rent_amount);
-                    const dueVal = rentVal + arrearsVal;
-                    return (
-                      <tr key={t.id} style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                        <td style={{ padding: '10px', fontWeight: '700' }}>{t.full_name}</td>
-                        <td style={{ padding: '10px' }}>{t.property_name} <span style={{ color: 'var(--text-muted)' }}>({t.unit_code})</span></td>
-                        <td style={{ padding: '10px', textAlign: 'center', color: 'var(--info)' }}>{t.billing_day || '1'}</td>
-                        <td style={{ padding: '10px', textAlign: 'right' }}>{formatCurrency(rentVal)}</td>
-                        <td style={{ padding: '10px', textAlign: 'right', color: arrearsVal > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                          {arrearsVal > 0 ? formatCurrency(arrearsVal) : '--'}
-                        </td>
-                        <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(dueVal)}</td>
-                        <td style={{ padding: '10px', textAlign: 'center' }}>
-                          <span className={`sl-status-badge ${arrearsVal > 0 ? 'sl-status-danger' : 'sl-status-success'}`}>
+            <>
+              {/* Desktop View: Keep existing table layout */}
+              <div className="due-tenants-desktop-view" style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: 'var(--bg-surface-elevated)', borderBottom: '1px solid var(--border)' }}>
+                      <th style={{ padding: '10px' }}>Tenant</th>
+                      <th style={{ padding: '10px' }}>Property / Unit</th>
+                      <th style={{ padding: '10px', textAlign: 'center' }}>Day</th>
+                      <th style={{ padding: '10px', textAlign: 'right' }}>Rent</th>
+                      <th style={{ padding: '10px', textAlign: 'right' }}>Arrears</th>
+                      <th style={{ padding: '10px', textAlign: 'right' }}>Total Due</th>
+                      <th style={{ padding: '10px', textAlign: 'center' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredTenants.map(t => {
+                      const arrearsVal = safeNumber(t.balance);
+                      const rentVal = safeNumber(t.rent_amount);
+                      const dueVal = rentVal + arrearsVal;
+                      return (
+                        <tr key={t.id} style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
+                          <td style={{ padding: '10px', fontWeight: '700' }}>{t.full_name}</td>
+                          <td style={{ padding: '10px' }}>{t.property_name} <span style={{ color: 'var(--text-muted)' }}>({t.unit_code})</span></td>
+                          <td style={{ padding: '10px', textAlign: 'center', color: 'var(--info)' }}>{t.billing_day || '1'}</td>
+                          <td style={{ padding: '10px', textAlign: 'right' }}>{formatCurrency(rentVal)}</td>
+                          <td style={{ padding: '10px', textAlign: 'right', color: arrearsVal > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
+                            {arrearsVal > 0 ? formatCurrency(arrearsVal) : '--'}
+                          </td>
+                          <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(dueVal)}</td>
+                          <td style={{ padding: '10px', textAlign: 'center' }}>
+                            <span className={`sl-status-badge ${arrearsVal > 0 ? 'sl-status-danger' : 'sl-status-success'}`}>
+                              {arrearsVal > 0 ? 'Arrears' : 'No Arrears'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile View: Display as stacked cards */}
+              <div className="due-tenants-mobile-view" style={{ display: 'none', flexDirection: 'column', gap: '10px' }}>
+                {filteredTenants.map(t => {
+                  const arrearsVal = safeNumber(t.balance);
+                  const rentVal = safeNumber(t.rent_amount);
+                  const dueVal = rentVal + arrearsVal;
+                  return (
+                    <div 
+                      key={t.id} 
+                      className="sl-card sl-card-interactive" 
+                      style={{ marginBottom: 0, padding: '12px 14px' }}
+                      onClick={() => setSelectedMobileTenant(t)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedMobileTenant(t); } }}
+                    >
+                      <div className="flex-row">
+                        <span style={{ fontWeight: '700', fontSize: '14px', color: 'var(--text-primary)' }}>{t.full_name}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span className={`sl-status-badge ${arrearsVal > 0 ? 'sl-status-danger' : 'sl-status-success'}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
                             {arrearsVal > 0 ? 'Arrears' : 'No Arrears'}
                           </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                          <span style={{ fontWeight: '800', fontSize: '14px', color: 'var(--text-primary)' }}>{formatCurrency(dueVal)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
       )}
