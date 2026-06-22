@@ -1338,8 +1338,9 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
             <h3 className="card-title">Notification Log History</h3>
             <div style={{ overflowX: 'auto' }}>
               {notifLogs.length === 0 ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                  No notifications logged yet.
+                <div className="sl-empty-state">
+                  <div className="sl-empty-state-title">No notifications logged</div>
+                  <div className="sl-empty-state-desc">No notifications have been dispatched or logged yet.</div>
                 </div>
               ) : (
                 <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>

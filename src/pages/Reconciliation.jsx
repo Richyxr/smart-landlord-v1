@@ -519,10 +519,13 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
           {/* LIST ITEMS */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {getFilteredRows().length === 0 ? (
-              <p style={{ textAlign: 'center', padding: '20px' }}>No rows in this queue.</p>
+              <div className="sl-empty-state">
+                <div className="sl-empty-state-title">Queue Empty</div>
+                <div className="sl-empty-state-desc">No statement rows in this queue.</div>
+              </div>
             ) : (
               getFilteredRows().map(row => (
-                <div key={row.id} className="card" style={{ borderLeft: filterStatus === 'needs_review' ? '4px solid var(--primary)' : '1px solid var(--border)' }}>
+                <div key={row.id} className="sl-list-card" style={{ borderLeft: filterStatus === 'needs_review' ? '4px solid var(--primary)' : '1px solid var(--border)' }}>
                   <div className="flex-row">
                     <span style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center' }}>
                       Ref: {row.reference_number}

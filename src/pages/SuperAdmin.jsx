@@ -348,7 +348,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {activeTab === 'landlords' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {landlords.map(org => (
-            <div key={org.id} className="card">
+            <div key={org.id} className="sl-list-card">
               <div className="flex-row">
                 <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Building2 size={18} style={{ color: 'var(--primary)' }} />
@@ -382,7 +382,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {activeTab === 'billing' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {pendingPayments.map(pay => (
-            <div key={pay.id} className="card">
+            <div key={pay.id} className="sl-list-card">
               <div className="flex-row">
                 <span className="badge badge-warning">{pay.payment_method.toUpperCase()} Payment</span>
                 <span className="badge badge-danger">pending confirmation</span>
@@ -412,10 +412,13 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {activeTab === 'errors' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {systemErrors.length === 0 ? (
-            <p style={{ textAlign: 'center', padding: '20px' }}>No system errors logged.</p>
+            <div className="sl-empty-state">
+              <div className="sl-empty-state-title">System Logs Clean</div>
+              <div className="sl-empty-state-desc">No system errors have been logged.</div>
+            </div>
           ) : (
             systemErrors.map(err => (
-              <div key={err.id} className="card" style={{ borderLeft: '4px solid var(--danger)' }}>
+              <div key={err.id} className="sl-list-card" style={{ borderLeft: '4px solid var(--danger)' }}>
                 <div className="flex-row">
                   <strong style={{ color: 'var(--danger)', fontSize: '11px' }}>{err.source.toUpperCase()}</strong>
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{new Date(err.created_at).toLocaleDateString()}</span>
@@ -432,7 +435,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {activeTab === 'audits' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {systemAudits.map(log => (
-            <div key={log.id} className="card" style={{ padding: '12px', fontSize: '12px' }}>
+            <div key={log.id} className="sl-list-card" style={{ fontSize: '12px' }}>
               <div className="flex-row">
                 <strong style={{ textTransform: 'uppercase', color: 'var(--primary)', fontSize: '11px' }}>{log.action.replace(/_/g, ' ')}</strong>
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{new Date(log.created_at).toLocaleString()}</span>
@@ -451,10 +454,13 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {activeTab === 'compliance' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {deletionRequests.length === 0 ? (
-            <p style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>No compliance or deletion requests found.</p>
+            <div className="sl-empty-state">
+              <div className="sl-empty-state-title">No requests found</div>
+              <div className="sl-empty-state-desc">No compliance or deletion requests found.</div>
+            </div>
           ) : (
             deletionRequests.map(req => (
-              <div key={req.id} className="card">
+              <div key={req.id} className="sl-list-card">
                 <div className="flex-row">
                   <span className="badge badge-info" style={{ textTransform: 'uppercase' }}>
                     {req.request_type.replace(/_/g, ' ')}

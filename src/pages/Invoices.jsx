@@ -942,8 +942,9 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
           />
 
           {filteredTenants.length === 0 ? (
-            <div className="card" style={{ textAlign: 'center', padding: '24px 16px', color: 'var(--text-secondary)' }}>
-              No active due tenants found matching search filter.
+            <div className="sl-empty-state">
+              <div className="sl-empty-state-title">No due tenants found</div>
+              <div className="sl-empty-state-desc">No active due tenants match the current search filter.</div>
             </div>
           ) : (
             <>
@@ -1034,18 +1035,18 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
           </div>
 
           {invoices.length === 0 ? (
-            <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)' }}>
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px', color: 'var(--text-muted)' }}>
+            <div className="sl-empty-state">
+              <div className="sl-empty-state-icon">
                 <FileText size={32} />
               </div>
-              <p style={{ fontWeight: '600', marginBottom: '6px' }}>No invoices registered yet</p>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+              <div className="sl-empty-state-title">No invoices registered yet</div>
+              <div className="sl-empty-state-desc">
                 Click "Create New Invoice" above to generate a bill for an active tenant, or navigate to Properties to add units and tenants first.
-              </p>
+              </div>
             </div>
           ) : (
             invoices.map(inv => (
-              <div key={inv.id} className="card">
+              <div key={inv.id} className="sl-list-card">
                 <div className="flex-row">
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{inv.invoice_number}</span>
                   <span className={`badge ${

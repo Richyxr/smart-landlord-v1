@@ -185,7 +185,10 @@ export default function SaaSInvoices({ organization, refreshTrigger, onRefresh, 
         <h3 className="card-title">Billing Invoice History</h3>
         
         {saasStatus.invoices.length === 0 ? (
-          <p style={{ fontSize: '13px', textAlign: 'center', padding: '10px' }}>No platform invoices issued yet.</p>
+          <div className="sl-empty-state">
+            <div className="sl-empty-state-title">No invoices issued</div>
+            <div className="sl-empty-state-desc">No platform invoices have been issued yet.</div>
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '12px' }}>
             {saasStatus.invoices.map(inv => (

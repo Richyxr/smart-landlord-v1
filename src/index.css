@@ -3417,27 +3417,82 @@ html[data-theme="light"] #root {
   border-color: rgba(248, 113, 113, 0.45);
 }
 
+/* Polished Tables Design System */
 .app-content table,
-.modal-content table {
-  background: rgba(10, 11, 16, 0.34);
-  border-color: var(--border) !important;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
+.modal-content table,
+table,
+.table {
+  width: 100% !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  font-size: 13px !important;
+  text-align: left;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-md) !important;
+  overflow: hidden !important;
+  background: rgba(18, 20, 32, 0.6) !important;
+  margin-top: 12px;
+  margin-bottom: 16px;
 }
 
 .app-content th,
-.app-content td,
 .modal-content th,
-.modal-content td {
-  border-color: rgba(148, 163, 184, 0.16) !important;
-  padding: 9px 10px;
+th {
+  color: var(--text-secondary) !important;
+  background: rgba(26, 29, 48, 0.85) !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  padding: 12px 14px !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-right: none !important;
+  border-left: none !important;
+  border-top: none !important;
 }
 
-.app-content th,
-.modal-content th {
-  color: var(--text-primary);
-  background: rgba(24, 27, 42, 0.76);
-  font-weight: 800;
+.app-content td,
+.modal-content td,
+td {
+  padding: 12px 14px !important;
+  color: var(--text-primary) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12) !important;
+  border-right: none !important;
+  border-left: none !important;
+  border-top: none !important;
+  vertical-align: middle;
+  background: transparent !important;
+}
+
+.app-content tbody tr,
+.modal-content tbody tr,
+tbody tr {
+  transition: background-color var(--transition-fast) !important;
+}
+
+.app-content tbody tr:hover,
+.modal-content tbody tr:hover,
+tbody tr:hover {
+  background-color: rgba(99, 102, 241, 0.06) !important;
+}
+
+/* Remove bottom border for the last row */
+.app-content tbody tr:last-child td,
+.modal-content tbody tr:last-child td,
+tbody tr:last-child td {
+  border-bottom: none !important;
+}
+
+/* Table Responsive wrapper */
+.table-responsive {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-surface);
+  margin-bottom: 16px;
 }
 
 .app-header,
@@ -3504,14 +3559,37 @@ html[data-theme="light"] .modal-content {
 }
 
 html[data-theme="light"] .app-content table,
-html[data-theme="light"] .modal-content table {
-  background: rgba(255, 255, 255, 0.96);
+html[data-theme="light"] .modal-content table,
+html[data-theme="light"] table,
+html[data-theme="light"] .table {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
 }
 
 html[data-theme="light"] .app-content th,
-html[data-theme="light"] .modal-content th {
-  background: #eef2ff;
-  color: #111827;
+html[data-theme="light"] .modal-content th,
+html[data-theme="light"] th {
+  background: #f8fafc !important;
+  color: #64748b !important;
+  border-bottom-color: #cbd5e1 !important;
+}
+
+html[data-theme="light"] .app-content td,
+html[data-theme="light"] .modal-content td,
+html[data-theme="light"] td {
+  color: #0f172a !important;
+  border-bottom-color: #f1f5f9 !important;
+}
+
+html[data-theme="light"] .app-content tbody tr:hover,
+html[data-theme="light"] .modal-content tbody tr:hover,
+html[data-theme="light"] tbody tr:hover {
+  background-color: rgba(99, 102, 241, 0.04) !important;
+}
+
+html[data-theme="light"] .table-responsive {
+  border-color: #cbd5e1 !important;
+  background-color: #ffffff !important;
 }
 
 html[data-theme="light"] .bottom-nav,
@@ -3646,4 +3724,108 @@ html[data-theme="light"] .sidebar-item.active {
   background-color: rgba(99, 102, 241, 0.10) !important;
   color: var(--primary) !important;
   border-right-color: var(--primary) !important;
+}
+
+/* Premium List Card styling */
+.sl-list-card {
+  position: relative;
+  background: radial-gradient(circle at top left, rgba(124, 58, 237, 0.04), transparent 34%), rgba(17, 19, 29, 0.94);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  transition: all var(--transition-normal);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: var(--shadow-sm);
+}
+
+.sl-list-card:hover {
+  border-color: rgba(139, 92, 246, 0.35);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* List item rows inside list details */
+.sl-list-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.sl-list-row:last-child {
+  border-bottom: none;
+}
+
+/* Polished Empty state styling */
+.sl-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 36px 20px;
+  text-align: center;
+  background: rgba(17, 19, 29, 0.5);
+  border: 1.5px dashed rgba(148, 163, 184, 0.2);
+  border-radius: var(--radius-md);
+  margin: 12px 0;
+  transition: border-color var(--transition-fast);
+}
+
+.sl-empty-state:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+.sl-empty-state-icon {
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: center;
+}
+
+.sl-empty-state-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.sl-empty-state-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 320px;
+  line-height: 1.5;
+  margin: 0 auto;
+}
+
+/* Light mode support for lists & empty states */
+html[data-theme="light"] .sl-list-card {
+  background: radial-gradient(circle at top left, rgba(91, 77, 244, 0.03), transparent 34%), #ffffff !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
+}
+
+html[data-theme="light"] .sl-list-card:hover {
+  border-color: rgba(99, 102, 241, 0.4) !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+html[data-theme="light"] .sl-list-row {
+  border-bottom-color: #f1f5f9 !important;
+}
+
+html[data-theme="light"] .sl-empty-state {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+}
+
+html[data-theme="light"] .sl-empty-state-title {
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .sl-empty-state-desc {
+  color: #475569 !important;
 }
