@@ -129,6 +129,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
   const [shortcode, setShortcode] = useState('');
   const [passkey, setPasskey] = useState('');
   const [env, setEnv] = useState('sandbox');
+  const [acknowledgeLiveGate, setAcknowledgeLiveGate] = useState(false);
 
   // PIN modal triggers
   const [pinAction, setPinAction] = useState(null); // { type: 'delete_int' | 'archive_tx', data: any }
@@ -318,7 +319,13 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       config.passkey = passkey;
     }
 
-    const integrationEnvironment = selectedInt.provider_type === 'mpesa' ? 'sandbox' : env;
+    const integrationEnvironment = env;
+
+    if (selectedInt.provider_type === 'mpesa' && integrationEnvironment === 'live' && !acknowledgeLiveGate) {
+      setError('You must acknowledge the safety limits for live M-Pesa integration.');
+      setLoading(false);
+      return;
+    }
 
     try {
       const res = await fetch('/api/integrations', {
@@ -328,7 +335,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
           provider_type: selectedInt.provider_type,
           provider_name: selectedInt.provider_name,
           environment: integrationEnvironment,
-          config_json: config
+          config_json: config,
+          acknowledge_live_gate: acknowledgeLiveGate
         })
       });
 
@@ -337,7 +345,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       setSelectedInt(null);
       setActiveTab('integrations');
       setInfoMessage(selectedInt.provider_type === 'mpesa'
-        ? 'M-Pesa sandbox credentials saved securely. Use Test to validate the Daraja sandbox token.'
+        ? `M-Pesa ${integrationEnvironment} credentials saved securely. Use Test to validate the Daraja ${integrationEnvironment} token.`
         : 'Integration credentials saved securely.');
       setError('');
       fetchData();
@@ -916,14 +924,10 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
             <div className="form-group">
               <label className="form-label">Environment</label>
               {selectedInt.provider_type === 'mpesa' ? (
-                <>
-                  <select className="form-control" value="sandbox" disabled>
-                    <option value="sandbox">Sandbox Testing Only</option>
-                  </select>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    Live Daraja/paybill credentials are disabled until production M-Pesa is explicitly approved.
-                  </span>
-                </>
+                <select className="form-control" value={env} onChange={e => { setEnv(e.target.value); setAcknowledgeLiveGate(false); }}>
+                  <option value="sandbox">Sandbox Testing</option>
+                  <option value="live">Live Production (Readiness Gate)</option>
+                </select>
               ) : (
                 <select className="form-control" value={env} onChange={e => setEnv(e.target.value)}>
                   <option value="sandbox">Sandbox Testing</option>
@@ -970,22 +974,59 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
 
             {selectedInt.provider_type === 'mpesa' && (
               <>
-                <div
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: 'var(--radius-sm)',
-                    background: 'var(--primary-glow)',
-                    border: '1px solid var(--primary)',
-                    fontSize: '12px',
-                    lineHeight: '1.5'
-                  }}
-                >
-                  Daraja is sandbox-only in this release. Saving these keys only enables sandbox token testing and sandbox-style C2B callback readiness.
-                </div>
+                {env === 'live' ? (
+                  <div
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--danger-glow)',
+                      border: '1px solid var(--danger)',
+                      fontSize: '12.5px',
+                      lineHeight: '1.5',
+                      marginBottom: '16px',
+                      color: 'var(--text-primary)'
+                    }}
+                  >
+                    <div style={{ fontWeight: 'bold', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      ⚠️ Live Readiness Verification Mode
+                    </div>
+                    <ul style={{ margin: '0 0 10px 16px', padding: 0 }}>
+                      <li>Live credentials can authenticate but live payments are not enabled yet.</li>
+                      <li>Do not switch tenants to live collection until callback registration and allocation safety are complete.</li>
+                    </ul>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '10px' }}>
+                      <input
+                        type="checkbox"
+                        id="acknowledge_live_gate"
+                        checked={acknowledgeLiveGate}
+                        onChange={e => setAcknowledgeLiveGate(e.target.checked)}
+                      />
+                      <label htmlFor="acknowledge_live_gate" style={{ fontWeight: '600', cursor: 'pointer' }}>
+                        I acknowledge these safety limits for live credentials
+                      </label>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--primary-glow)',
+                      border: '1px solid var(--primary)',
+                      fontSize: '12px',
+                      lineHeight: '1.5',
+                      marginBottom: '16px'
+                    }}
+                  >
+                    Daraja sandbox is active. Saving these keys enables sandbox token testing and sandbox C2B callback readiness.
+                  </div>
+                )}
                 <div className="form-group">
                   <label className="form-label">Lipa na M-Pesa Paybill / Till Number</label>
                   <input type="text" required className="form-control" placeholder="e.g. 174379" value={shortcode} onChange={e => setShortcode(e.target.value)} />
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Use Sandbox Paybill 174379 for testing.</span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    {env === 'live' ? 'Use production Paybill / Till Number.' : 'Use Sandbox Paybill 174379 for testing.'}
+                  </span>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Consumer Key</label>
@@ -1119,7 +1160,15 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
               </div>
               <p style={{ fontSize: '12px', marginTop: '6px' }}>Automates payments matching and reconciliation via webhook callbacks.</p>
               <div className="flex-gap" style={{ marginTop: '12px' }}>
-                <button className="btn btn-secondary btn-sm" onClick={() => { setConsumerKey(''); setConsumerSecret(''); setShortcode(''); setPasskey(''); setEnv('sandbox'); setSelectedInt({ provider_type: 'mpesa', provider_name: 'Safaricom M-Pesa API' }); }}>Configure</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => {
+                  setConsumerKey('');
+                  setConsumerSecret('');
+                  setShortcode('');
+                  setPasskey('');
+                  setEnv(mpesaInt?.environment || 'sandbox');
+                  setAcknowledgeLiveGate(false);
+                  setSelectedInt({ provider_type: 'mpesa', provider_name: 'Safaricom M-Pesa API' });
+                }}>Configure</button>
                 {mpesaInt && (
                   <>
                     <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(mpesaInt.id)}>Test</button>

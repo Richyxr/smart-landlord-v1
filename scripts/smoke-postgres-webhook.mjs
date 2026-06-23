@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import pg from 'pg';
 
 if (!process.env.DATABASE_URL) {
   console.error('DATABASE_URL is required for PostgreSQL webhook smoke tests.');
@@ -85,6 +86,35 @@ async function saveMpesaSandboxIntegration(token) {
   return res.json();
 }
 
+async function saveMpesaLiveIntegration(token) {
+  const landlord = await login('landlord@demo.com');
+  const res = await fetch(`${BASE_URL}/api/integrations`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${landlord.auth_token}`
+    },
+    body: JSON.stringify({
+      provider_type: 'mpesa',
+      provider_name: 'Safaricom M-Pesa API',
+      environment: 'live',
+      acknowledge_live_gate: true,
+      config_json: {
+        shortcode: '987654',
+        passkey: token,
+        consumer_key: 'live-consumer-key-for-webhook-smoke',
+        consumer_secret: 'live-consumer-secret-for-webhook-smoke'
+      }
+    })
+  });
+
+  if (res.status !== 200) {
+    throw new Error(`Could not save M-Pesa live integration: ${res.status} ${await res.text()}`);
+  }
+
+  return res.json();
+}
+
 async function postMpesaWebhook(reference) {
   const res = await fetch(`${BASE_URL}/api/webhooks/payment`, {
     method: 'POST',
@@ -117,6 +147,27 @@ async function postMpesaC2b(reference, token) {
       MSISDN: '254711222333',
       FirstName: 'Smoke',
       LastName: 'C2B'
+    })
+  });
+
+  return {
+    status: res.status,
+    body: await res.json()
+  };
+}
+
+async function postMpesaLiveC2b(reference, token) {
+  const res = await fetch(`${BASE_URL}/api/webhooks/mpesa/c2b?token=${encodeURIComponent(token)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      TransID: reference,
+      TransAmount: '100',
+      BillRefNumber: 'ACC-0010-A1',
+      BusinessShortCode: '987654',
+      MSISDN: '254711222333',
+      FirstName: 'Smoke',
+      LastName: 'LiveC2B'
     })
   });
 
@@ -177,6 +228,49 @@ try {
   const bankReference = `SMOKE-BANK-${Date.now()}`;
   assertWebhook('postgres webhook accepts first bank callback', await postBankWebhook(bankReference), 0);
   assertWebhook('postgres webhook blocks duplicate bank callback', await postBankWebhook(bankReference), 1);
+
+  // Live webhook guard verification
+  const liveToken = `live-c2b-token-${Date.now()}`;
+  const liveIntegration = await saveMpesaLiveIntegration(liveToken);
+  console.log('PASS M-Pesa live integration saved successfully.');
+
+  const liveC2bReference = `SMOKE-LIVE-C2B-${Date.now()}`;
+  assertWebhook('postgres M-Pesa live C2B webhook accepted safely', await postMpesaLiveC2b(liveC2bReference, liveToken), 0);
+
+  // Directly check the database to ensure no transaction was created and it was staged as unmatched
+  const pgClient = new pg.Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined
+  });
+  await pgClient.connect();
+  try {
+    const txCheck = await pgClient.query(
+      'SELECT id FROM transactions WHERE reference_number = $1',
+      [liveC2bReference]
+    );
+    if (txCheck.rows.length > 0) {
+      throw new Error('Security violation: transaction was created for live M-Pesa callback!');
+    }
+    console.log('PASS: No transactions created for live webhook payment callback.');
+
+    const stagingCheck = await pgClient.query(
+      'SELECT id, status, error_message FROM reconciliation_staging_rows WHERE reference_number = $1',
+      [liveC2bReference]
+    );
+    if (stagingCheck.rows.length === 0) {
+      throw new Error('Error: live M-Pesa callback was not staged in reconciliation_staging_rows!');
+    }
+    const stagingRow = stagingCheck.rows[0];
+    if (stagingRow.status !== 'unmatched') {
+      throw new Error(`Expected staging row status to be 'unmatched', got '${stagingRow.status}'`);
+    }
+    if (!stagingRow.error_message.includes('Live payment processing is not enabled')) {
+      throw new Error(`Expected error message to mention live payments not enabled, got: ${stagingRow.error_message}`);
+    }
+    console.log('PASS: Live webhook payment was staged securely without allocation.');
+  } finally {
+    await pgClient.end();
+  }
 
   console.log('PostgreSQL webhook smoke test passed.');
 } finally {

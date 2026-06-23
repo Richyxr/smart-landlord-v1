@@ -116,7 +116,7 @@ async function resolveOrganization(client, body, providerType, demoMode) {
     if (shortcode) {
       const result = await client.query(
         `
-          SELECT id, organization_id, webhook_secret, shortcode, account_reference
+          SELECT id, organization_id, webhook_secret, shortcode, account_reference, environment
           FROM organization_integrations
           WHERE provider_type = 'mpesa'
             AND shortcode = $1
@@ -124,6 +124,7 @@ async function resolveOrganization(client, body, providerType, demoMode) {
             AND (
               status IN ('ready', 'live')
               OR (environment = 'sandbox' AND status = 'draft')
+              OR (environment = 'live' AND status IN ('draft', 'test_failed'))
             )
           ORDER BY status = 'live' DESC, id ASC
           LIMIT 1
@@ -143,7 +144,7 @@ async function resolveOrganization(client, body, providerType, demoMode) {
     if (bankCode) {
       const result = await client.query(
         `
-          SELECT id, organization_id, webhook_secret, provider_identifier
+          SELECT id, organization_id, webhook_secret, provider_identifier, environment
           FROM organization_integrations
           WHERE provider_type = 'bank'
             AND provider_identifier = $1
@@ -563,6 +564,76 @@ async function processWebhookPayment(pgDb, req, res, payment, orgId, integration
         await logAudit(client, orgId, null, 'system', 'webhook_duplicate_blocked', 'reconciliation_staging_rows', duplicateStaging.rows[0].id, null, null, `Blocked duplicate unmatched ${providerLabel} webhook transaction ${payment.reference}`);
         return { duplicate: true, orgId };
       }
+
+      // --- LIVE ENVIRONMENT GUARD ---
+      if (integration && integration.environment === 'live') {
+        const stagingResult = await client.query(
+          `
+            INSERT INTO reconciliation_staging_rows (
+              organization_id,
+              batch_id,
+              raw_row_data,
+              transaction_date,
+              amount,
+              reference_number,
+              account_number,
+              description,
+              payer_name,
+              payer_phone,
+              status,
+              error_message
+            )
+            VALUES ($1, NULL, $2::jsonb, now(), $3, $4, $5, $6, $7, $8, 'unmatched', $9)
+            RETURNING *
+          `,
+          [
+            orgId,
+            JSON.stringify(req.body),
+            payment.amount,
+            payment.reference,
+            payment.accountNumber,
+            `Live ${payment.provider.toUpperCase()} callback received. Securely staged without allocation.`,
+            payment.payerName,
+            payment.payerPhone,
+            'Live payment processing is not enabled. Staged securely without allocation.'
+          ]
+        );
+
+        const stagingRow = stagingResult.rows[0];
+        await logAudit(
+          client,
+          orgId,
+          null,
+          'system',
+          'webhook_live_staged_without_allocation',
+          'reconciliation_staging_rows',
+          stagingRow.id,
+          null,
+          stagingRow,
+          `Live ${providerLabel} payment callback staged securely without allocation (readiness verification mode).`
+        );
+
+        const ownerResult = await client.query('SELECT owner_user_id FROM organizations WHERE id = $1', [orgId]);
+        const ownerUserId = ownerResult.rows[0]?.owner_user_id || null;
+        if (ownerUserId) {
+          const notificationService = new NotificationService(pgDb);
+          await notificationService.queue({
+            organizationId: orgId,
+            recipientUserId: ownerUserId,
+            channel: 'in_app',
+            type: 'unmatched_payment_alert',
+            data: {
+              amount: payment.amount,
+              payer_name: payment.payerName,
+              phone_number: payment.payerPhone,
+              reference: payment.reference
+            }
+          }, client);
+        }
+
+        return { duplicate: false, matched: false, orgId };
+      }
+      // --- END OF LIVE ENVIRONMENT GUARD ---
 
       const { matchedTenant, matchedInvoice } = await findMatch(client, orgId, payment.cleanRef, payment.payerPhone);
 

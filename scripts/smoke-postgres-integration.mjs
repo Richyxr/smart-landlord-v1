@@ -123,7 +123,55 @@ try {
       }
     })
   });
-  assertStatus('M-Pesa live environment is rejected', liveRes, 400);
+  assertStatus('M-Pesa live environment is rejected without gate acknowledgment', liveRes, 400);
+
+  const liveSaveGateRes = await fetch(`${BASE_URL}/api/integrations`, {
+    method: 'POST',
+    headers: landlordHeaders,
+    body: JSON.stringify({
+      provider_type: 'mpesa',
+      provider_name: 'M-Pesa Webhook Provider',
+      environment: 'live',
+      acknowledge_live_gate: true,
+      config_json: {
+        shortcode: '654321',
+        passkey: 'live-passkey-for-smoke',
+        consumer_key: 'live-consumer-key-for-smoke',
+        consumer_secret: 'live-consumer-secret-for-smoke'
+      }
+    })
+  });
+  assertStatus('M-Pesa live environment saves with gate acknowledgment', liveSaveGateRes, 200);
+  const liveSavedIntegration = await liveSaveGateRes.json();
+  if (liveSavedIntegration.environment !== 'live') {
+    throw new Error(`Expected environment to be 'live', got ${liveSavedIntegration.environment}`);
+  }
+  console.log('PASS: Saved live M-Pesa integration successfully.');
+
+  // Test live Daraja token connection using the live integration we created
+  const liveTestRes = await fetch(`${BASE_URL}/api/integrations/${liveSavedIntegration.id}/test`, {
+    method: 'POST',
+    headers: landlordHeaders
+  });
+  if (liveTestRes.status !== 502) {
+    throw new Error(`Expected invalid live Daraja credentials to fail with 502, got ${liveTestRes.status}`);
+  }
+  const liveTestResult = await liveTestRes.json();
+  if (!liveTestResult.response_summary || !liveTestResult.response_summary.includes('Daraja live OAuth rejected')) {
+    throw new Error(`Expected live test response summary to mention live OAuth rejection, got: ${JSON.stringify(liveTestResult)}`);
+  }
+  console.log('PASS: Live Daraja token test used production Safaricom URL.');
+
+  // Delete live integration credentials too to clean up
+  const liveDeleteRes = await fetch(`${BASE_URL}/api/integrations/${liveSavedIntegration.id}/delete`, {
+    method: 'POST',
+    headers: landlordHeaders,
+    body: JSON.stringify({ pin: '123456' })
+  });
+  if (liveDeleteRes.status !== 200) {
+    throw new Error(`Expected live delete to succeed, got ${liveDeleteRes.status}`);
+  }
+  console.log('PASS: Live integration credentials deleted successfully.');
 
   // 2. Save a new/updated sandbox integration
   const saveRes = await fetch(`${BASE_URL}/api/integrations`, {

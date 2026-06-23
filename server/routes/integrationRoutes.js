@@ -111,13 +111,18 @@ function validateMpesaSandboxConfig(config) {
   return missing;
 }
 
-async function testDarajaSandboxToken(credentials) {
+async function testDarajaToken(credentials, environment = 'sandbox') {
   const auth = Buffer
     .from(`${credentials.consumer_key}:${credentials.consumer_secret}`)
     .toString('base64');
 
+  const baseUrl = environment === 'live'
+    ? 'https://api.safaricom.co.ke'
+    : 'https://sandbox.safaricom.co.ke';
+  const label = environment === 'live' ? 'live' : 'sandbox';
+
   try {
-    const response = await fetch('https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials', {
+    const response = await fetch(`${baseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
       method: 'GET',
       headers: {
         Authorization: `Basic ${auth}`
@@ -135,21 +140,21 @@ async function testDarajaSandboxToken(credentials) {
     if (!response.ok || !body.access_token) {
       return {
         success: false,
-        responseSummary: `Daraja sandbox OAuth rejected the credentials with HTTP ${response.status}.`,
-        errorMessage: 'Daraja sandbox OAuth token request failed. Check the sandbox consumer key and consumer secret.'
+        responseSummary: `Daraja ${label} OAuth rejected the credentials with HTTP ${response.status}.`,
+        errorMessage: `Daraja ${label} OAuth token request failed. Check the ${label} consumer key and consumer secret.`
       };
     }
 
     return {
       success: true,
-      responseSummary: 'Daraja sandbox OAuth token generated successfully.',
+      responseSummary: `Daraja ${label} OAuth token generated successfully.`,
       errorMessage: null
     };
   } catch (_error) {
     return {
       success: false,
-      responseSummary: 'Daraja sandbox OAuth endpoint could not be reached within the timeout.',
-      errorMessage: 'Daraja sandbox OAuth token request could not be completed.'
+      responseSummary: `Daraja ${label} OAuth endpoint could not be reached within the timeout.`,
+      errorMessage: `Daraja ${label} OAuth token request could not be completed.`
     };
   }
 }
@@ -213,21 +218,30 @@ export function createIntegrationRoutes(pgDb) {
       return res.status(400).json({ error: 'provider_type and provider_name are required.' });
     }
 
-    const normalizedEnvironment = provider_type === 'mpesa' ? 'sandbox' : (environment || 'sandbox');
+    const normalizedEnvironment = provider_type === 'mpesa' ? (environment === 'live' ? 'live' : 'sandbox') : (environment || 'sandbox');
     let configForStorage = config_json || {};
 
     if (provider_type === 'mpesa') {
       if (environment && environment !== 'sandbox') {
-        return res.status(400).json({
-          error: 'M-Pesa Daraja integration is sandbox-only for now.'
-        });
+        if (environment === 'live') {
+          if (!req.body.acknowledge_live_gate) {
+            return res.status(400).json({
+              error: 'Live environment requires explicit acknowledgment of the readiness gate constraints.'
+            });
+          }
+        } else {
+          return res.status(400).json({
+            error: 'M-Pesa Daraja integration only supports sandbox and live environments.'
+          });
+        }
       }
 
       configForStorage = normalizeMpesaSandboxConfig(config_json || {});
       const missing = validateMpesaSandboxConfig(configForStorage);
       if (missing.length > 0) {
+        const label = normalizedEnvironment === 'live' ? 'live' : 'sandbox';
         return res.status(400).json({
-          error: `Missing required M-Pesa sandbox credential fields: ${missing.join(', ')}.`
+          error: `Missing required M-Pesa ${label} credential fields: ${missing.join(', ')}.`
         });
       }
     }
@@ -350,19 +364,20 @@ export function createIntegrationRoutes(pgDb) {
     const credentials = decryptConfig(integration.config_json_encrypted);
 
     if (integration.provider_type === 'mpesa') {
-      if (integration.environment !== 'sandbox') {
-        return res.status(400).json({ error: 'M-Pesa Daraja testing is sandbox-only for now.' });
+      if (integration.environment !== 'sandbox' && integration.environment !== 'live') {
+        return res.status(400).json({ error: 'M-Pesa Daraja testing only supports sandbox and live environments.' });
       }
 
       const mpesaCredentials = normalizeMpesaSandboxConfig(credentials);
       const missing = validateMpesaSandboxConfig(mpesaCredentials);
       if (missing.length > 0) {
+        const label = integration.environment === 'live' ? 'live' : 'sandbox';
         return res.status(400).json({
-          error: `Missing required M-Pesa sandbox credential fields: ${missing.join(', ')}.`
+          error: `Missing required M-Pesa ${label} credential fields: ${missing.join(', ')}.`
         });
       }
 
-      const testResult = await testDarajaSandboxToken(mpesaCredentials);
+      const testResult = await testDarajaToken(mpesaCredentials, integration.environment);
       const testLog = await pgDb.insert('integration_test_logs', {
         organization_id: orgId,
         integration_id: integrationId,
@@ -378,14 +393,17 @@ export function createIntegrationRoutes(pgDb) {
         last_tested_at: new Date().toISOString()
       });
 
+      const label = integration.environment === 'live' ? 'live' : 'sandbox';
       await pgDb.logAudit(
         orgId, userId, 'landlord',
-        testResult.success ? 'daraja_sandbox_test_passed' : 'daraja_sandbox_test_failed',
+        testResult.success
+          ? (integration.environment === 'live' ? 'daraja_live_test_passed' : 'daraja_sandbox_test_passed')
+          : (integration.environment === 'live' ? 'daraja_live_test_failed' : 'daraja_sandbox_test_failed'),
         'organization_integrations',
         integrationId,
         { status: integration.status },
         { status: newStatus, test_log_id: testLog.id },
-        `Daraja sandbox credential test ${testResult.success ? 'passed' : 'failed'}.`
+        `Daraja ${label} credential test ${testResult.success ? 'passed' : 'failed'}.`
       );
 
       const responseBody = {

@@ -82,3 +82,11 @@ Before treating the database as production-ready:
 - [ ] Audit logs are created for sensitive actions.
 - [ ] Production secrets are not committed to Git.
 - [ ] ENCRYPTION_KEY environment secret is configured in App Hosting to enable AES-256-GCM encryption of saved API credentials.
+
+## M-Pesa Live Readiness Gate & Safe Verification
+
+To verify production M-Pesa Daraja API credentials safely without exposing the platform to live transaction routing, follow this protocol:
+
+1. **Acknowledge the Readiness Gate**: When configuring the Safaricom M-Pesa API integration in Settings -> Integrations, select the "Live Production (Readiness Gate)" environment. You must check the box to acknowledge that live payments are not enabled yet and that callback registration/allocation safety must be completed first.
+2. **OAuth Connection Test**: Click the "Test" button to execute a live Daraja OAuth token generation request (`https://api.safaricom.co.ke/oauth/v1/generate`). This tests the credentials against the real production API. Access tokens are transient and never stored or logged.
+3. **Guard Actions**: Live payments, STK Pushes, and production C2B allocations are disabled in live mode. Any incoming callbacks referencing a live environment integration will be caught by the backend guard, saved securely to `reconciliation_staging_rows` as `unmatched`, audited, and prevented from allocating real money.
