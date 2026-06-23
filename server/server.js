@@ -3479,8 +3479,16 @@ app.put('/api/maintenance/:id', (req, res) => {
   res.json(updated);
 });
 
+// Global error handler to guarantee JSON responses for all unhandled backend errors
+app.use((err, req, res, next) => {
+  console.error('Unhandled Server Error:', err);
+  res.status(err.statusCode || 500).json({
+    error: 'INTERNAL_SERVER_ERROR',
+    message: err.message || 'An unexpected error occurred on the server.'
+  });
+});
+
 // Serve and listen
 app.listen(PORT, () => {
   console.log(`Smart Landlord Backend Server running on http://localhost:${PORT}`);
 });
-

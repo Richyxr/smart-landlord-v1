@@ -81,3 +81,4 @@ Before treating the database as production-ready:
 - [ ] Webhook duplicate checks work.
 - [ ] Audit logs are created for sensitive actions.
 - [ ] Production secrets are not committed to Git.
+- [ ] ENCRYPTION_KEY environment secret is configured in App Hosting to enable AES-256-GCM encryption of saved API credentials.

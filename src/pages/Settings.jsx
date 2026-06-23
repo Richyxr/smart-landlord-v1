@@ -26,6 +26,20 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
   billing_alerts_enabled: true
 };
 
+const safeParseJson = async (res, defaultErrorMsg) => {
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await res.text().catch(() => '');
+    const snippet = text ? `: ${text.substring(0, 100)}` : '';
+    throw new Error(`${defaultErrorMsg} (Server returned status ${res.status}${snippet})`);
+  }
+  try {
+    return await res.json();
+  } catch (e) {
+    throw new Error(`${defaultErrorMsg} (Failed to parse JSON response)`);
+  }
+};
+
 export default function Settings({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab, onNavigate, onUpdateOrganization, role }) {
   const [activeTab, setActiveTab] = useState(initialSubTab || 'readiness'); // readiness, integrations, archive, audits, compliance, readings
   const [checklist, setChecklist] = useState({});
@@ -318,7 +332,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         })
       });
 
-      const data = await res.json();
+      const data = await safeParseJson(res, 'Save integration failed');
       if (!res.ok) throw new Error(data.error || 'Save integration failed.');
       setSelectedInt(null);
       setActiveTab('integrations');
@@ -376,8 +390,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         method: 'POST',
         headers
       });
+      const data = await safeParseJson(res, 'Retry failed');
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error || 'Retry failed.');
       }
       setInfoMessage('Notification retry delivery initiated successfully.');
@@ -394,13 +408,13 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
     setLoading(true);
     try {
       const res = await fetch(`/api/integrations/${id}/test`, { method: 'POST', headers });
-      if (!res.ok) throw new Error('Test failed.');
-      const data = await res.json();
+      const data = await safeParseJson(res, 'Test connection failed');
+      if (!res.ok) throw new Error(data.error || data.message || 'Test failed.');
       setInfoMessage(`Connection test result: ${data.status.toUpperCase()}. ${data.response_summary}`);
       setError('');
       fetchData();
     } catch (e) {
-      setError('Failed to connect to integration gateway Sandbox. Please check your credentials.');
+      setError(e.message);
     } finally {
       setLoading(false);
     }
@@ -419,7 +433,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone_number: phoneNumber })
       });
-      const data = await res.json();
+      const data = await safeParseJson(res, 'Failed to send test SMS');
       if (!res.ok) {
         throw new Error(data.error || 'Failed to send test SMS.');
       }
@@ -456,8 +470,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
           headers: { ...headers, 'Content-Type': 'application/json' },
           body: JSON.stringify({ pin: enteredPin })
         });
+        const data = await safeParseJson(res, 'Failed to delete credentials');
         if (!res.ok) {
-          const data = await res.json();
           throw new Error(data.error || 'Failed to delete credentials.');
         }
         setInfoMessage('Integration credentials deleted successfully.');
@@ -472,7 +486,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
             reason: archiveReason
           })
         });
-        const data = await res.json();
+        const data = await safeParseJson(res, 'Archive action failed');
         if (!res.ok) throw new Error(data.error || 'Archive action failed.');
         setInfoMessage(`Successfully archived ${data.count} transaction records.`);
         setError('');
