@@ -50,6 +50,188 @@ function requireSuperAdminContext(req, res, next) {
 export function createNotificationRoutes(pgDb) {
   const router = express.Router();
   const notificationService = new NotificationService(pgDb);
+
+  function requireLandlordOrAdmin(req, res, next) {
+    const { role } = getContext(req);
+    if (role === 'caretaker') {
+      return res.status(403).json({
+        error: 'ACCESS_DENIED',
+        message: 'Caretakers cannot send SMS reminders.'
+      });
+    }
+    if (!role) {
+      return res.status(401).json({ error: 'AUTHENTICATION_REQUIRED' });
+    }
+    next();
+  }
+
+  // =========================================================================
+  // POST /notifications/due-tenants/send-reminders
+  // Send SMS reminders to one or more tenants by tenant_id.
+  // Routes through the active configured SMS provider (Mobitech).
+  // =========================================================================
+  router.post('/notifications/due-tenants/send-reminders', requireAuthenticatedContext, requireLandlordOrAdmin, asyncHandler(async (req, res) => {
+    const { orgId, userId, role } = getContext(req);
+    const { tenant_ids } = req.body;
+
+    // --- Input validation ---
+    if (!Array.isArray(tenant_ids) || tenant_ids.length === 0) {
+      return res.status(400).json({
+        error: 'INVALID_INPUT',
+        message: 'tenant_ids must be a non-empty array of tenant IDs.'
+      });
+    }
+    if (tenant_ids.length > 200) {
+      return res.status(400).json({
+        error: 'INVALID_INPUT',
+        message: 'Maximum 200 tenants can be messaged per request.'
+      });
+    }
+
+    const parsedIds = tenant_ids.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0);
+    if (parsedIds.length === 0) {
+      return res.status(400).json({
+        error: 'INVALID_INPUT',
+        message: 'No valid tenant IDs provided.'
+      });
+    }
+
+    // --- Check SMS provider configured ---
+    let settings = null;
+    try {
+      if (pgDb) {
+        const settingsRes = await pgDb.query(
+          'SELECT * FROM notification_settings WHERE organization_id = $1',
+          [orgId]
+        );
+        settings = settingsRes.rows[0] || null;
+      } else {
+        const { db } = await import('../db.js');
+        settings = db.findOne('notification_settings', { organization_id: orgId });
+      }
+    } catch (err) {
+      console.error('[due-tenants/send-reminders] Failed to fetch notification settings:', err.message);
+    }
+
+    const smsProvider = settings?.sms_provider || 'None';
+    if (!smsProvider || smsProvider === 'None') {
+      return res.status(503).json({
+        error: 'SMS_PROVIDER_NOT_CONFIGURED',
+        message: 'No SMS provider is configured. Go to Settings → Integrations to set up Mobitech SMS before sending reminders.'
+      });
+    }
+
+    // --- Fetch tenants, verifying org ownership ---
+    let tenants = [];
+    try {
+      if (pgDb) {
+        const result = await pgDb.query(
+          `SELECT id, full_name, phone_number, rent_amount, billing_day, tenant_account_number
+           FROM tenants
+           WHERE organization_id = $1
+             AND id = ANY($2::bigint[])
+             AND deleted_at IS NULL
+             AND status = 'active'`,
+          [orgId, parsedIds]
+        );
+        tenants = result.rows;
+      } else {
+        const { db } = await import('../db.js');
+        tenants = db.find('tenants', { organization_id: orgId, deleted_at: null })
+          .filter(t => parsedIds.includes(t.id) && t.status === 'active');
+      }
+    } catch (err) {
+      console.error('[due-tenants/send-reminders] Failed to fetch tenants:', err.message);
+      return res.status(500).json({ error: 'Failed to fetch tenant records.' });
+    }
+
+    if (tenants.length === 0) {
+      return res.status(400).json({
+        error: 'NO_VALID_TENANTS',
+        message: 'None of the provided tenant IDs matched active tenants in your organization.'
+      });
+    }
+
+    // --- Compute tenant balances for overdue/reminder classification ---
+    let balanceMap = new Map();
+    try {
+      if (pgDb) {
+        const tenantIdList = tenants.map(t => t.id);
+        const balRes = await pgDb.query(
+          `SELECT tenant_id, COALESCE(SUM(balance) FILTER (WHERE status NOT IN ('paid','void')), 0)::numeric AS balance
+           FROM invoices
+           WHERE organization_id = $1
+             AND tenant_id = ANY($2::bigint[])
+           GROUP BY tenant_id`,
+          [orgId, tenantIdList]
+        );
+        balRes.rows.forEach(row => balanceMap.set(row.tenant_id, Number(row.balance)));
+      }
+    } catch (err) {
+      console.warn('[due-tenants/send-reminders] Could not compute balances, defaulting to 0:', err.message);
+    }
+
+    // --- Queue SMS for each tenant ---
+    const results = [];
+    let queued = 0;
+
+    for (const tenant of tenants) {
+      const balance = balanceMap.get(tenant.id) ?? 0;
+      const notificationType = balance > 0 ? 'overdue_reminder' : 'rent_reminder';
+      const today = new Date().toISOString().split('T')[0];
+
+      try {
+        const logRow = await notificationService.queue({
+          organizationId: orgId,
+          tenantId: tenant.id,
+          channel: 'sms',
+          type: notificationType,
+          data: {
+            invoice_number: 'N/A',
+            balance: balance.toFixed(2),
+            amount: Number(tenant.rent_amount || 0).toFixed(2),
+            due_date: today,
+            account_number: tenant.tenant_account_number || ''
+          }
+        });
+
+        if (logRow) {
+          queued++;
+          results.push({ tenant_id: tenant.id, tenant_name: tenant.full_name, status: 'queued', log_id: logRow.id });
+        } else {
+          results.push({ tenant_id: tenant.id, tenant_name: tenant.full_name, status: 'skipped', reason: 'Blocked by notification settings or missing phone number.' });
+        }
+      } catch (err) {
+        // Log without exposing credentials or sensitive details
+        console.error(`[due-tenants/send-reminders] Failed to queue SMS for tenant ${tenant.id}:`, err.message);
+        results.push({ tenant_id: tenant.id, tenant_name: tenant.full_name, status: 'skipped', reason: 'Send error — check notification logs.' });
+      }
+    }
+
+    // Audit log
+    try {
+      if (pgDb) {
+        await pgDb.logAudit(
+          orgId, userId, role,
+          'due_tenant_sms_reminders_sent',
+          'notification_logs',
+          null,
+          null,
+          { queued, total: tenants.length },
+          `Sent SMS reminders to ${queued} of ${tenants.length} due tenants.`
+        );
+      }
+    } catch (auditErr) {
+      console.warn('[due-tenants/send-reminders] Audit log failed (non-fatal):', auditErr.message);
+    }
+
+    res.json({
+      queued,
+      total: tenants.length,
+      results
+    });
+  }));
+
   // =========================================================================
   // GET /settings/notifications — Fetch notification settings for the org
   // =========================================================================

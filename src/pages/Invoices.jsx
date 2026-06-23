@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
-import { CircleDollarSign, AlertTriangle, CheckCircle, Users, Zap, FileText, Printer, Bell, Check, CheckCircle2, Plus, DoorOpen, Droplets, Pencil, Clock, Mail, Phone, MessageSquare, Smartphone, ChevronRight } from 'lucide-react';
+import { CircleDollarSign, AlertTriangle, CheckCircle, Users, Zap, FileText, Printer, Bell, Check, CheckCircle2, Plus, DoorOpen, Droplets, Pencil, Clock, Mail, Phone, MessageSquare, Smartphone, ChevronRight, Send, X } from 'lucide-react';
 
 export default function Invoices({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab, onNavigate }) {
   const [invoices, setInvoices] = useState([]);
@@ -26,6 +26,13 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
   // Selected due tenant details modal state for mobile view
   const [selectedMobileTenant, setSelectedMobileTenant] = useState(null);
+
+  // Due Tenants SMS Reminder State
+  const [selectedTenantIds, setSelectedTenantIds] = useState(new Set());
+  const [smsConfirmTarget, setSmsConfirmTarget] = useState(null); // { tenantIds: number[], tenants: Tenant[] }
+  const [smsSendResult, setSmsSendResult] = useState(null); // { queued, total, results }
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsError, setSmsError] = useState('');
 
   // Form State for Invoice Creation
   const [selectedTenantId, setSelectedTenantId] = useState('');
@@ -928,101 +935,355 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
         </div>
       )}
 
-      {/* DUE TENANTS SUB-TAB */}
-      {activeSubTab === 'due_tenants' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          
-          <input
-            type="text"
-            placeholder="Search due tenants by name, property, or unit..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            className="form-control"
-            style={{ marginBottom: '4px' }}
-          />
-
-          {filteredTenants.length === 0 ? (
-            <div className="sl-empty-state">
-              <div className="sl-empty-state-title">No due tenants found</div>
-              <div className="sl-empty-state-desc">No active due tenants match the current search filter.</div>
+      {/* DUE TENANTS SMS CONFIRMATION MODAL */}
+      {smsConfirmTarget && (
+        <div className="modal-backdrop">
+          <div className="modal-content" style={{ maxWidth: '420px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+                <Send size={20} />
+              </div>
+              <div>
+                <h3 style={{ fontWeight: '700', fontSize: '16px', margin: 0 }}>Send SMS Reminders</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+                  {smsConfirmTarget.tenants.length === 1
+                    ? '1 tenant will receive an SMS reminder'
+                    : `${smsConfirmTarget.tenants.length} tenants will receive SMS reminders`}
+                </p>
+              </div>
             </div>
-          ) : (
-            <>
-              {/* Desktop View: Keep existing table layout */}
-              <div className="due-tenants-desktop-view" style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: 'var(--bg-surface-elevated)', borderBottom: '1px solid var(--border)' }}>
-                      <th style={{ padding: '10px' }}>Tenant</th>
-                      <th style={{ padding: '10px' }}>Property / Unit</th>
-                      <th style={{ padding: '10px', textAlign: 'center' }}>Day</th>
-                      <th style={{ padding: '10px', textAlign: 'right' }}>Rent</th>
-                      <th style={{ padding: '10px', textAlign: 'right' }}>Arrears</th>
-                      <th style={{ padding: '10px', textAlign: 'right' }}>Total Due</th>
-                      <th style={{ padding: '10px', textAlign: 'center' }}>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredTenants.map(t => {
-                      const arrearsVal = safeNumber(t.balance);
-                      const rentVal = safeNumber(t.rent_amount);
-                      const dueVal = rentVal + arrearsVal;
-                      return (
-                        <tr key={t.id} style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-                          <td style={{ padding: '10px', fontWeight: '700' }}>{t.full_name}</td>
-                          <td style={{ padding: '10px' }}>{t.property_name} <span style={{ color: 'var(--text-muted)' }}>({t.unit_code})</span></td>
-                          <td style={{ padding: '10px', textAlign: 'center', color: 'var(--info)' }}>{t.billing_day || '1'}</td>
-                          <td style={{ padding: '10px', textAlign: 'right' }}>{formatCurrency(rentVal)}</td>
-                          <td style={{ padding: '10px', textAlign: 'right', color: arrearsVal > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                            {arrearsVal > 0 ? formatCurrency(arrearsVal) : '--'}
-                          </td>
-                          <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(dueVal)}</td>
-                          <td style={{ padding: '10px', textAlign: 'center' }}>
-                            <span className={`sl-status-badge ${arrearsVal > 0 ? 'sl-status-danger' : 'sl-status-success'}`}>
-                              {arrearsVal > 0 ? 'Arrears' : 'No Arrears'}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
 
-              {/* Mobile View: Display as stacked cards */}
-              <div className="due-tenants-mobile-view" style={{ display: 'none', flexDirection: 'column', gap: '10px' }}>
-                {filteredTenants.map(t => {
-                  const arrearsVal = safeNumber(t.balance);
-                  const rentVal = safeNumber(t.rent_amount);
-                  const dueVal = rentVal + arrearsVal;
-                  return (
-                    <div 
-                      key={t.id} 
-                      className="sl-card sl-card-interactive" 
-                      style={{ marginBottom: 0, padding: '12px 14px' }}
-                      onClick={() => setSelectedMobileTenant(t)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedMobileTenant(t); } }}
-                    >
-                      <div className="flex-row" style={{ width: '100%' }}>
-                        <span style={{ fontWeight: '700', fontSize: '14px', color: 'var(--text-primary)' }}>{t.full_name}</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span className={`sl-status-badge ${arrearsVal > 0 ? 'sl-status-danger' : 'sl-status-success'}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
-                            {arrearsVal > 0 ? 'Arrears' : 'No Arrears'}
-                          </span>
-                          <span style={{ fontWeight: '800', fontSize: '14px', color: 'var(--text-primary)' }}>{formatCurrency(dueVal)}</span>
-                          <ChevronRight size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+            <div style={{ background: 'var(--bg-surface-elevated)', borderRadius: '10px', padding: '12px', marginBottom: '14px' }}>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Recipients</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {smsConfirmTarget.tenants.slice(0, 5).map(t => (
+                  <div key={t.id} style={{ fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Smartphone size={12} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                    <span style={{ fontWeight: '600' }}>{t.full_name}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t.unit_code || ''}</span>
+                    {safeNumber(t.balance) > 0 && (
+                      <span style={{ fontSize: '10px', background: 'var(--danger)', color: '#fff', borderRadius: '4px', padding: '1px 5px', marginLeft: 'auto' }}>Arrears</span>
+                    )}
+                  </div>
+                ))}
+                {smsConfirmTarget.tenants.length > 5 && (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    +{smsConfirmTarget.tenants.length - 5} more tenant{smsConfirmTarget.tenants.length - 5 > 1 ? 's' : ''}
+                  </div>
+                )}
               </div>
-            </>
-          )}
+            </div>
+
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', background: 'var(--bg-surface-elevated)', borderRadius: '8px', padding: '10px', marginBottom: '16px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+              <AlertTriangle size={14} style={{ color: 'var(--warning)', flexShrink: 0, marginTop: '1px' }} />
+              <span>SMS will be sent via your configured Mobitech provider. Standard messaging costs apply.</span>
+            </div>
+
+            {smsError && <div role="alert" style={{ color: 'var(--danger)', fontSize: '12px', marginBottom: '10px' }}>{smsError}</div>}
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                className="btn btn-secondary"
+                style={{ flex: 1 }}
+                onClick={() => { setSmsConfirmTarget(null); setSmsError(''); }}
+                disabled={smsSending}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                onClick={async () => {
+                  setSmsSending(true);
+                  setSmsError('');
+                  try {
+                    const res = await fetch('/api/notifications/due-tenants/send-reminders', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ tenant_ids: smsConfirmTarget.tenantIds })
+                    });
+                    const data = await res.json();
+                    if (!res.ok) {
+                      setSmsError(data.message || data.error || 'Failed to send reminders.');
+                      return;
+                    }
+                    setSmsConfirmTarget(null);
+                    setSelectedTenantIds(new Set());
+                    setSmsSendResult(data);
+                  } catch (err) {
+                    setSmsError('Network error. Please try again.');
+                  } finally {
+                    setSmsSending(false);
+                  }
+                }}
+                disabled={smsSending}
+              >
+                <Send size={14} />
+                {smsSending ? 'Sending...' : 'Confirm Send'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
+
+      {/* DUE TENANTS SMS RESULT OVERLAY */}
+      {smsSendResult && (
+        <div className="modal-backdrop">
+          <div className="modal-content" style={{ maxWidth: '400px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+                <CheckCircle2 size={20} />
+              </div>
+              <div>
+                <h3 style={{ fontWeight: '700', fontSize: '16px', margin: 0 }}>Reminders Dispatched</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>
+                  {smsSendResult.queued} of {smsSendResult.total} SMS message{smsSendResult.total !== 1 ? 's' : ''} queued
+                </p>
+              </div>
+            </div>
+
+            {smsSendResult.results?.length > 0 && (
+              <div style={{ background: 'var(--bg-surface-elevated)', borderRadius: '10px', padding: '12px', marginBottom: '14px', maxHeight: '180px', overflowY: 'auto' }}>
+                {smsSendResult.results.map((r, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '4px 0', borderBottom: i < smsSendResult.results.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                    {r.status === 'queued'
+                      ? <CheckCircle size={12} style={{ color: 'var(--success)', flexShrink: 0 }} />
+                      : <X size={12} style={{ color: 'var(--danger)', flexShrink: 0 }} />}
+                    <span style={{ fontWeight: '600', flex: 1 }}>{r.tenant_name}</span>
+                    {r.status === 'skipped' && <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{r.reason}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => setSmsSendResult(null)}>
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* DUE TENANTS SUB-TAB */}
+      {activeSubTab === 'due_tenants' && (() => {
+        const allFilteredIds = filteredTenants.map(t => t.id);
+        const allSelected = allFilteredIds.length > 0 && allFilteredIds.every(id => selectedTenantIds.has(id));
+
+        const toggleAll = () => {
+          if (allSelected) {
+            setSelectedTenantIds(prev => {
+              const next = new Set(prev);
+              allFilteredIds.forEach(id => next.delete(id));
+              return next;
+            });
+          } else {
+            setSelectedTenantIds(prev => new Set([...prev, ...allFilteredIds]));
+          }
+        };
+
+        const toggleOne = (id) => {
+          setSelectedTenantIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+          });
+        };
+
+        const openSmsConfirm = (tenantList) => {
+          setSmsError('');
+          setSmsConfirmTarget({ tenantIds: tenantList.map(t => t.id), tenants: tenantList });
+        };
+
+        const selectedInView = filteredTenants.filter(t => selectedTenantIds.has(t.id));
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+            <input
+              type="text"
+              placeholder="Search by name, property, or unit..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="form-control"
+              style={{ marginBottom: '4px' }}
+            />
+
+            {/* Bulk action bar */}
+            {selectedInView.length > 0 && (
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: 'var(--primary)', color: 'var(--primary-foreground)',
+                borderRadius: 'var(--radius-md)', padding: '10px 14px'
+              }}>
+                <span style={{ fontWeight: '600', fontSize: '13px' }}>
+                  {selectedInView.length} tenant{selectedInView.length !== 1 ? 's' : ''} selected
+                </span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: '11px', padding: '4px 8px' }}
+                    onClick={() => setSelectedTenantIds(new Set())}
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{ fontSize: '11px', padding: '4px 10px', background: 'var(--primary-foreground)', color: 'var(--primary)', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '5px' }}
+                    onClick={() => openSmsConfirm(selectedInView)}
+                  >
+                    <Send size={12} /> Send SMS to Selected
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {filteredTenants.length === 0 ? (
+              <div className="sl-empty-state">
+                <div className="sl-empty-state-title">No due tenants found</div>
+                <div className="sl-empty-state-desc">No active tenants match the current search filter.</div>
+              </div>
+            ) : (
+              <>
+                {/* Desktop View */}
+                <div className="due-tenants-desktop-view" style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: 'var(--bg-surface-elevated)', borderBottom: '1px solid var(--border)' }}>
+                        <th style={{ padding: '10px', width: '36px' }}>
+                          <input
+                            type="checkbox"
+                            id="due-tenants-select-all"
+                            checked={allSelected}
+                            onChange={toggleAll}
+                            style={{ cursor: 'pointer' }}
+                            aria-label="Select all tenants"
+                          />
+                        </th>
+                        <th style={{ padding: '10px' }}>Tenant</th>
+                        <th style={{ padding: '10px' }}>Property / Unit</th>
+                        <th style={{ padding: '10px', textAlign: 'center' }}>Day</th>
+                        <th style={{ padding: '10px', textAlign: 'right' }}>Rent</th>
+                        <th style={{ padding: '10px', textAlign: 'right' }}>Arrears</th>
+                        <th style={{ padding: '10px', textAlign: 'right' }}>Total Due</th>
+                        <th style={{ padding: '10px', textAlign: 'center' }}>Status</th>
+                        <th style={{ padding: '10px', textAlign: 'center' }}>SMS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredTenants.map(t => {
+                        const arrearsVal = safeNumber(t.balance);
+                        const rentVal = safeNumber(t.rent_amount);
+                        const dueVal = rentVal + arrearsVal;
+                        const isChecked = selectedTenantIds.has(t.id);
+                        return (
+                          <tr
+                            key={t.id}
+                            style={{ borderBottom: '1px solid var(--border)', background: isChecked ? 'var(--accent)' : 'var(--bg-surface)', transition: 'background 0.1s' }}
+                          >
+                            <td style={{ padding: '10px' }}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => toggleOne(t.id)}
+                                style={{ cursor: 'pointer' }}
+                                aria-label={`Select ${t.full_name}`}
+                              />
+                            </td>
+                            <td style={{ padding: '10px', fontWeight: '700' }}>{t.full_name}</td>
+                            <td style={{ padding: '10px' }}>{t.property_name} <span style={{ color: 'var(--text-muted)' }}>({t.unit_code})</span></td>
+                            <td style={{ padding: '10px', textAlign: 'center', color: 'var(--info)' }}>{t.billing_day || '1'}</td>
+                            <td style={{ padding: '10px', textAlign: 'right' }}>{formatCurrency(rentVal)}</td>
+                            <td style={{ padding: '10px', textAlign: 'right', color: arrearsVal > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
+                              {arrearsVal > 0 ? formatCurrency(arrearsVal) : '--'}
+                            </td>
+                            <td style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(dueVal)}</td>
+                            <td style={{ padding: '10px', textAlign: 'center' }}>
+                              <span className={`sl-status-badge ${arrearsVal > 0 ? 'sl-status-danger' : 'sl-status-success'}`}>
+                                {arrearsVal > 0 ? 'Arrears' : 'No Arrears'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '8px', textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', fontSize: '11px' }}
+                                onClick={() => openSmsConfirm([t])}
+                                title={`Send SMS reminder to ${t.full_name}`}
+                              >
+                                <Send size={11} /> SMS
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile View */}
+                <div className="due-tenants-mobile-view" style={{ display: 'none', flexDirection: 'column', gap: '10px' }}>
+                  {filteredTenants.map(t => {
+                    const arrearsVal = safeNumber(t.balance);
+                    const rentVal = safeNumber(t.rent_amount);
+                    const dueVal = rentVal + arrearsVal;
+                    const isChecked = selectedTenantIds.has(t.id);
+                    return (
+                      <div
+                        key={t.id}
+                        className="sl-card"
+                        style={{ marginBottom: 0, padding: '12px 14px', background: isChecked ? 'var(--accent)' : undefined }}
+                      >
+                        <div className="flex-row" style={{ width: '100%', marginBottom: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleOne(t.id)}
+                              style={{ cursor: 'pointer' }}
+                              aria-label={`Select ${t.full_name}`}
+                            />
+                            <span
+                              style={{ fontWeight: '700', fontSize: '14px', color: 'var(--text-primary)', cursor: 'pointer' }}
+                              onClick={() => setSelectedMobileTenant(t)}
+                            >
+                              {t.full_name}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className={`sl-status-badge ${arrearsVal > 0 ? 'sl-status-danger' : 'sl-status-success'}`} style={{ fontSize: '9px', padding: '2px 6px' }}>
+                              {arrearsVal > 0 ? 'Arrears' : 'No Arrears'}
+                            </span>
+                            <span style={{ fontWeight: '800', fontSize: '14px', color: 'var(--text-primary)' }}>{formatCurrency(dueVal)}</span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: '11px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => setSelectedMobileTenant(t)}
+                          >
+                            Details
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            style={{ fontSize: '11px', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => openSmsConfirm([t])}
+                          >
+                            <Send size={11} /> Send SMS
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* INVOICES SUB-TAB */}
       {activeSubTab === 'invoices' && (
