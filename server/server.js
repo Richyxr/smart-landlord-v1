@@ -678,10 +678,10 @@ app.use('/api/maintenance', requireAuthenticated, requireAnyRole('landlord', 'ca
 app.use('/api/admin', requireAuthenticated, requireAnyRole('super_admin'));
 
 if (pgDb) {
+  app.use('/api', createWebhookRoutes(pgDb, { demoMode: DEMO_MODE }));
   app.use('/api', createPropertyRoutes(pgDb));
   app.use('/api', createFinancialRoutes(pgDb));
   app.use('/api', createReconciliationRoutes(pgDb));
-  app.use('/api', createWebhookRoutes(pgDb, { demoMode: DEMO_MODE }));
   app.use('/api', createIntegrationRoutes(pgDb));
 }
 

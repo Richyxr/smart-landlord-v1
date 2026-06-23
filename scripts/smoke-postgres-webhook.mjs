@@ -43,6 +43,48 @@ async function waitForServer() {
   throw new Error('Server did not become ready in time.');
 }
 
+async function login(email) {
+  const res = await fetch(`${BASE_URL}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email })
+  });
+
+  if (!res.ok) {
+    throw new Error(`Login failed for ${email}: ${res.status}`);
+  }
+
+  return res.json();
+}
+
+async function saveMpesaSandboxIntegration(token) {
+  const landlord = await login('landlord@demo.com');
+  const res = await fetch(`${BASE_URL}/api/integrations`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${landlord.auth_token}`
+    },
+    body: JSON.stringify({
+      provider_type: 'mpesa',
+      provider_name: 'Safaricom M-Pesa API',
+      environment: 'sandbox',
+      config_json: {
+        shortcode: '654321',
+        passkey: token,
+        consumer_key: 'sandbox-consumer-key-for-webhook-smoke',
+        consumer_secret: 'sandbox-consumer-secret-for-webhook-smoke'
+      }
+    })
+  });
+
+  if (res.status !== 200) {
+    throw new Error(`Could not save M-Pesa sandbox integration: ${res.status} ${await res.text()}`);
+  }
+
+  return res.json();
+}
+
 async function postMpesaWebhook(reference) {
   const res = await fetch(`${BASE_URL}/api/webhooks/payment`, {
     method: 'POST',
@@ -54,6 +96,27 @@ async function postMpesaWebhook(reference) {
       MSISDN: '254711222333',
       FirstName: 'Smoke',
       LastName: 'Test'
+    })
+  });
+
+  return {
+    status: res.status,
+    body: await res.json()
+  };
+}
+
+async function postMpesaC2b(reference, token) {
+  const res = await fetch(`${BASE_URL}/api/webhooks/mpesa/c2b?token=${encodeURIComponent(token)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      TransID: reference,
+      TransAmount: '1',
+      BillRefNumber: 'ACC-0010-A1',
+      BusinessShortCode: '654321',
+      MSISDN: '254711222333',
+      FirstName: 'Smoke',
+      LastName: 'C2B'
     })
   });
 
@@ -94,6 +157,18 @@ const server = startServer();
 
 try {
   await waitForServer();
+
+  const c2bToken = `sandbox-c2b-token-${Date.now()}`;
+  const savedIntegration = await saveMpesaSandboxIntegration(c2bToken);
+  if (savedIntegration.config_json_encrypted || savedIntegration.webhook_secret) {
+    throw new Error('M-Pesa integration response exposed sensitive fields.');
+  }
+  console.log('PASS M-Pesa sandbox integration saved with masked response.');
+
+  const c2bReference = `SMOKE-C2B-${Date.now()}`;
+  assertWebhook('postgres M-Pesa C2B accepts correct callback token', await postMpesaC2b(c2bReference, c2bToken), 0);
+  assertWebhook('postgres M-Pesa C2B rejects wrong callback token', await postMpesaC2b(`SMOKE-C2B-WRONG-${Date.now()}`, 'wrong-token'), 1);
+  assertWebhook('postgres M-Pesa C2B blocks duplicate receipt', await postMpesaC2b(c2bReference, c2bToken), 1);
 
   const mpesaReference = `SMOKE-MPESA-${Date.now()}`;
   assertWebhook('postgres webhook accepts first M-Pesa callback', await postMpesaWebhook(mpesaReference), 0);

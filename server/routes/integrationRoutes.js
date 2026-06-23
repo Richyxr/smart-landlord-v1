@@ -86,6 +86,74 @@ function resolveStatus(currentStatus, hasCredentials, testPassed = null) {
   return 'needs_credentials';
 }
 
+function cleanOptionalText(value) {
+  if (value === undefined || value === null) return '';
+  return String(value).trim();
+}
+
+function normalizeMpesaSandboxConfig(configJson = {}) {
+  return {
+    consumer_key: cleanOptionalText(configJson.consumer_key),
+    consumer_secret: cleanOptionalText(configJson.consumer_secret),
+    shortcode: cleanOptionalText(configJson.shortcode || configJson.till_number),
+    passkey: cleanOptionalText(configJson.passkey),
+    webhook_secret: cleanOptionalText(configJson.webhook_secret || configJson.passkey),
+    account_reference: cleanOptionalText(configJson.account_reference)
+  };
+}
+
+function validateMpesaSandboxConfig(config) {
+  const missing = [];
+  if (!config.consumer_key) missing.push('consumer_key');
+  if (!config.consumer_secret) missing.push('consumer_secret');
+  if (!config.shortcode) missing.push('shortcode');
+  if (!config.passkey) missing.push('passkey');
+  return missing;
+}
+
+async function testDarajaSandboxToken(credentials) {
+  const auth = Buffer
+    .from(`${credentials.consumer_key}:${credentials.consumer_secret}`)
+    .toString('base64');
+
+  try {
+    const response = await fetch('https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials', {
+      method: 'GET',
+      headers: {
+        Authorization: `Basic ${auth}`
+      },
+      signal: AbortSignal.timeout(10000)
+    });
+
+    let body = {};
+    try {
+      body = await response.json();
+    } catch (_error) {
+      body = {};
+    }
+
+    if (!response.ok || !body.access_token) {
+      return {
+        success: false,
+        responseSummary: `Daraja sandbox OAuth rejected the credentials with HTTP ${response.status}.`,
+        errorMessage: 'Daraja sandbox OAuth token request failed. Check the sandbox consumer key and consumer secret.'
+      };
+    }
+
+    return {
+      success: true,
+      responseSummary: 'Daraja sandbox OAuth token generated successfully.',
+      errorMessage: null
+    };
+  } catch (_error) {
+    return {
+      success: false,
+      responseSummary: 'Daraja sandbox OAuth endpoint could not be reached within the timeout.',
+      errorMessage: 'Daraja sandbox OAuth token request could not be completed.'
+    };
+  }
+}
+
 export function createIntegrationRoutes(pgDb) {
   const router = express.Router();
 
@@ -145,16 +213,35 @@ export function createIntegrationRoutes(pgDb) {
       return res.status(400).json({ error: 'provider_type and provider_name are required.' });
     }
 
+    const normalizedEnvironment = provider_type === 'mpesa' ? 'sandbox' : (environment || 'sandbox');
+    let configForStorage = config_json || {};
+
+    if (provider_type === 'mpesa') {
+      if (environment && environment !== 'sandbox') {
+        return res.status(400).json({
+          error: 'M-Pesa Daraja integration is sandbox-only for now.'
+        });
+      }
+
+      configForStorage = normalizeMpesaSandboxConfig(config_json || {});
+      const missing = validateMpesaSandboxConfig(configForStorage);
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: `Missing required M-Pesa sandbox credential fields: ${missing.join(', ')}.`
+        });
+      }
+    }
+
     // Encrypt the credentials for storage
-    const encryptedConfig = config_json && Object.keys(config_json).length > 0
-      ? encryptConfig(config_json)
+    const encryptedConfig = configForStorage && Object.keys(configForStorage).length > 0
+      ? encryptConfig(configForStorage)
       : null;
 
     // Extract top-level fields for webhook routing (Phase 6)
-    const shortcode = config_json?.shortcode || config_json?.till_number || null;
-    const webhookSecret = config_json?.passkey || config_json?.webhook_secret || null;
-    const providerIdentifier = config_json?.bank_code || config_json?.provider_id || null;
-    const accountReference = config_json?.account_reference || null;
+    const shortcode = configForStorage?.shortcode || configForStorage?.till_number || null;
+    const webhookSecret = configForStorage?.webhook_secret || configForStorage?.passkey || null;
+    const providerIdentifier = configForStorage?.bank_code || configForStorage?.provider_id || null;
+    const accountReference = configForStorage?.account_reference || null;
 
     // Determine callback URL based on provider type
     let callbackUrl = null;
@@ -178,7 +265,7 @@ export function createIntegrationRoutes(pgDb) {
 
       const updateData = {
         provider_name,
-        environment: environment || 'sandbox',
+        environment: normalizedEnvironment,
         config_json_encrypted: encryptedConfig || existing.config_json_encrypted,
         status: newStatus,
         is_active: hasCredentials
@@ -210,7 +297,7 @@ export function createIntegrationRoutes(pgDb) {
         organization_id: orgId,
         provider_type,
         provider_name,
-        environment: environment || 'sandbox',
+        environment: normalizedEnvironment,
         config_json_encrypted: encryptedConfig,
         callback_url: callbackUrl,
         is_active: hasCredentials,
@@ -261,6 +348,59 @@ export function createIntegrationRoutes(pgDb) {
 
     // Decrypt credentials for the test call (server-side only)
     const credentials = decryptConfig(integration.config_json_encrypted);
+
+    if (integration.provider_type === 'mpesa') {
+      if (integration.environment !== 'sandbox') {
+        return res.status(400).json({ error: 'M-Pesa Daraja testing is sandbox-only for now.' });
+      }
+
+      const mpesaCredentials = normalizeMpesaSandboxConfig(credentials);
+      const missing = validateMpesaSandboxConfig(mpesaCredentials);
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: `Missing required M-Pesa sandbox credential fields: ${missing.join(', ')}.`
+        });
+      }
+
+      const testResult = await testDarajaSandboxToken(mpesaCredentials);
+      const testLog = await pgDb.insert('integration_test_logs', {
+        organization_id: orgId,
+        integration_id: integrationId,
+        tested_by: userId,
+        status: testResult.success ? 'success' : 'failed',
+        response_summary: testResult.responseSummary,
+        error_message: testResult.errorMessage
+      });
+
+      const newStatus = resolveStatus(integration.status, true, testResult.success);
+      await pgDb.update('organization_integrations', integrationId, {
+        status: newStatus,
+        last_tested_at: new Date().toISOString()
+      });
+
+      await pgDb.logAudit(
+        orgId, userId, 'landlord',
+        testResult.success ? 'daraja_sandbox_test_passed' : 'daraja_sandbox_test_failed',
+        'organization_integrations',
+        integrationId,
+        { status: integration.status },
+        { status: newStatus, test_log_id: testLog.id },
+        `Daraja sandbox credential test ${testResult.success ? 'passed' : 'failed'}.`
+      );
+
+      const responseBody = {
+        ...testLog,
+        new_status: newStatus,
+        success: testResult.success
+      };
+
+      if (!testResult.success) {
+        return res.status(502).json(responseBody);
+      }
+
+      return res.json(responseBody);
+    }
+
     const hasValidKeys = Object.values(credentials).some(v => v && String(v).length > 2);
 
     // Simulate provider API test — in production, this would make a real HTTP request

@@ -121,7 +121,10 @@ async function resolveOrganization(client, body, providerType, demoMode) {
           WHERE provider_type = 'mpesa'
             AND shortcode = $1
             AND is_active = true
-            AND status IN ('ready', 'live')
+            AND (
+              status IN ('ready', 'live')
+              OR (environment = 'sandbox' AND status = 'draft')
+            )
           ORDER BY status = 'live' DESC, id ASC
           LIMIT 1
         `,
@@ -737,6 +740,26 @@ export function createWebhookRoutes(pgDb, { demoMode = false } = {}) {
 
     const inboundShortcode = String(req.body.BusinessShortCode || req.body.ShortCode || req.body.BillRefShortCode || '').trim();
     const platformShortcode = String(platformSettings.mpesa_shortcode || '174379').trim();
+
+    if (inboundShortcode) {
+      const client = await pgDb.pool.connect();
+      let resolved;
+      try {
+        resolved = await resolveOrganization(client, req.body, 'mpesa', false);
+      } finally {
+        client.release();
+      }
+
+      if (resolved.orgId && resolved.integration) {
+        const validation = validateWebhookSignature(req, resolved.integration, 'mpesa', 'c2b');
+        if (!validation.valid) {
+          await logSystemError(pgDb, resolved.orgId, 'mpesa_c2b_webhook', `Signature validation failed: ${validation.reason}`, req.body);
+          return res.status(200).json({ ResultCode: 1, ResultDesc: 'Rejected' });
+        }
+
+        return processWebhookPayment(pgDb, req, res, payment, resolved.orgId, resolved.integration, 'M-Pesa C2B');
+      }
+    }
 
     if (inboundShortcode === platformShortcode) {
       // This is a C2B payment to the platform itself!

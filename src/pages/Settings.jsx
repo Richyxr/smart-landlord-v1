@@ -304,6 +304,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       config.passkey = passkey;
     }
 
+    const integrationEnvironment = selectedInt.provider_type === 'mpesa' ? 'sandbox' : env;
+
     try {
       const res = await fetch('/api/integrations', {
         method: 'POST',
@@ -311,14 +313,19 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         body: JSON.stringify({
           provider_type: selectedInt.provider_type,
           provider_name: selectedInt.provider_name,
-          environment: env,
+          environment: integrationEnvironment,
           config_json: config
         })
       });
 
-      if (!res.ok) throw new Error('Save integration failed.');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Save integration failed.');
       setSelectedInt(null);
       setActiveTab('integrations');
+      setInfoMessage(selectedInt.provider_type === 'mpesa'
+        ? 'M-Pesa sandbox credentials saved securely. Use Test to validate the Daraja sandbox token.'
+        : 'Integration credentials saved securely.');
+      setError('');
       fetchData();
       onRefresh();
     } catch (err) {
@@ -894,10 +901,21 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
           <form onSubmit={handleSaveIntegration}>
             <div className="form-group">
               <label className="form-label">Environment</label>
-              <select className="form-control" value={env} onChange={e => setEnv(e.target.value)}>
-                <option value="sandbox">Sandbox Testing</option>
-                <option value="live">Live Production</option>
-              </select>
+              {selectedInt.provider_type === 'mpesa' ? (
+                <>
+                  <select className="form-control" value="sandbox" disabled>
+                    <option value="sandbox">Sandbox Testing Only</option>
+                  </select>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Live Daraja/paybill credentials are disabled until production M-Pesa is explicitly approved.
+                  </span>
+                </>
+              ) : (
+                <select className="form-control" value={env} onChange={e => setEnv(e.target.value)}>
+                  <option value="sandbox">Sandbox Testing</option>
+                  <option value="live">Live Production</option>
+                </select>
+              )}
             </div>
 
             {selectedInt.provider_type === 'sms' && selectedInt.provider_name === 'Africa’s Talking' && (
@@ -938,6 +956,18 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
 
             {selectedInt.provider_type === 'mpesa' && (
               <>
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--primary-glow)',
+                    border: '1px solid var(--primary)',
+                    fontSize: '12px',
+                    lineHeight: '1.5'
+                  }}
+                >
+                  Daraja is sandbox-only in this release. Saving these keys only enables sandbox token testing and sandbox-style C2B callback readiness.
+                </div>
                 <div className="form-group">
                   <label className="form-label">Lipa na M-Pesa Paybill / Till Number</label>
                   <input type="text" required className="form-control" placeholder="e.g. 174379" value={shortcode} onChange={e => setShortcode(e.target.value)} />
@@ -1075,7 +1105,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
               </div>
               <p style={{ fontSize: '12px', marginTop: '6px' }}>Automates payments matching and reconciliation via webhook callbacks.</p>
               <div className="flex-gap" style={{ marginTop: '12px' }}>
-                <button className="btn btn-secondary btn-sm" onClick={() => { setConsumerKey(''); setConsumerSecret(''); setShortcode(''); setPasskey(''); setSelectedInt({ provider_type: 'mpesa', provider_name: 'Safaricom M-Pesa API' }); }}>Configure</button>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setConsumerKey(''); setConsumerSecret(''); setShortcode(''); setPasskey(''); setEnv('sandbox'); setSelectedInt({ provider_type: 'mpesa', provider_name: 'Safaricom M-Pesa API' }); }}>Configure</button>
                 {mpesaInt && (
                   <>
                     <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(mpesaInt.id)}>Test</button>

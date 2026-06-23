@@ -59,15 +59,27 @@ async function login(email) {
   return res.json();
 }
 
+function assertStatus(label, response, expectedStatus) {
+  if (response.status !== expectedStatus) {
+    throw new Error(`${label}: expected ${expectedStatus}, received ${response.status}`);
+  }
+  console.log(`PASS: ${label}`);
+}
+
 const server = startServer();
 
 try {
   await waitForServer();
 
   const landlord = await login('landlord@demo.com');
+  const caretaker = await login('caretaker@demo.com');
   const landlordHeaders = {
     'Content-Type': 'application/json',
     'Authorization': `Bearer ${landlord.auth_token}`
+  };
+  const caretakerHeaders = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${caretaker.auth_token}`
   };
 
   // 1. Get initial integrations
@@ -78,7 +90,42 @@ try {
   const initialIntegrations = await getRes.json();
   console.log(`Initial integrations count: ${initialIntegrations.length}`);
 
-  // 2. Save a new/updated integration
+  const caretakerGet = await fetch(`${BASE_URL}/api/integrations`, { headers: caretakerHeaders });
+  assertStatus('Caretaker cannot access integration routes', caretakerGet, 403);
+
+  const missingCredentialRes = await fetch(`${BASE_URL}/api/integrations`, {
+    method: 'POST',
+    headers: landlordHeaders,
+    body: JSON.stringify({
+      provider_type: 'mpesa',
+      provider_name: 'M-Pesa Webhook Provider',
+      environment: 'sandbox',
+      config_json: {
+        shortcode: '654321',
+        passkey: 'sandbox-passkey-only'
+      }
+    })
+  });
+  assertStatus('M-Pesa sandbox save rejects missing credentials', missingCredentialRes, 400);
+
+  const liveRes = await fetch(`${BASE_URL}/api/integrations`, {
+    method: 'POST',
+    headers: landlordHeaders,
+    body: JSON.stringify({
+      provider_type: 'mpesa',
+      provider_name: 'M-Pesa Webhook Provider',
+      environment: 'live',
+      config_json: {
+        shortcode: '654321',
+        passkey: 'sandbox-passkey',
+        consumer_key: 'sandbox-consumer-key',
+        consumer_secret: 'sandbox-consumer-secret'
+      }
+    })
+  });
+  assertStatus('M-Pesa live environment is rejected', liveRes, 400);
+
+  // 2. Save a new/updated sandbox integration
   const saveRes = await fetch(`${BASE_URL}/api/integrations`, {
     method: 'POST',
     headers: landlordHeaders,
@@ -88,8 +135,9 @@ try {
       environment: 'sandbox',
       config_json: {
         shortcode: '654321',
-        passkey: 'secretpasskey123',
-        consumer_key: 'consumerkey789'
+        passkey: 'sandbox-passkey-for-smoke',
+        consumer_key: 'sandbox-consumer-key-for-smoke',
+        consumer_secret: 'sandbox-consumer-secret-for-smoke'
       }
     })
   });
@@ -99,7 +147,7 @@ try {
   }
 
   const savedIntegration = await saveRes.json();
-  console.log('Saved integration response:', JSON.stringify(savedIntegration, null, 2));
+  console.log('Saved integration response status:', savedIntegration.status);
 
   // Assertions on API response:
   // - config_json_encrypted must NOT be present
@@ -112,10 +160,19 @@ try {
   }
   // - Values must be masked
   const maskedPasskey = savedIntegration.config_masked.passkey;
-  if (!maskedPasskey || !maskedPasskey.includes('********') || maskedPasskey === 'secretpasskey123') {
+  if (!maskedPasskey || !maskedPasskey.includes('********') || maskedPasskey === 'sandbox-passkey-for-smoke') {
     throw new Error(`Passkey was not properly masked: ${maskedPasskey}`);
   }
+  const maskedSecret = savedIntegration.config_masked.consumer_secret;
+  if (!maskedSecret || !maskedSecret.includes('********') || maskedSecret === 'sandbox-consumer-secret-for-smoke') {
+    throw new Error('Consumer secret was not properly masked.');
+  }
   console.log('PASS: API response sanitizes sensitive fields.');
+
+  if (savedIntegration.environment !== 'sandbox') {
+    throw new Error(`Expected saved M-Pesa integration environment to be sandbox, got ${savedIntegration.environment}`);
+  }
+  console.log('PASS: M-Pesa integration remains sandbox-only.');
 
   // Verify status is updated to 'draft'
   if (savedIntegration.status !== 'draft') {
@@ -139,14 +196,17 @@ try {
     }
     const dbRow = dbRes.rows[0];
     const encrypted = dbRow.config_json_encrypted;
-    console.log(`Encrypted value stored in DB: ${encrypted}`);
     
     // Ciphertext format must be iv:ciphertext:tag
     const parts = encrypted.split(':');
     if (parts.length !== 3) {
       throw new Error(`DB config_json_encrypted format is invalid. Expected iv:ciphertext:tag format, got: ${encrypted}`);
     }
-    if (encrypted.includes('secretpasskey123') || encrypted.includes('consumerkey789')) {
+    if (
+      encrypted.includes('sandbox-passkey-for-smoke') ||
+      encrypted.includes('sandbox-consumer-key-for-smoke') ||
+      encrypted.includes('sandbox-consumer-secret-for-smoke')
+    ) {
       throw new Error('DB config_json_encrypted contains plaintext credentials!');
     }
     console.log('PASS: Credentials are encrypted at rest in the database using AES-256-GCM.');
@@ -154,20 +214,22 @@ try {
     await pgClient.end();
   }
 
-  // 4. Test integration API connection simulation
+  // 4. Test Daraja sandbox token action with invalid smoke credentials.
   const testRes = await fetch(`${BASE_URL}/api/integrations/${savedIntegration.id}/test`, {
     method: 'POST',
     headers: landlordHeaders
   });
-  if (testRes.status !== 200) {
-    throw new Error(`POST /api/integrations/:id/test failed with status ${testRes.status}`);
+  if (testRes.status !== 502) {
+    throw new Error(`Expected invalid Daraja sandbox credentials to fail safely with 502, got ${testRes.status}: ${await testRes.text()}`);
   }
   const testResult = await testRes.json();
-  console.log('Test result response:', JSON.stringify(testResult, null, 2));
-  if (!['ready', 'test_failed'].includes(testResult.new_status)) {
-    throw new Error(`Unexpected status transition after test: ${testResult.new_status}`);
+  if (testResult.success !== false || testResult.new_status !== 'test_failed') {
+    throw new Error(`Unexpected Daraja sandbox test failure response: ${JSON.stringify(testResult)}`);
   }
-  console.log('PASS: Integration testing logs test run and transitions status.');
+  if (/sandbox-consumer-secret-for-smoke|sandbox-consumer-key-for-smoke/.test(JSON.stringify(testResult))) {
+    throw new Error('Daraja sandbox test response exposed credentials.');
+  }
+  console.log('PASS: Daraja sandbox token test rejects invalid credentials safely.');
 
   // 5. Try to delete credentials with incorrect PIN (must fail)
   const deleteFailRes = await fetch(`${BASE_URL}/api/integrations/${savedIntegration.id}/delete`, {
