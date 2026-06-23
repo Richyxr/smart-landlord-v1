@@ -241,25 +241,118 @@ export class NotificationService {
 
         console.log(`[NotificationService] Email notification delivered for log ${log.id}`);
       } else {
-        // External channels (sms, whatsapp) — simulate send with a 10% failure rate
-        const shouldFail = Math.random() < 0.10;
-        
-        // Add fake network delay
-        await new Promise(resolve => setTimeout(resolve, 50));
+        // Retrieve settings to check preferred provider
+        const settings = await this._getNotificationSettings(log.organization_id);
 
-        if (shouldFail) {
-          throw new Error('Simulated external gateway network timeout.');
+        if (log.channel === 'sms' && settings && settings.sms_provider === 'Mobitech') {
+          // Route through Mobitech SMS provider
+          let integration;
+          if (this.pgDb) {
+            const result = await this.pgDb.query(
+              "SELECT * FROM organization_integrations WHERE organization_id = $1 AND provider_type = 'sms'",
+              [log.organization_id]
+            );
+            integration = result.rows[0];
+          } else {
+            integration = db.findOne('organization_integrations', {
+              organization_id: log.organization_id,
+              provider_type: 'sms'
+            });
+          }
+
+          if (!integration || !integration.is_active || integration.provider_name !== 'Mobitech') {
+            throw new Error('Mobitech SMS gateway is selected but has no active credentials saved.');
+          }
+
+          // Decrypt credentials
+          let credentials = {};
+          if (this.pgDb) {
+            const { decryptConfig } = await import('./crypto.js');
+            credentials = decryptConfig(integration.config_json_encrypted);
+          } else {
+            credentials = JSON.parse(integration.config_json_encrypted || '{}');
+          }
+
+          if (!credentials.api_key || !credentials.partner_id) {
+            throw new Error('Mobitech configuration credentials (api_key, partner_id) are incomplete.');
+          }
+
+          const recipientNum = normalizePhoneNumber(log.phone_number);
+          const isMock = String(credentials.api_key).startsWith('mock') || String(credentials.api_key).startsWith('test') || credentials.api_key === 'dummy';
+
+          if (isMock) {
+            console.log(`[NotificationService MOCK MOBITECH SUCCESS] SMS sent to ${recipientNum}: "${log.message}"`);
+            await this._updateLog(log.id, {
+              ...attemptData,
+              status: 'sent',
+              sent_at: nowStr,
+              provider_reference: `mobitech-mock-${crypto.randomBytes(4).toString('hex')}`
+            });
+          } else {
+            const payload = {
+              apikey: credentials.api_key,
+              partnerID: credentials.partner_id,
+              message: log.message,
+              shortcode: credentials.sender_id || 'SMARTLAND',
+              mobile: recipientNum
+            };
+
+            const apiRes = await fetch('https://sms.textsms.co.ke/api/services/sendsms/', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(payload),
+              signal: AbortSignal.timeout(5000)
+            });
+
+            const text = await apiRes.text();
+            let apiData = null;
+            try {
+              apiData = JSON.parse(text);
+            } catch {}
+
+            if (!apiRes.ok) {
+              throw new Error(`HTTP Error Status ${apiRes.status}: ${text.substring(0, 100)}`);
+            }
+
+            const firstResponse = apiData?.responses?.[0];
+            const responseCode = firstResponse?.['respose-code'];
+            const responseDesc = firstResponse?.['response-description'] || 'No description';
+
+            if (responseCode !== 200 && responseCode !== '200') {
+              throw new Error(`Mobitech Gateway Error ${responseCode}: ${responseDesc}`);
+            }
+
+            console.log(`[NotificationService MOBITECH SUCCESS] SMS delivered for log ${log.id}`);
+            await this._updateLog(log.id, {
+              ...attemptData,
+              status: 'sent',
+              sent_at: nowStr,
+              provider_reference: firstResponse?.messageid ? String(firstResponse.messageid) : `mobitech-${log.id}`
+            });
+          }
+        } else {
+          // Fallback to generic simulated external gateway (Sema/Twilio/Africa's Talking simulator)
+          const shouldFail = Math.random() < 0.10;
+          
+          // Add fake network delay
+          await new Promise(resolve => setTimeout(resolve, 50));
+
+          if (shouldFail) {
+            throw new Error('Simulated external gateway network timeout.');
+          }
+
+          // Simulated Success
+          console.log(`[NotificationService SUCCESS] ${log.channel.toUpperCase()} sent to ${log.phone_number}: "${log.message}"`);
+          
+          await this._updateLog(log.id, {
+            ...attemptData,
+            status: 'sent',
+            sent_at: nowStr,
+            provider_reference: `${log.channel}-${crypto.randomBytes(4).toString('hex')}`
+          });
         }
-
-        // Simulated Success
-        console.log(`[NotificationService SUCCESS] ${log.channel.toUpperCase()} sent to ${log.phone_number}: "${log.message}"`);
-        
-        await this._updateLog(log.id, {
-          ...attemptData,
-          status: 'sent',
-          sent_at: nowStr,
-          provider_reference: `${log.channel}-${crypto.randomBytes(4).toString('hex')}`
-        });
       }
     } catch (error) {
       const publicError = error instanceof EmailNotConfiguredError ? error.code : error.message;
@@ -293,8 +386,9 @@ export class NotificationService {
    * Helper to fetch settings (supports both backends)
    */
   async _getNotificationSettings(orgId, executor = null) {
-    if (executor) {
-      const result = await executor.query('SELECT * FROM notification_settings WHERE organization_id = $1', [orgId]);
+    const activeExecutor = executor || this.pgDb;
+    if (activeExecutor) {
+      const result = await activeExecutor.query('SELECT * FROM notification_settings WHERE organization_id = $1', [orgId]);
       return result.rows[0] || null;
     }
     return db.findOne('notification_settings', { organization_id: orgId });
@@ -304,11 +398,12 @@ export class NotificationService {
    * Helper to perform database findOne
    */
   async _findOne(table, filter, executor = null) {
-    if (executor) {
+    const activeExecutor = executor || this.pgDb;
+    if (activeExecutor) {
       const entries = Object.entries(filter);
       const clauses = entries.map(([key], index) => `"${key}" = $${index + 1}`);
       const values = entries.map(([, val]) => val);
-      const result = await executor.query(
+      const result = await activeExecutor.query(
         `SELECT * FROM "${table}" WHERE ${clauses.join(' AND ')} LIMIT 1`,
         values
       );
@@ -360,4 +455,16 @@ function escapeHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function normalizePhoneNumber(phone) {
+  if (!phone) return '';
+  let cleaned = String(phone).replace(/\D/g, '');
+  if (cleaned.startsWith('0')) {
+    cleaned = '254' + cleaned.substring(1);
+  }
+  if (cleaned.length === 9 && cleaned.startsWith('7')) {
+    cleaned = '254' + cleaned;
+  }
+  return cleaned;
 }

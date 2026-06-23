@@ -26,7 +26,7 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
   billing_alerts_enabled: true
 };
 
-export default function Settings({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab, onNavigate, onUpdateOrganization }) {
+export default function Settings({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab, onNavigate, onUpdateOrganization, role }) {
   const [activeTab, setActiveTab] = useState(initialSubTab || 'readiness'); // readiness, integrations, archive, audits, compliance, readings
   const [checklist, setChecklist] = useState({});
   const [integrations, setIntegrations] = useState([]);
@@ -291,7 +291,11 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
     const config = {};
     if (selectedInt.provider_type === 'sms') {
       config.api_key = apiKey;
-      config.username = apiUsername;
+      if (selectedInt.provider_name === 'Mobitech') {
+        config.partner_id = apiUsername;
+      } else {
+        config.username = apiUsername;
+      }
       config.sender_id = senderId;
     } else if (selectedInt.provider_type === 'mpesa') {
       config.consumer_key = consumerKey;
@@ -390,6 +394,33 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       fetchData();
     } catch (e) {
       setError('Failed to connect to integration gateway Sandbox. Please check your credentials.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendTestSms = async (id) => {
+    const phoneNumber = window.prompt("Enter the mobile number to send the test SMS to (e.g. 2547XXXXXXXX):");
+    if (!phoneNumber) return;
+
+    setLoading(true);
+    setError('');
+    setInfoMessage('');
+    try {
+      const res = await fetch(`/api/integrations/${id}/test-sms`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone_number: phoneNumber })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to send test SMS.');
+      }
+      setInfoMessage(`Test SMS dispatched successfully. Details: ${data.message || 'Sent'}`);
+      setError('');
+      fetchData();
+    } catch (err) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -802,13 +833,13 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         <div className="settings-tabs">
           {[
             { id: 'readiness', label: 'Setup Checklist' },
-            { id: 'integrations', label: 'Integrations' },
+            role !== 'caretaker' && { id: 'integrations', label: 'Integrations' },
             { id: 'readings', label: 'Caretaker Readings' },
             { id: 'archive', label: 'Archive' },
-            { id: 'audits', label: 'Audit Logs' },
-            { id: 'notifications', label: 'Notifications' },
+            role !== 'caretaker' && { id: 'audits', label: 'Audit Logs' },
+            role !== 'caretaker' && { id: 'notifications', label: 'Notifications' },
             { id: 'compliance', label: 'Compliance' }
-          ].map(tab => (
+          ].filter(Boolean).map(tab => (
             <button
               key={tab.id}
               type="button"
@@ -869,7 +900,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
               </select>
             </div>
 
-            {selectedInt.provider_type === 'sms' && (
+            {selectedInt.provider_type === 'sms' && selectedInt.provider_name === 'Africa’s Talking' && (
               <>
                 <div className="form-group">
                   <label className="form-label">Username</label>
@@ -881,6 +912,24 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                 </div>
                 <div className="form-group">
                   <label className="form-label">Sender ID</label>
+                  <input type="text" required className="form-control" placeholder="Approved Sender ID (e.g., SMARTLAND)" value={senderId} onChange={e => setSenderId(e.target.value)} />
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Required for custom branded SMS alerts.</span>
+                </div>
+              </>
+            )}
+
+            {selectedInt.provider_type === 'sms' && selectedInt.provider_name === 'Mobitech' && (
+              <>
+                <div className="form-group">
+                  <label className="form-label">Partner ID</label>
+                  <input type="text" required className="form-control" placeholder="Mobitech Partner ID" value={apiUsername} onChange={e => setApiUsername(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">API Key</label>
+                  <input type="password" required className="form-control" placeholder="Mobitech API Key" value={apiKey} onChange={e => setApiKey(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Sender ID / Shortcode</label>
                   <input type="text" required className="form-control" placeholder="Approved Sender ID (e.g., SMARTLAND)" value={senderId} onChange={e => setSenderId(e.target.value)} />
                   <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Required for custom branded SMS alerts.</span>
                 </div>
@@ -966,49 +1015,78 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       )}
 
       {/* INTEGRATIONS GATEWAYS */}
-      {activeTab === 'integrations' && !selectedInt && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {/* SMS integration */}
-          <div className="card">
-            <div className="flex-row">
-              <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} /> SMS Gateway (Africa's Talking)</h4>
-              <span className={`badge ${integrations.some(i => i.provider_type === 'sms') ? 'badge-success' : 'badge-warning'}`}>
-                {integrations.some(i => i.provider_type === 'sms') ? 'connected' : 'draft'}
-              </span>
-            </div>
-            <p style={{ fontSize: '12px', marginTop: '6px' }}>Sends automated rent bills and matching confirmations to tenants.</p>
-            <div className="flex-gap" style={{ marginTop: '12px' }}>
-              <button className="btn btn-secondary btn-sm" onClick={() => setSelectedInt({ provider_type: 'sms', provider_name: 'Africa’s Talking' })}>Configure</button>
-              {integrations.some(i => i.provider_type === 'sms') && (
-                <>
-                  <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(integrations.find(i => i.provider_type === 'sms').id)}>Test Connection</button>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleDeleteIntegrationTrigger(integrations.find(i => i.provider_type === 'sms').id)}>Delete keys</button>
-                </>
-              )}
-            </div>
-          </div>
+      {activeTab === 'integrations' && !selectedInt && (() => {
+        const smsInt = integrations.find(i => i.provider_type === 'sms');
+        const isAT = smsInt && smsInt.provider_name === 'Africa’s Talking';
+        const isMobi = smsInt && smsInt.provider_name === 'Mobitech';
+        const mpesaInt = integrations.find(i => i.provider_type === 'mpesa');
 
-          {/* M-Pesa Integration */}
-          <div className="card">
-            <div className="flex-row">
-              <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> Safaricom M-Pesa C2B / STK</h4>
-              <span className={`badge ${integrations.some(i => i.provider_type === 'mpesa') ? 'badge-success' : 'badge-warning'}`}>
-                {integrations.some(i => i.provider_type === 'mpesa') ? 'connected' : 'draft'}
-              </span>
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* SMS Gateway (Africa's Talking) */}
+            <div className="card">
+              <div className="flex-row">
+                <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} /> SMS Gateway (Africa's Talking)</h4>
+                <span className={`badge ${isAT ? 'badge-success' : 'badge-warning'}`}>
+                  {isAT ? 'connected' : 'draft'}
+                </span>
+              </div>
+              <p style={{ fontSize: '12px', marginTop: '6px' }}>Sends automated rent bills and matching confirmations to tenants using Africa's Talking.</p>
+              <div className="flex-gap" style={{ marginTop: '12px' }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setApiUsername(''); setApiKey(''); setSenderId(''); setSelectedInt({ provider_type: 'sms', provider_name: 'Africa’s Talking' }); }}>Configure</button>
+                {isAT && (
+                  <>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(smsInt.id)}>Test Connection</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleSendTestSms(smsInt.id)}>Send Test SMS</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDeleteIntegrationTrigger(smsInt.id)}>Delete keys</button>
+                  </>
+                )}
+              </div>
             </div>
-            <p style={{ fontSize: '12px', marginTop: '6px' }}>Automates payments matching and reconciliation via webhook callbacks.</p>
-            <div className="flex-gap" style={{ marginTop: '12px' }}>
-              <button className="btn btn-secondary btn-sm" onClick={() => setSelectedInt({ provider_type: 'mpesa', provider_name: 'Safaricom M-Pesa API' })}>Configure</button>
-              {integrations.some(i => i.provider_type === 'mpesa') && (
-                <>
-                  <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(integrations.find(i => i.provider_type === 'mpesa').id)}>Test</button>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleDeleteIntegrationTrigger(integrations.find(i => i.provider_type === 'mpesa').id)}>Delete keys</button>
-                </>
-              )}
+
+            {/* SMS Gateway (Mobitech Technologies) */}
+            <div className="card">
+              <div className="flex-row">
+                <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><MessageSquare size={16} /> SMS Gateway (Mobitech)</h4>
+                <span className={`badge ${isMobi ? 'badge-success' : 'badge-warning'}`}>
+                  {isMobi ? 'connected' : 'draft'}
+                </span>
+              </div>
+              <p style={{ fontSize: '12px', marginTop: '6px' }}>Sends automated rent bills and matching confirmations to tenants using Mobitech.</p>
+              <div className="flex-gap" style={{ marginTop: '12px' }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setApiUsername(''); setApiKey(''); setSenderId(''); setSelectedInt({ provider_type: 'sms', provider_name: 'Mobitech' }); }}>Configure</button>
+                {isMobi && (
+                  <>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(smsInt.id)}>Test Connection</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleSendTestSms(smsInt.id)}>Send Test SMS</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDeleteIntegrationTrigger(smsInt.id)}>Delete keys</button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* M-Pesa Integration */}
+            <div className="card">
+              <div className="flex-row">
+                <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> Safaricom M-Pesa C2B / STK</h4>
+                <span className={`badge ${mpesaInt ? 'badge-success' : 'badge-warning'}`}>
+                  {mpesaInt ? 'connected' : 'draft'}
+                </span>
+              </div>
+              <p style={{ fontSize: '12px', marginTop: '6px' }}>Automates payments matching and reconciliation via webhook callbacks.</p>
+              <div className="flex-gap" style={{ marginTop: '12px' }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setConsumerKey(''); setConsumerSecret(''); setShortcode(''); setPasskey(''); setSelectedInt({ provider_type: 'mpesa', provider_name: 'Safaricom M-Pesa API' }); }}>Configure</button>
+                {mpesaInt && (
+                  <>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(mpesaInt.id)}>Test</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDeleteIntegrationTrigger(mpesaInt.id)}>Delete keys</button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* METER READINGS REVIEW (LANDLORD ONLY) */}
       {activeTab === 'readings' && !selectedInt && (
@@ -1372,6 +1450,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                   >
                     <option value="None">None (Simulator)</option>
                     <option value="AfricasTalking">Africa's Talking</option>
+                    <option value="Mobitech">Mobitech</option>
                     <option value="Sema">Sema SMS Gateway</option>
                     <option value="Twilio">Twilio</option>
                   </select>

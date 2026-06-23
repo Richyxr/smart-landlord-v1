@@ -39,6 +39,13 @@ function requireAuthenticatedContext(req, res, next) {
     });
   }
 
+  if (role === 'caretaker') {
+    return res.status(403).json({
+      error: 'ACCESS_DENIED',
+      message: 'Caretakers are not permitted to access integrations configuration.'
+    });
+  }
+
   next();
 }
 
@@ -74,10 +81,7 @@ function resolveStatus(currentStatus, hasCredentials, testPassed = null) {
   if (testPassed === true) return 'ready';
   if (testPassed === false) return 'test_failed';
   if (hasCredentials) {
-    // If currently not_started or needs_credentials, move to draft
-    if (['not_started', 'needs_credentials'].includes(currentStatus)) return 'draft';
-    // Otherwise keep current status (could be ready, live, etc.)
-    return currentStatus;
+    return 'draft';
   }
   return 'needs_credentials';
 }
@@ -295,6 +299,152 @@ export function createIntegrationRoutes(pgDb) {
 
     res.json({
       ...testLog,
+      new_status: newStatus
+    });
+  }));
+
+  // =========================================================================
+  // POST /integrations/:id/test-sms — Send a test SMS via Mobitech
+  // =========================================================================
+  router.post('/integrations/:id/test-sms', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId, userId, role } = getContext(req);
+    const integrationId = parseInt(req.params.id);
+    const { phone_number } = req.body;
+
+    if (!phone_number) {
+      return res.status(400).json({ error: 'phone_number is required.' });
+    }
+
+    const integration = await pgDb.findOne('organization_integrations', {
+      id: integrationId,
+      organization_id: orgId
+    });
+
+    if (!integration) {
+      return res.status(404).json({ error: 'Integration not found.' });
+    }
+
+    if (integration.provider_type !== 'sms' || integration.provider_name !== 'Mobitech') {
+      return res.status(400).json({ error: 'This action is only supported for Mobitech SMS integration.' });
+    }
+
+    if (!integration.config_json_encrypted) {
+      return res.status(400).json({ error: 'No credentials configured. Please save API keys first.' });
+    }
+
+    // Decrypt credentials for the test call
+    const credentials = decryptConfig(integration.config_json_encrypted);
+    if (!credentials.api_key || !credentials.partner_id) {
+      return res.status(400).json({ error: 'Mobitech credentials (api_key, partner_id) are incomplete.' });
+    }
+
+    const message = 'Smart Landlord: Test SMS from Mobitech integration.';
+    
+    // Normalize phone number to Kenyan E.164 shape: 2547XXXXXXXX
+    let cleaned = phone_number.replace(/\D/g, '');
+    if (cleaned.startsWith('0')) {
+      cleaned = '254' + cleaned.substring(1);
+    }
+    if (cleaned.length === 9 && cleaned.startsWith('7')) {
+      cleaned = '254' + cleaned;
+    }
+
+    const isMock = String(credentials.api_key).startsWith('mock') || String(credentials.api_key).startsWith('test') || credentials.api_key === 'dummy';
+
+    let success = false;
+    let summary = '';
+    let errorMsg = null;
+
+    if (isMock) {
+      success = true;
+      summary = `Mock Send Success — Simulated test SMS sent to ${cleaned}.`;
+    } else {
+      try {
+        const payload = {
+          apikey: credentials.api_key,
+          partnerID: credentials.partner_id,
+          message: message,
+          shortcode: credentials.sender_id || 'SMARTLAND',
+          mobile: cleaned
+        };
+
+        const apiRes = await fetch('https://sms.textsms.co.ke/api/services/sendsms/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(5000)
+        });
+
+        const text = await apiRes.text();
+        let apiData = null;
+        try {
+          apiData = JSON.parse(text);
+        } catch {}
+
+        if (!apiRes.ok) {
+          throw new Error(`HTTP Error Status ${apiRes.status}: ${text.substring(0, 100)}`);
+        }
+
+        const firstResponse = apiData?.responses?.[0];
+        const responseCode = firstResponse?.['respose-code'];
+        const responseDesc = firstResponse?.['response-description'] || 'No description';
+
+        if (responseCode !== 200 && responseCode !== '200') {
+          throw new Error(`Mobitech Gateway Error ${responseCode}: ${responseDesc}`);
+        }
+
+        success = true;
+        summary = `SMS delivered successfully. Provider reference: ${firstResponse?.messageid || 'N/A'}`;
+      } catch (err) {
+        success = false;
+        errorMsg = err.message;
+        summary = `Failed to send SMS: ${err.message}`;
+      }
+    }
+
+    const testLog = await pgDb.insert('integration_test_logs', {
+      organization_id: orgId,
+      integration_id: integrationId,
+      tested_by: userId,
+      status: success ? 'success' : 'failed',
+      response_summary: summary,
+      error_message: errorMsg
+    });
+
+    const newStatus = resolveStatus(integration.status, true, success);
+    await pgDb.update('organization_integrations', integrationId, {
+      status: newStatus,
+      last_tested_at: new Date().toISOString()
+    });
+
+    await pgDb.logAudit(
+      orgId, userId, role,
+      success ? 'integration_test_passed' : 'integration_test_failed',
+      'organization_integrations',
+      integrationId,
+      { status: integration.status },
+      { status: newStatus, test_log_id: testLog.id },
+      `Mobitech test SMS ${success ? 'passed' : 'failed'} for recipient ${cleaned}.`
+    );
+
+    if (!success) {
+      // Log to system errors
+      await pgDb.logError(
+        orgId, userId,
+        'Mobitech.testSms',
+        `Test SMS sending failed: ${errorMsg}. Recipient: ${cleaned}`,
+        null,
+        { integration_id: integrationId }
+      );
+      return res.status(502).json({ error: errorMsg });
+    }
+
+    res.json({
+      success: true,
+      message: summary,
+      test_log_id: testLog.id,
       new_status: newStatus
     });
   }));

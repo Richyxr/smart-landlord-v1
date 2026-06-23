@@ -228,14 +228,14 @@ function seedDb() {
   // Password hash isn't used strictly since we mock authentication, but we keep structure
   const adminUser = { id: 1, email: 'admin@smartlandlord.com', email_verified: true, phone_number: '+254700000000', phone_verified: true, name: 'Super Admin', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   const landlordUser = { id: 2, email: 'landlord@demo.com', email_verified: true, phone_number: '+254712345678', phone_verified: true, name: 'Maina Kamau', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-  const caretakerUser = { id: 3, email: 'caretaker@demo.com', email_verified: true, phone_number: '+254722111222', phone_verified: true, name: 'Juma Omondi', caretaker_pin_hash: '$2a$10$R9hK.Yg26J4.B/3O.3M2seW.Xo8g/Z6KxH3bA84c3C0z6l4WnE2b.', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const caretakerUser = { id: 3, email: 'caretaker@demo.com', email_verified: true, phone_number: '+254722111222', phone_verified: true, name: 'Juma Omondi', caretaker_pin_hash: '$2a$10$LhgFLAFrl6frTX9../AgreYmI1T5/oJPLGrNznXu5H0JuW7L0iblm', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   
   data.users = [adminUser, landlordUser, caretakerUser];
 
   // Create Organizations
   // Local JSON/demo only: caretaker demo PIN is 123456.
   // Production caretaker PINs are generated per caretaker and stored only as bcrypt hashes.
-  const pinHash = '$2a$10$R9hK.Yg26J4.B/3O.3M2seW.Xo8g/Z6KxH3bA84c3C0z6l4WnE2b.'; // Hashed version of '123456' using bcryptjs
+  const pinHash = '$2a$10$LhgFLAFrl6frTX9../AgreYmI1T5/oJPLGrNznXu5H0JuW7L0iblm'; // Hashed version of '123456' using bcryptjs
 
   const landlordOrg = {
     id: 1,

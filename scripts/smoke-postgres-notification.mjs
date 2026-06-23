@@ -38,7 +38,9 @@ async function waitForServer() {
         body: JSON.stringify({ email: 'landlord@demo.com' })
       });
       if (res.ok) return;
-    } catch (_error) {
+      console.log(`Server responded with status ${res.status}: ${await res.text()}`);
+    } catch (error) {
+      console.log(`Fetch error in waitForServer: ${error.message}`);
       await new Promise(resolve => setTimeout(resolve, 250));
     }
   }

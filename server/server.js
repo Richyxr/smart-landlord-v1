@@ -2872,6 +2872,12 @@ app.delete('/api/settings/service-rates/:id', async (req, res) => {
 // Integrations list
 app.get('/api/integrations', async (req, res) => {
   const orgId = req.auth?.organizationId;
+  const role = req.auth?.role;
+
+  if (role === 'caretaker') {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+
   const activeDb = pgDb || db;
   const list = await activeDb.find('organization_integrations', { organization_id: orgId });
   res.json(list);
@@ -2883,6 +2889,10 @@ app.post('/api/integrations', async (req, res) => {
   const { provider_type, provider_name, environment, config_json } = req.body;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
+
+  if (role === 'caretaker') {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
 
   // Encrypt simulation: Mask credentials
   const maskedConfig = {};
@@ -2925,6 +2935,11 @@ app.post('/api/integrations/:id/test', async (req, res) => {
   const orgId = req.auth?.organizationId;
   const integrationId = parseInt(req.params.id);
   const userId = req.auth?.userId;
+  const role = req.auth?.role;
+
+  if (role === 'caretaker') {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
 
   const activeDb = pgDb || db;
   const integration = await activeDb.findOne('organization_integrations', { id: integrationId, organization_id: orgId });
@@ -2950,6 +2965,74 @@ app.post('/api/integrations/:id/test', async (req, res) => {
   res.json(testLog);
 });
 
+// Test SMS
+app.post('/api/integrations/:id/test-sms', async (req, res) => {
+  const orgId = req.auth?.organizationId;
+  const integrationId = parseInt(req.params.id);
+  const { phone_number } = req.body;
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
+
+  if (role === 'caretaker') {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
+
+  if (!phone_number) {
+    return res.status(400).json({ error: 'phone_number is required.' });
+  }
+
+  const activeDb = pgDb || db;
+  const integration = await activeDb.findOne('organization_integrations', { id: integrationId, organization_id: orgId });
+  if (!integration) return res.status(404).json({ error: 'Integration not found.' });
+
+  if (integration.provider_type !== 'sms' || integration.provider_name !== 'Mobitech') {
+    return res.status(400).json({ error: 'This action is only supported for Mobitech SMS integration.' });
+  }
+
+  // Normalize number
+  let cleaned = phone_number.replace(/\D/g, '');
+  if (cleaned.startsWith('0')) {
+    cleaned = '254' + cleaned.substring(1);
+  }
+  if (cleaned.length === 9 && cleaned.startsWith('7')) {
+    cleaned = '254' + cleaned;
+  }
+
+  const success = true;
+  const summary = `Mock Send Success — Simulated test SMS sent to ${cleaned}.`;
+
+  const testLog = await activeDb.insert('integration_test_logs', {
+    organization_id: orgId,
+    integration_id: integrationId,
+    tested_by: userId,
+    status: 'success',
+    response_summary: summary,
+    error_message: null
+  });
+
+  await activeDb.update('organization_integrations', integrationId, {
+    status: 'ready',
+    last_tested_at: new Date().toISOString()
+  });
+
+  await activeDb.logAudit(
+    orgId, userId, role,
+    'integration_test_passed',
+    'organization_integrations',
+    integrationId,
+    { status: integration.status },
+    { status: 'ready', test_log_id: testLog.id },
+    `Mobitech test SMS passed for recipient ${cleaned}.`
+  );
+
+  res.json({
+    success: true,
+    message: summary,
+    test_log_id: testLog.id,
+    new_status: 'ready'
+  });
+});
+
 // Delete credentials (Requires PIN)
 app.post('/api/integrations/:id/delete', async (req, res) => {
   const orgId = req.auth?.organizationId;
@@ -2957,6 +3040,10 @@ app.post('/api/integrations/:id/delete', async (req, res) => {
   const { pin } = req.body;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
+
+  if (role === 'caretaker') {
+    return res.status(403).json({ error: 'Access denied.' });
+  }
 
   const activeDb = pgDb || db;
   const org = await activeDb.findOne('organizations', { id: orgId });

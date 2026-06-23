@@ -12,6 +12,31 @@ const JSON_COLUMNS = new Set([
   'bank_account_details'
 ]);
 
+const TABLES_WITH_UPDATED_AT = new Set([
+  'users',
+  'organizations',
+  'organization_members',
+  'staff_assignments',
+  'properties',
+  'units',
+  'tenants',
+  'invoices',
+  'invoice_items',
+  'transactions',
+  'reconciliation_staging_rows',
+  'meter_readings',
+  'service_rates',
+  'organization_integrations',
+  'notification_settings',
+  'support_access_sessions',
+  'system_errors',
+  'platform_billing_settings',
+  'platform_billing_invoices',
+  'platform_billing_payments',
+  'deletion_requests',
+  'maintenance_requests'
+]);
+
 function createPool() {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL is required for PostgreSQL runtime access.');
@@ -135,7 +160,7 @@ export function createPostgresDb() {
         index += 1;
       }
 
-      if (!('updated_at' in updates)) {
+      if (!('updated_at' in updates) && TABLES_WITH_UPDATED_AT.has(table)) {
         setParts.push('updated_at = now()');
       }
 

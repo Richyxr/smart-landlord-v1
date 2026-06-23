@@ -302,6 +302,7 @@ export default function App() {
             clearInitialSubTab={() => setSettingsSubTab(null)}
             onNavigate={handleNavigate}
             onUpdateOrganization={handleUpdateOrganization}
+            role={role}
           />
         );
       
