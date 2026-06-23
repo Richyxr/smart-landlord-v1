@@ -55,7 +55,17 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
   const [ctEmail, setCtEmail] = useState('');
   const [ctName, setCtName] = useState('');
   const [ctPhone, setCtPhone] = useState('');
+  const [ctStatus, setCtStatus] = useState('active');
   const [ctAssignedProps, setCtAssignedProps] = useState([]); // Array of property IDs
+  const [resetPinResult, setResetPinResult] = useState(null);
+
+  const resetCaretakerForm = () => {
+    setCtName('');
+    setCtPhone('');
+    setCtEmail('');
+    setCtStatus('active');
+    setCtAssignedProps([]);
+  };
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -300,7 +310,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
     }
   };
 
-  const handleInviteCaretaker = async (e) => {
+  const handleSubmitCaretaker = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
@@ -325,31 +335,64 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
     }
 
     try {
-      const res = await fetch('/api/properties/caretakers', {
-        method: 'POST',
+      const url = editId ? `/api/properties/caretakers/${editId}` : '/api/properties/caretakers';
+      const method = editId ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: ctName,
           email: ctEmail || null,
           phone_number: ctPhone,
+          status: ctStatus,
           assigned_properties: ctAssignedProps
         })
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || data.error || 'Failed to create caretaker.');
+        throw new Error(data.message || data.error || `Failed to ${editId ? 'update' : 'create'} caretaker.`);
       }
 
-      alert(`Caretaker created successfully!\n\nName: ${data.user.name}\nPhone: ${data.user.phone_number}\nSystem-Generated PIN: ${data.temporary_pin}\n\nIMPORTANT: Please copy and share this PIN with the caretaker. It will not be shown again!`);
+      if (editId) {
+        alert('Caretaker updated successfully!');
+      } else {
+        alert(`Caretaker created successfully!\n\nName: ${data.user.name}\nPhone: ${data.user.phone_number}\nSystem-Generated PIN: ${data.temporary_pin}\n\nIMPORTANT: Please copy and share this PIN with the caretaker. It will not be shown again!`);
+      }
       
       setShowAddForm(false);
-      setCtEmail('');
-      setCtName('');
-      setCtPhone('');
-      setCtAssignedProps([]);
+      setEditId(null);
+      resetCaretakerForm();
       fetchData();
       onRefresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPin = async (id, name) => {
+    if (!window.confirm(`Are you sure you want to reset the PIN for caretaker ${name}?`)) {
+      return;
+    }
+    setError('');
+    setLoading(true);
+    setResetPinResult(null);
+    try {
+      const res = await fetch(`/api/properties/caretakers/${id}/reset-pin`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to reset PIN.');
+      }
+      setResetPinResult({
+        name: data.user.name,
+        phone: data.user.phone_number,
+        pin: data.temporary_pin
+      });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -414,25 +457,25 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)' }}>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'properties' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'properties' ? '2px solid var(--primary)' : 'none', fontWeight: '600', cursor: 'pointer' }}
-          onClick={() => { setActiveTab('properties'); setShowAddForm(false); setEditId(null); }}
+          onClick={() => { setActiveTab('properties'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
         >
           Properties
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'units' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'units' ? '2px solid var(--primary)' : 'none', fontWeight: '600', cursor: 'pointer' }}
-          onClick={() => { setActiveTab('units'); setShowAddForm(false); setEditId(null); }}
+          onClick={() => { setActiveTab('units'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
         >
           Units
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'tenants' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'tenants' ? '2px solid var(--primary)' : 'none', fontWeight: '600', cursor: 'pointer' }}
-          onClick={() => { setActiveTab('tenants'); setShowAddForm(false); setEditId(null); }}
+          onClick={() => { setActiveTab('tenants'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
         >
           Tenants
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'caretakers' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'caretakers' ? '2px solid var(--primary)' : 'none', fontWeight: '600', cursor: 'pointer' }}
-          onClick={() => { setActiveTab('caretakers'); setShowAddForm(false); setEditId(null); }}
+          onClick={() => { setActiveTab('caretakers'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
         >
           Staff
         </button>
@@ -620,7 +663,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
 
           {/* CARETAKER FORM */}
           {activeTab === 'caretakers' && (
-            <form onSubmit={handleInviteCaretaker}>
+            <form onSubmit={handleSubmitCaretaker}>
               <div className="form-group">
                 <label className="form-label">Caretaker Name</label>
                 <input type="text" required className="form-control" placeholder="Juma Omondi" value={ctName} onChange={e => setCtName(e.target.value)} />
@@ -635,6 +678,19 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                   <input type="tel" required className="form-control" placeholder="+254722..." value={ctPhone} onChange={e => setCtPhone(e.target.value)} />
                 </div>
               </div>
+              {editId && (
+                <div className="form-group">
+                  <label className="form-label">Status</label>
+                  <select 
+                    className="form-control"
+                    value={ctStatus}
+                    onChange={e => setCtStatus(e.target.value)}
+                  >
+                    <option value="active">Active</option>
+                    <option value="disabled">Inactive</option>
+                  </select>
+                </div>
+              )}
               <div className="form-group">
                 <label className="form-label">Assign to Properties</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '120px', overflowY: 'auto', padding: '6px', border: '1px solid var(--border)', borderRadius: '6px' }}>
@@ -657,8 +713,8 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                 </div>
               </div>
               <div className="flex-gap" style={{ marginTop: '12px' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowAddForm(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Send Invite & Assign</button>
+                <button type="button" className="btn btn-secondary" onClick={() => { setShowAddForm(false); setEditId(null); resetCaretakerForm(); setResetPinResult(null); }}>Cancel</button>
+                <button type="submit" className="btn btn-primary">{editId ? 'Save Changes' : 'Send Invite & Assign'}</button>
               </div>
             </form>
           )}
@@ -676,6 +732,8 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
             resetPropertyForm();
             resetUnitForm();
             resetTenantForm();
+            resetCaretakerForm();
+            setResetPinResult(null);
           }}
         >
           <Plus size={14} /> Add {activeTab.charAt(0).toUpperCase() + activeTab.slice(1, -1)}
@@ -843,6 +901,27 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
               <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
                 Assign caretakers to specific properties to allow them to submit meter readings and report issues.
               </p>
+
+              {resetPinResult && (
+                <div className="card" style={{ borderLeft: '4px solid var(--warning)', background: 'var(--bg-surface-elevated)', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <h4 style={{ margin: '0 0 8px 0', color: 'var(--primary)' }}>PIN Reset Success</h4>
+                      <p style={{ fontSize: '13px', margin: '0 0 4px 0' }}>
+                        Temporary PIN generated for <strong>{resetPinResult.name}</strong> ({resetPinResult.phone}):
+                      </p>
+                      <div style={{ background: 'var(--bg-surface)', padding: '12px', borderRadius: '6px', fontFamily: 'monospace', fontSize: '20px', letterSpacing: '4px', fontWeight: 'bold', display: 'inline-block', margin: '8px 0', border: '1px solid var(--border)' }}>
+                        {resetPinResult.pin}
+                      </div>
+                      <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
+                        IMPORTANT: Please share this temporary PIN with the caretaker. It will not be shown again.
+                      </p>
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setResetPinResult(null)} style={{ padding: '2px 6px' }}>Close</button>
+                  </div>
+                </div>
+              )}
+
               {caretakers.length === 0 ? (
                 <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                   <Wrench size={32} style={{ marginBottom: '8px', color: 'var(--text-secondary)' }} />
@@ -856,7 +935,9 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                         <Wrench size={18} style={{ color: 'var(--primary)' }} />
                         <span>{ct.name}</span>
                       </h3>
-                      <span className="badge badge-success">assigned</span>
+                      <span className={`badge ${ct.status === 'active' ? 'badge-success' : 'badge-danger'}`}>
+                        {ct.status === 'active' ? 'active' : 'inactive'}
+                      </span>
                     </div>
                     <p style={{ fontSize: '12px', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
                       {ct.email && <><Mail size={12} style={{ color: 'var(--text-secondary)' }} /> <span>{ct.email}</span> <span>•</span></>}
@@ -873,6 +954,19 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                       ) : (
                         <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>None assigned</span>
                       )}
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px', justifyContent: 'flex-end' }}>
+                      <button className="btn btn-secondary btn-sm" onClick={() => {
+                        setEditId(ct.id);
+                        setCtName(ct.name);
+                        setCtPhone(ct.phone_number);
+                        setCtEmail(ct.email || '');
+                        setCtStatus(ct.status || 'active');
+                        setCtAssignedProps((ct.properties || []).map(p => p.id));
+                        setShowAddForm(true);
+                        setResetPinResult(null);
+                      }}>Edit</button>
+                      <button className="btn btn-warning btn-sm" onClick={() => handleResetPin(ct.id, ct.name)}>Reset PIN</button>
                     </div>
                   </div>
                 ))

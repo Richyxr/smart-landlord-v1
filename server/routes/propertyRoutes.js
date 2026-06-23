@@ -68,10 +68,10 @@ export function createPropertyRoutes(pgDb) {
 
     // Get all caretakers in this organization
     const result = await pgDb.query(`
-      SELECT u.id, u.name, u.email, u.phone_number, u.status
+      SELECT u.id, u.name, u.email, u.phone_number, om.status AS status
       FROM organization_members om
       JOIN users u ON u.id = om.user_id
-      WHERE om.organization_id = $1 AND om.role = 'caretaker' AND om.status = 'active'
+      WHERE om.organization_id = $1 AND om.role = 'caretaker' AND om.status IN ('active', 'disabled')
     `, [orgId]);
     const caretakers = result.rows;
 
@@ -81,7 +81,7 @@ export function createPropertyRoutes(pgDb) {
       FROM staff_assignments sa
       JOIN staff_assignment_properties sap ON sap.staff_assignment_id = sa.id AND sap.organization_id = sa.organization_id
       JOIN properties p ON p.id = sap.property_id AND p.organization_id = sa.organization_id
-      WHERE sa.organization_id = $1 AND p.organization_id = $1 AND sa.status = 'active' AND p.deleted_at IS NULL
+      WHERE sa.organization_id = $1 AND p.organization_id = $1 AND p.deleted_at IS NULL
     `, [orgId]);
     const assignments = assignmentsResult.rows;
 
@@ -197,6 +197,133 @@ export function createPropertyRoutes(pgDb) {
         status: user.status
       },
       temporary_pin: pin
+    });
+  }));
+
+  router.put('/properties/caretakers/:id', requireLandlord, asyncHandler(async (req, res) => {
+    const { orgId, userId, role } = getContext(req);
+    const caretakerId = parseInt(req.params.id, 10);
+
+    // Verify caretaker belongs to this organization
+    const member = await pgDb.findOne('organization_members', { organization_id: orgId, user_id: caretakerId, role: 'caretaker' });
+    if (!member) {
+      return res.status(404).json({ error: 'Caretaker not found in this organization.' });
+    }
+
+    const { name, phone_number, email, status, assigned_properties } = req.body;
+
+    if (!name || !phone_number) {
+      return res.status(400).json({ error: 'Name and phone number are required.' });
+    }
+
+    // Check if phone number is already registered to another user
+    const existingUser = await pgDb.findOne('users', { phone_number });
+    if (existingUser && Number(existingUser.id) !== caretakerId) {
+      return res.status(400).json({ error: 'This phone number is already registered to another user.' });
+    }
+
+    // Validate assigned properties
+    const propIds = Array.isArray(assigned_properties) ? assigned_properties : [];
+    const uniquePropIds = [];
+    for (const id of propIds) {
+      const parsed = parseInt(id, 10);
+      if (isNaN(parsed) || String(id).trim() === '' || parsed.toString() !== String(id).trim()) {
+        return res.status(400).json({ error: 'One or more selected properties are invalid.' });
+      }
+      if (!uniquePropIds.includes(parsed)) {
+        uniquePropIds.push(parsed);
+      }
+    }
+
+    if (uniquePropIds.length > 0) {
+      const propCheckResult = await pgDb.query(
+        `SELECT id FROM properties WHERE organization_id = $1 AND id = ANY($2::bigint[]) AND deleted_at IS NULL`,
+        [orgId, uniquePropIds]
+      );
+      const validatedIds = propCheckResult.rows.map(row => Number(row.id));
+      if (validatedIds.length !== uniquePropIds.length) {
+        return res.status(400).json({ error: 'One or more selected properties are invalid.' });
+      }
+    }
+
+    // Perform updates
+    const oldUser = await pgDb.findOne('users', { id: caretakerId });
+    const updateFields = { name, phone_number };
+    if (email !== undefined) {
+      updateFields.email = email || null;
+    }
+    if (status && ['active', 'disabled'].includes(status)) {
+      updateFields.status = status;
+    }
+    const [updatedUser] = await pgDb.update('users', { id: caretakerId }, updateFields);
+
+    if (status && ['active', 'disabled'].includes(status)) {
+      await pgDb.update('organization_members', { organization_id: orgId, user_id: caretakerId, role: 'caretaker' }, { status });
+      await pgDb.update('staff_assignments', { organization_id: orgId, caretaker_user_id: caretakerId }, { status });
+    }
+
+    // Get current staff assignment
+    let assignment = await pgDb.findOne('staff_assignments', { organization_id: orgId, caretaker_user_id: caretakerId });
+    if (!assignment) {
+      assignment = await pgDb.insert('staff_assignments', {
+        organization_id: orgId,
+        caretaker_user_id: caretakerId,
+        access_level: 'caretaker',
+        status: status || 'active',
+        created_by: userId
+      });
+    } else {
+      const updateAssignment = {};
+      if (status && ['active', 'disabled'].includes(status)) {
+        updateAssignment.status = status;
+      }
+      await pgDb.update('staff_assignments', assignment.id, updateAssignment);
+    }
+
+    // Remove old property links and insert new ones
+    await pgDb.delete('staff_assignment_properties', { staff_assignment_id: assignment.id, organization_id: orgId });
+
+    for (const propId of uniquePropIds) {
+      await pgDb.insert('staff_assignment_properties', {
+        organization_id: orgId,
+        staff_assignment_id: assignment.id,
+        property_id: propId
+      });
+    }
+
+    await pgDb.logAudit(orgId, userId, role, 'caretaker_updated', 'user', caretakerId, oldUser, updatedUser);
+
+    res.json({ success: true, user: updatedUser });
+  }));
+
+  router.post('/properties/caretakers/:id/reset-pin', requireLandlord, asyncHandler(async (req, res) => {
+    const { orgId, userId, role } = getContext(req);
+    const caretakerId = parseInt(req.params.id, 10);
+
+    // Verify caretaker belongs to this organization
+    const member = await pgDb.findOne('organization_members', { organization_id: orgId, user_id: caretakerId, role: 'caretaker' });
+    if (!member) {
+      return res.status(404).json({ error: 'Caretaker not found in this organization.' });
+    }
+
+    // Generate secure 6-digit PIN
+    const pin = crypto.randomInt(100000, 1000000).toString();
+    const salt = bcrypt.genSaltSync(10);
+    const pinHash = bcrypt.hashSync(pin, salt);
+
+    const oldUser = await pgDb.findOne('users', { id: caretakerId });
+    const [updatedUser] = await pgDb.update('users', { id: caretakerId }, { caretaker_pin_hash: pinHash });
+
+    await pgDb.logAudit(orgId, userId, role, 'caretaker_pin_reset', 'user', caretakerId, null, null, 'Caretaker PIN reset');
+
+    res.json({
+      success: true,
+      temporary_pin: pin,
+      user: {
+        id: updatedUser.id,
+        name: updatedUser.name,
+        phone_number: updatedUser.phone_number
+      }
     });
   }));
 
