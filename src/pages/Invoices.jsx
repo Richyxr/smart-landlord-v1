@@ -20,6 +20,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
   const [printInvoice, setPrintInvoice] = useState(null); // Print-ready overlay
   const [reminderResult, setReminderResult] = useState(null); // Reminder sent confirmation
   const [reminderTarget, setReminderTarget] = useState(null); // { invoiceId, selectedChannel } for picker modal
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [paymentReceipt, setPaymentReceipt] = useState(null);
 
   // PIN modal triggers
   const [pinTargetId, setPinTargetId] = useState(null);
@@ -41,6 +43,14 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
   const [dueDate, setDueDate] = useState(new Date(Date.now() + 5*24*60*60*1000).toISOString().split('T')[0]); // +5 days
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState([{ description: 'Monthly Rent', item_type: 'rent', quantity: 1, unit_price: '' }]);
+
+  // Manual Payment Form State
+  const [paymentTenantId, setPaymentTenantId] = useState('');
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [paymentMethod, setPaymentMethod] = useState('mpesa');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentNote, setPaymentNote] = useState('');
 
   // Local Readings State (in-memory draft only)
   const [readings, setReadings] = useState({});
@@ -237,6 +247,66 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
     setInvoiceType('rent');
     setNotes('');
     setItems([{ description: 'Monthly Rent', item_type: 'rent', quantity: 1, unit_price: '' }]);
+  };
+
+  const resetPaymentForm = () => {
+    setPaymentTenantId('');
+    setPaymentAmount('');
+    setPaymentDate(new Date().toISOString().split('T')[0]);
+    setPaymentMethod('mpesa');
+    setPaymentReference('');
+    setPaymentNote('');
+  };
+
+  const handleSubmitPayment = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    const amountValue = Number(paymentAmount);
+    if (!paymentTenantId) {
+      setError('Please select a tenant.');
+      setLoading(false);
+      return;
+    }
+    if (!Number.isFinite(amountValue) || amountValue <= 0) {
+      setError('Payment amount must be greater than zero.');
+      setLoading(false);
+      return;
+    }
+    if (!paymentReference.trim() && !paymentNote.trim()) {
+      setError('Enter a payment reference or note.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/payments', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenant_id: paymentTenantId,
+          amount: amountValue,
+          payment_method: paymentMethod,
+          reference_number: paymentReference.trim(),
+          transaction_date: paymentDate,
+          note: paymentNote.trim()
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to record payment.');
+
+      setPaymentReceipt(data.receipt);
+      setShowPaymentForm(false);
+      resetPaymentForm();
+      fetchBillingData();
+      onRefresh?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleViewDetails = async (id) => {
@@ -593,6 +663,188 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
           organizationId={organization.id}
           onSuccess={handlePinSuccess}
         />
+      )}
+
+      {/* MANUAL PAYMENT MODAL */}
+      {showPaymentForm && (
+        <div className="modal-backdrop">
+          <form onSubmit={handleSubmitPayment} className="modal-content">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+                <CircleDollarSign size={20} />
+              </div>
+              <div>
+                <h3 style={{ fontWeight: '700', fontSize: '16px', margin: 0 }}>Record Payment</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '2px 0 0 0' }}>Post a manual rent payment and receipt.</p>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Tenant</label>
+              <select
+                required
+                className="form-control"
+                value={paymentTenantId}
+                onChange={e => setPaymentTenantId(e.target.value)}
+              >
+                <option value="">-- Select Tenant --</option>
+                {tenants.filter(t => t.status === 'active').map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.full_name} ({t.unit_code} - Account: {t.tenant_account_number})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Amount</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  required
+                  className="form-control"
+                  value={paymentAmount}
+                  onChange={e => setPaymentAmount(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Payment Date</label>
+                <input
+                  type="date"
+                  required
+                  className="form-control"
+                  value={paymentDate}
+                  onChange={e => setPaymentDate(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Method</label>
+              <select className="form-control" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+                <option value="mpesa">M-Pesa</option>
+                <option value="bank">Bank</option>
+                <option value="cash">Cash</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Reference</label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="e.g. MPESA-QF12AB34"
+                value={paymentReference}
+                onChange={e => setPaymentReference(e.target.value)}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Note</label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Required if no reference is available"
+                value={paymentNote}
+                onChange={e => setPaymentNote(e.target.value)}
+              />
+            </div>
+
+            {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '12px' }}>{error}</div>}
+
+            <div className="flex-gap" style={{ marginTop: '8px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ flex: 1 }}
+                onClick={() => { setShowPaymentForm(false); resetPaymentForm(); setError(''); }}
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={loading}>
+                {loading ? 'Saving...' : 'Save Payment'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* PAYMENT RECEIPT MODAL */}
+      {paymentReceipt && (
+        <div className="modal-backdrop">
+          <div className="modal-content" style={{ maxWidth: '460px' }}>
+            <div className="print-invoice-container" style={{ background: '#fff', color: '#111', width: '100%', padding: '22px', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div className="flex-row" style={{ borderBottom: '2px solid #222', paddingBottom: '10px' }}>
+                <div>
+                  <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '20px', fontWeight: 'bold' }}>PAYMENT RECEIPT</h2>
+                  <div style={{ fontSize: '10px', color: '#555' }}>{paymentReceipt.receipt_number}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <h4 style={{ fontSize: '12px', fontWeight: 'bold' }}>{paymentReceipt.organization_name}</h4>
+                  <div style={{ fontSize: '10px', color: '#555' }}>{new Date(paymentReceipt.created_at).toLocaleString()}</div>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '11px', display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                <div>
+                  <strong>Received From:</strong>
+                  <div>{paymentReceipt.tenant_name}</div>
+                  <div>Account: {paymentReceipt.tenant_account_number || '--'}</div>
+                  <div>{paymentReceipt.property_name || '--'} ({paymentReceipt.unit_code || '--'})</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div><strong>Date:</strong> {new Date(paymentReceipt.payment_date).toLocaleDateString()}</div>
+                  <div><strong>Method:</strong> {paymentReceipt.payment_method}</div>
+                </div>
+              </div>
+
+              <div style={{ border: '1px solid #ddd', borderRadius: '6px', padding: '10px', textAlign: 'center' }}>
+                <div style={{ fontSize: '10px', color: '#555', textTransform: 'uppercase' }}>Amount Received</div>
+                <div style={{ fontSize: '24px', fontWeight: '800', color: '#059669' }}>{formatCurrency(paymentReceipt.amount)}</div>
+              </div>
+
+              <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>
+                    <th style={{ textAlign: 'left', padding: '4px 0' }}>Invoice</th>
+                    <th style={{ textAlign: 'right', padding: '4px 0' }}>Allocated</th>
+                    <th style={{ textAlign: 'right', padding: '4px 0' }}>Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paymentReceipt.allocation_summary.length === 0 ? (
+                    <tr>
+                      <td colSpan="3" style={{ padding: '8px 0', color: '#555' }}>No open invoice allocation. Payment retained on ledger.</td>
+                    </tr>
+                  ) : (
+                    paymentReceipt.allocation_summary.map(item => (
+                      <tr key={`${item.invoice_id}-${item.amount_allocated}`} style={{ borderBottom: '1px solid #eee' }}>
+                        <td style={{ padding: '6px 0' }}>{item.invoice_number}</td>
+                        <td style={{ textAlign: 'right', padding: '6px 0' }}>{formatCurrency(item.amount_allocated)}</td>
+                        <td style={{ textAlign: 'right', padding: '6px 0' }}>{formatCurrency(item.invoice_balance)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+
+              <div style={{ borderTop: '2px solid #ddd', paddingTop: '10px', display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '700' }}>
+                <span>Tenant Balance After Payment</span>
+                <span>{formatCurrency(paymentReceipt.balance_after_payment)}</span>
+              </div>
+
+              <div className="flex-gap print-no-print" style={{ marginTop: '8px' }}>
+                <button className="btn btn-secondary btn-sm" style={{ width: '100%', border: '1px solid #333', color: '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }} onClick={() => window.print()}>
+                  <Printer size={14} /> Print Receipt
+                </button>
+                <button className="btn btn-primary btn-sm" style={{ width: '100%' }} onClick={() => setPaymentReceipt(null)}>Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* REMINDER CHANNEL PICKER MODAL */}
@@ -1291,9 +1543,14 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
           
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Invoice Records: {invoices.length} total</span>
-            <button className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => { setShowAddForm(true); resetForm(); }}>
-              <Plus size={14} /> Create New Invoice
-            </button>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => { setShowPaymentForm(true); setError(''); }}>
+                <CircleDollarSign size={14} /> Record Payment
+              </button>
+              <button className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => { setShowAddForm(true); resetForm(); }}>
+                <Plus size={14} /> Create New Invoice
+              </button>
+            </div>
           </div>
 
           {invoices.length === 0 ? (

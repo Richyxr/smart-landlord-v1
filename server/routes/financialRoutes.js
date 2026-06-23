@@ -42,6 +42,18 @@ function calculateInvoiceStatus(balance) {
   return Number(balance) <= 0 ? 'paid' : 'partially_paid';
 }
 
+const VALID_PAYMENT_METHODS = new Set(['mpesa', 'bank', 'cash', 'other']);
+
+function cleanOptionalText(value) {
+  if (value === undefined || value === null) return '';
+  return String(value).trim();
+}
+
+function normalizePaymentMethod(value) {
+  const method = cleanOptionalText(value).toLowerCase() || 'other';
+  return VALID_PAYMENT_METHODS.has(method) ? method : null;
+}
+
 function requireLandlord(req, res, next) {
   const { role } = getContext(req);
   if (role !== 'landlord') {
@@ -147,6 +159,103 @@ async function getDetailedInvoices(pgDb, orgId) {
     amount_paid: toNumber(row.amount_paid),
     balance: toNumber(row.balance)
   }));
+}
+
+async function buildReceiptPayload(client, orgId, transactionId) {
+  const txResult = await client.query(
+    `
+      SELECT
+        tx.*,
+        o.name AS organization_name,
+        t.full_name AS tenant_name,
+        t.tenant_account_number,
+        p.name AS property_name,
+        u.unit_code
+      FROM transactions tx
+      JOIN organizations o
+        ON o.id = tx.organization_id
+      LEFT JOIN tenants t
+        ON t.id = tx.tenant_id
+       AND t.organization_id = tx.organization_id
+      LEFT JOIN properties p
+        ON p.id = tx.property_id
+       AND p.organization_id = tx.organization_id
+      LEFT JOIN units u
+        ON u.id = tx.unit_id
+       AND u.organization_id = tx.organization_id
+      WHERE tx.id = $1
+        AND tx.organization_id = $2
+    `,
+    [transactionId, orgId]
+  );
+
+  const tx = txResult.rows[0];
+  if (!tx) return null;
+
+  const allocationsResult = await client.query(
+    `
+      SELECT
+        pa.id,
+        pa.amount_allocated,
+        i.id AS invoice_id,
+        i.invoice_number,
+        i.invoice_type,
+        i.status,
+        i.total,
+        i.amount_paid,
+        i.balance,
+        i.due_date
+      FROM payment_allocations pa
+      JOIN invoices i
+        ON i.id = pa.invoice_id
+       AND i.organization_id = pa.organization_id
+      WHERE pa.transaction_id = $1
+        AND pa.organization_id = $2
+      ORDER BY pa.id ASC
+    `,
+    [transactionId, orgId]
+  );
+
+  const balanceResult = await client.query(
+    `
+      SELECT COALESCE(SUM(balance), 0)::numeric AS balance_after_payment
+      FROM invoices
+      WHERE organization_id = $1
+        AND tenant_id = $2
+        AND status NOT IN ('paid', 'void')
+    `,
+    [orgId, tx.tenant_id]
+  );
+
+  const receiptNumber = tx.reference_number || `TX-${String(tx.id).padStart(6, '0')}`;
+
+  return {
+    receipt_number: receiptNumber,
+    transaction_id: tx.id,
+    transaction_reference: tx.reference_number || null,
+    tenant_name: tx.tenant_name || tx.payer_name,
+    tenant_account_number: tx.tenant_account_number || tx.account_number || null,
+    property_name: tx.property_name || null,
+    unit_code: tx.unit_code || null,
+    amount: toNumber(tx.amount),
+    currency: tx.currency,
+    payment_method: tx.payment_method,
+    payment_date: tx.transaction_date,
+    allocation_summary: allocationsResult.rows.map(allocation => ({
+      invoice_id: allocation.invoice_id,
+      invoice_number: allocation.invoice_number,
+      invoice_type: allocation.invoice_type,
+      amount_allocated: toNumber(allocation.amount_allocated),
+      invoice_total: toNumber(allocation.total),
+      invoice_amount_paid: toNumber(allocation.amount_paid),
+      invoice_balance: toNumber(allocation.balance),
+      invoice_status: allocation.status,
+      due_date: allocation.due_date
+    })),
+    balance_after_payment: toNumber(balanceResult.rows[0]?.balance_after_payment),
+    organization_name: tx.organization_name,
+    created_at: tx.created_at
+  };
 }
 
 export function createFinancialRoutes(pgDb) {
@@ -609,22 +718,57 @@ export function createFinancialRoutes(pgDb) {
 
   router.post('/payments', requireLandlord, asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
-    const { tenant_id, amount, payment_method, reference_number, transaction_date } = req.body;
+    const {
+      tenant_id,
+      amount,
+      payment_method,
+      reference_number,
+      transaction_date,
+      note
+    } = req.body;
 
-    const transaction = await withTransaction(pgDb, async client => {
-      const duplicateResult = await client.query(
-        'SELECT id FROM transactions WHERE organization_id = $1 AND reference_number = $2 AND status <> $3',
-        [orgId, reference_number, 'failed']
-      );
-      if (duplicateResult.rows.length > 0) {
-        const error = new Error('This transaction reference already exists and cannot be posted again.');
-        error.statusCode = 400;
-        throw error;
+    const tenantId = Number(tenant_id);
+    if (!Number.isInteger(tenantId) || tenantId <= 0) {
+      return res.status(400).json({ error: 'A valid tenant is required.' });
+    }
+
+    const paymentAmount = Number(amount);
+    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+      return res.status(400).json({ error: 'Payment amount must be greater than zero.' });
+    }
+
+    const paymentMethod = normalizePaymentMethod(payment_method);
+    if (!paymentMethod) {
+      return res.status(400).json({ error: 'Payment method must be mpesa, bank, cash, or other.' });
+    }
+
+    const referenceNumber = cleanOptionalText(reference_number);
+    const paymentNote = cleanOptionalText(note);
+    if (!referenceNumber && !paymentNote) {
+      return res.status(400).json({ error: 'Payment reference or note is required.' });
+    }
+
+    const paymentDate = transaction_date ? new Date(transaction_date) : new Date();
+    if (Number.isNaN(paymentDate.getTime())) {
+      return res.status(400).json({ error: 'Payment date is invalid.' });
+    }
+
+    const result = await withTransaction(pgDb, async client => {
+      if (referenceNumber) {
+        const duplicateResult = await client.query(
+          'SELECT id FROM transactions WHERE organization_id = $1 AND reference_number = $2 AND status <> $3',
+          [orgId, referenceNumber, 'failed']
+        );
+        if (duplicateResult.rows.length > 0) {
+          const error = new Error('This transaction reference already exists and cannot be posted again.');
+          error.statusCode = 400;
+          throw error;
+        }
       }
 
       const tenantResult = await client.query(
         'SELECT * FROM tenants WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL',
-        [parseInt(tenant_id), orgId]
+        [tenantId, orgId]
       );
       const tenant = tenantResult.rows[0];
       if (!tenant) {
@@ -664,21 +808,24 @@ export function createFinancialRoutes(pgDb) {
           tenant.id,
           tenant.property_id,
           tenant.unit_id,
-          parseFloat(amount),
+          paymentAmount,
           tenant.currency || 'KES',
-          payment_method,
-          reference_number,
+          paymentMethod,
+          referenceNumber || null,
           tenant.tenant_account_number,
           tenant.full_name,
           tenant.phone_number,
-          transaction_date,
-          JSON.stringify('MANUAL_ENTRY'),
+          paymentDate.toISOString(),
+          JSON.stringify({
+            entry_type: 'MANUAL_ENTRY',
+            note: paymentNote || null
+          }),
           userId
         ]
       );
 
       const createdTransaction = txResult.rows[0];
-      let remainingAmount = parseFloat(amount);
+      let remainingAmount = paymentAmount;
 
       const invoicesResult = await client.query(
         `
@@ -738,17 +885,25 @@ export function createFinancialRoutes(pgDb) {
         channel: 'sms',
         type: 'payment_confirmed',
         data: {
-          amount: amount,
+          amount: paymentAmount,
           account_number: tenant.tenant_account_number,
-          reference: reference_number
+          reference: referenceNumber || `TX-${createdTransaction.id}`
         }
       }, client);
 
       await logAudit(client, orgId, userId, role, 'payment_recorded', 'transaction', createdTransaction.id, null, createdTransaction);
-      return createdTransaction;
+      const receipt = await buildReceiptPayload(client, orgId, createdTransaction.id);
+
+      return {
+        transaction: {
+          ...createdTransaction,
+          amount: toNumber(createdTransaction.amount)
+        },
+        receipt
+      };
     });
 
-    res.status(201).json(transaction);
+    res.status(201).json(result);
   }));
 
   router.post('/payments/:id/reverse', requireLandlord, asyncHandler(async (req, res) => {
