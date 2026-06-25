@@ -16,6 +16,10 @@ function toFiniteNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function safeArrayPayload(payload) {
+  return Array.isArray(payload) ? payload : [];
+}
+
 export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTrigger, onRefresh }) {
   const routeTabMap = {
     admin_dashboard: 'dashboard',
@@ -107,11 +111,21 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     try {
       if (activeTab === 'landlords') {
         const res = await fetch('/api/admin/organizations', { headers });
-        setLandlords(await res.json());
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          setLandlords([]);
+          throw new Error(data?.message || data?.error || 'Failed to fetch landlords.');
+        }
+        setLandlords(safeArrayPayload(data));
       } else if (activeTab === 'billing') {
         const res = await fetch('/api/admin/platform-payments', { headers });
-        const data = await res.json();
-        setPendingPayments(data.filter(p => p.status === 'pending'));
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          setPendingPayments([]);
+          throw new Error(data?.message || data?.error || 'Failed to fetch platform payments.');
+        }
+        const payments = safeArrayPayload(data);
+        setPendingPayments(payments.filter(p => p?.status === 'pending'));
       } else if (activeTab === 'email') {
         const res = await fetch('/api/admin/platform-email', { headers });
         if (!res.ok) throw new Error('Failed to fetch platform email settings.');
@@ -130,16 +144,31 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         setPlatformEmailPasswordMasked(Boolean(data.has_credentials));
       } else if (activeTab === 'errors') {
         const res = await fetch('/api/admin/system-errors', { headers });
-        setSystemErrors(await res.json());
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          setSystemErrors([]);
+          throw new Error(data?.message || data?.error || 'Failed to fetch system errors.');
+        }
+        setSystemErrors(safeArrayPayload(data));
       } else if (activeTab === 'audits') {
         const res = await fetch('/api/admin/system-audits', { headers });
-        setSystemAudits(await res.json());
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          setSystemAudits([]);
+          throw new Error(data?.message || data?.error || 'Failed to fetch system logs.');
+        }
+        setSystemAudits(safeArrayPayload(data));
       } else if (activeTab === 'compliance') {
         const res = await fetch('/api/admin/compliance/delete-requests', { headers });
-        setDeletionRequests(await res.json());
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          setDeletionRequests([]);
+          throw new Error(data?.message || data?.error || 'Failed to fetch compliance requests.');
+        }
+        setDeletionRequests(safeArrayPayload(data));
       }
     } catch (e) {
-      setError('Failed to fetch platform records.');
+      setError(e?.message || 'Failed to fetch platform records.');
     } finally {
       setLoading(false);
     }
@@ -325,6 +354,11 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     pending_confirmations: toFiniteNumber(stats.pending_confirmations),
     monthly_saas_revenue: toFiniteNumber(stats.monthly_saas_revenue)
   };
+  const safeLandlords = safeArrayPayload(landlords);
+  const safePendingPayments = safeArrayPayload(pendingPayments);
+  const safeSystemErrors = safeArrayPayload(systemErrors);
+  const safeSystemAudits = safeArrayPayload(systemAudits);
+  const safeDeletionRequests = safeArrayPayload(deletionRequests);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -480,13 +514,13 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {/* LANDLORDS LIST */}
       {activeTab === 'landlords' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {landlords.length === 0 ? (
+          {safeLandlords.length === 0 ? (
             <div className="card" style={{ marginBottom: 0 }}>
               <div className="sl-empty-state-title">No landlords found yet.</div>
               <div className="sl-empty-state-desc">Organizations will appear here once landlord accounts are created.</div>
             </div>
           ) : (
-            landlords.map(org => (
+            safeLandlords.map(org => (
               <div key={org.id} className="sl-list-card">
                 <div className="flex-row">
                   <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -521,13 +555,13 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {/* CONFIRM SAAS PAYMENTS */}
       {activeTab === 'billing' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {pendingPayments.length === 0 ? (
+          {safePendingPayments.length === 0 ? (
             <div className="card" style={{ marginBottom: 0 }}>
               <div className="sl-empty-state-title">No pending SaaS billing confirmations.</div>
               <div className="sl-empty-state-desc">Incoming pending platform payment confirmations will appear here.</div>
             </div>
           ) : (
-            pendingPayments.map(pay => (
+            safePendingPayments.map(pay => (
               <div key={pay.id} className="sl-list-card">
                 <div className="flex-row">
                   <span className="badge badge-warning">{pay.payment_method.toUpperCase()} Payment</span>
@@ -637,13 +671,13 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {/* SYSTEM ERRORS */}
       {activeTab === 'errors' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {systemErrors.length === 0 ? (
+          {safeSystemErrors.length === 0 ? (
             <div className="sl-empty-state">
               <div className="sl-empty-state-title">System Logs Clean</div>
               <div className="sl-empty-state-desc">No system errors have been logged.</div>
             </div>
           ) : (
-            systemErrors.map(err => (
+            safeSystemErrors.map(err => (
               <div key={err.id} className="sl-list-card" style={{ borderLeft: '4px solid var(--danger)' }}>
                 <div className="flex-row">
                   <strong style={{ color: 'var(--danger)', fontSize: '11px' }}>{err.source.toUpperCase()}</strong>
@@ -660,7 +694,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {/* SYSTEM AUDITS */}
       {activeTab === 'audits' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {systemAudits.map(log => (
+          {safeSystemAudits.map(log => (
             <div key={log.id} className="sl-list-card" style={{ fontSize: '12px' }}>
               <div className="flex-row">
                 <strong style={{ textTransform: 'uppercase', color: 'var(--primary)', fontSize: '11px' }}>{log.action.replace(/_/g, ' ')}</strong>
@@ -679,13 +713,13 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {/* COMPLIANCE & DELETION REQUESTS */}
       {activeTab === 'compliance' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {deletionRequests.length === 0 ? (
+          {safeDeletionRequests.length === 0 ? (
             <div className="sl-empty-state">
               <div className="sl-empty-state-title">No requests found</div>
               <div className="sl-empty-state-desc">No compliance or deletion requests found.</div>
             </div>
           ) : (
-            deletionRequests.map(req => (
+            safeDeletionRequests.map(req => (
               <div key={req.id} className="sl-list-card">
                 <div className="flex-row">
                   <span className="badge badge-info" style={{ textTransform: 'uppercase' }}>
