@@ -19,6 +19,7 @@ import { EMAIL_MODES, maskSmtpConfig, normalizeSmtpConfig, prepareSmtpConfigForS
 import { decryptConfig, encryptConfig } from './crypto.js';
 import { renderTemplate } from './emailTemplates.js';
 import { invalidatePendingOtps, recordOtpSent, requestOtp, verifyOtp, OtpError } from './otpService.js';
+import { generateOrganizationAccountNumber } from './organizationAccountNumbers.js';
 import { initializeApp as initializeFirebaseAdminApp, getApps as getFirebaseAdminApps } from 'firebase-admin/app';
 import { getAuth as getFirebaseAdminAuth } from 'firebase-admin/auth';
 
@@ -196,6 +197,10 @@ async function activeInsert(table, data) {
 
 async function activeUpdate(table, idOrFilter, data) {
   return pgDb ? pgDb.update(table, idOrFilter, data) : db.update(table, idOrFilter, data);
+}
+
+function nextJsonOrganizationAccountNumber() {
+  return pgDb ? undefined : generateOrganizationAccountNumber(db.get('organizations'));
 }
 
 function normalizeEmail(value) {
@@ -409,6 +414,7 @@ async function ensureRegistrationProfile(decodedToken, profile = {}) {
   if (!organization) {
     organization = await activeInsert('organizations', {
       owner_user_id: user.id,
+      account_number: nextJsonOrganizationAccountNumber(),
       name: displayName,
       type: profile.type || 'individual',
       registration_number: profile.registration_number || '',
@@ -977,6 +983,7 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
 
       organization = await activeInsert('organizations', {
         owner_user_id: user.id,
+        account_number: nextJsonOrganizationAccountNumber(),
         name: orgName,
         type: profile.type || 'individual',
         registration_number: profile.registration_number || '',
@@ -1158,6 +1165,7 @@ app.post('/api/auth/register', (req, res) => {
   const orgName = name;
   const org = db.insert('organizations', {
     owner_user_id: user.id,
+    account_number: generateOrganizationAccountNumber(db.get('organizations')),
     name: orgName,
     type,
     registration_number: registration_number || '',

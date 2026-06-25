@@ -1,5 +1,6 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
+import { isValidOrganizationAccountNumber, normalizeOrganizationAccountNumber } from '../organizationAccountNumbers.js';
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -541,6 +542,127 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       });
       res.json(detailed);
     }
+  }));
+
+  // =========================================================================
+  // PUT /api/admin/organizations/:id/account-number
+  // =========================================================================
+  router.put('/admin/organizations/:id/account-number', requireSuperAdminContext, asyncHandler(async (req, res) => {
+    const organizationId = parseInt(req.params.id, 10);
+    const { userId: adminId } = getContext(req);
+    const accountNumber = normalizeOrganizationAccountNumber(req.body?.account_number);
+
+    if (!Number.isInteger(organizationId) || organizationId <= 0) {
+      return res.status(400).json({ error: 'Invalid organization ID.' });
+    }
+
+    if (!accountNumber) {
+      return res.status(400).json({
+        error: 'ACCOUNT_NUMBER_REQUIRED',
+        message: 'Account number is required.'
+      });
+    }
+
+    if (!isValidOrganizationAccountNumber(accountNumber)) {
+      return res.status(400).json({
+        error: 'ACCOUNT_NUMBER_INVALID',
+        message: 'Use the format SL-ORG-000001.'
+      });
+    }
+
+    if (pgDb) {
+      const org = await pgDb.findOne('organizations', { id: organizationId });
+      if (!org || org.status === 'deleted') {
+        return res.status(404).json({ error: 'Organization not found.' });
+      }
+
+      const duplicate = await pgDb.query(
+        `SELECT id FROM organizations
+         WHERE UPPER(account_number) = UPPER($1)
+           AND id <> $2
+         LIMIT 1`,
+        [accountNumber, organizationId]
+      );
+
+      if (duplicate.rows.length > 0) {
+        return res.status(409).json({
+          error: 'ACCOUNT_NUMBER_DUPLICATE',
+          message: 'That account number is already assigned to another landlord organization.'
+        });
+      }
+
+      if (org.account_number === accountNumber) {
+        return res.json({ organization: org });
+      }
+
+      let updatedRows;
+      try {
+        updatedRows = await pgDb.update('organizations', organizationId, {
+          account_number: accountNumber
+        });
+      } catch (error) {
+        if (error.code === '23505') {
+          return res.status(409).json({
+            error: 'ACCOUNT_NUMBER_DUPLICATE',
+            message: 'That account number is already assigned to another landlord organization.'
+          });
+        }
+        throw error;
+      }
+      const updated = updatedRows[0];
+
+      await pgDb.insert('system_audit_logs', {
+        admin_user_id: adminId,
+        target_organization_id: organizationId,
+        action: 'organization_account_number_changed',
+        reason: `Organization account number changed from ${org.account_number} to ${accountNumber}.`,
+        metadata: {
+          old_account_number: org.account_number,
+          new_account_number: accountNumber
+        }
+      });
+
+      return res.json({ organization: updated });
+    }
+
+    const localDb = await reqDb();
+    const org = localDb.findOne('organizations', { id: organizationId });
+    if (!org || org.status === 'deleted') {
+      return res.status(404).json({ error: 'Organization not found.' });
+    }
+
+    const duplicate = localDb.get('organizations').find(candidate =>
+      candidate.id !== organizationId &&
+      normalizeOrganizationAccountNumber(candidate.account_number) === accountNumber
+    );
+
+    if (duplicate) {
+      return res.status(409).json({
+        error: 'ACCOUNT_NUMBER_DUPLICATE',
+        message: 'That account number is already assigned to another landlord organization.'
+      });
+    }
+
+    if (normalizeOrganizationAccountNumber(org.account_number) === accountNumber) {
+      return res.json({ organization: org });
+    }
+
+    const updated = localDb.update('organizations', organizationId, {
+      account_number: accountNumber
+    })[0];
+
+    localDb.insert('system_audit_logs', {
+      admin_user_id: adminId,
+      target_organization_id: organizationId,
+      action: 'organization_account_number_changed',
+      reason: `Organization account number changed from ${org.account_number} to ${accountNumber}.`,
+      metadata: JSON.stringify({
+        old_account_number: org.account_number,
+        new_account_number: accountNumber
+      })
+    });
+
+    res.json({ organization: updated });
   }));
 
   // =========================================================================

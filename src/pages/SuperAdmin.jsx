@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Building2, Mail, ShieldCheck, TestTube2 } from 'lucide-react';
+import { Settings, Building2, Mail, ShieldCheck, TestTube2, Pencil } from 'lucide-react';
 
 const DEFAULT_STATS = {
   total_organizations: 0,
@@ -14,9 +14,15 @@ const DEFAULT_STATS = {
   system_errors_count: 0
 };
 
+const ORG_ACCOUNT_NUMBER_PATTERN = /^SL-ORG-[0-9]{6,}$/;
+
 function toFiniteNumber(value, fallback = 0) {
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeAccountNumber(value) {
+  return String(value || '').trim().toUpperCase();
 }
 
 function safeArrayPayload(payload) {
@@ -72,6 +78,9 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
   // Impersonate Modal
   const [impersonateOrg, setImpersonateOrg] = useState(null);
   const [impersonateReason, setImpersonateReason] = useState('');
+  const [accountNumberOrg, setAccountNumberOrg] = useState(null);
+  const [accountNumberValue, setAccountNumberValue] = useState('');
+  const [accountNumberError, setAccountNumberError] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -218,6 +227,63 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       }
     } catch (e) {
       setError('Confirm failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openAccountNumberEditor = (org) => {
+    setAccountNumberOrg(org);
+    setAccountNumberValue(normalizeAccountNumber(org.account_number));
+    setAccountNumberError('');
+  };
+
+  const closeAccountNumberEditor = () => {
+    setAccountNumberOrg(null);
+    setAccountNumberValue('');
+    setAccountNumberError('');
+  };
+
+  const handleAccountNumberSubmit = async (e) => {
+    e.preventDefault();
+    const normalized = normalizeAccountNumber(accountNumberValue);
+
+    if (!normalized) {
+      setAccountNumberError('Account number is required.');
+      return;
+    }
+
+    if (!ORG_ACCOUNT_NUMBER_PATTERN.test(normalized)) {
+      setAccountNumberError('Use the format SL-ORG-000001.');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setAccountNumberError('');
+    try {
+      const res = await fetch(`/api/admin/organizations/${accountNumberOrg.id}/account-number`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_number: normalized })
+      });
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(data?.message || data?.error || 'Failed to update account number.');
+      }
+
+      const updatedOrg = data?.organization;
+      if (updatedOrg) {
+        setLandlords(prev => prev.map(org => org.id === updatedOrg.id ? { ...org, ...updatedOrg } : org));
+      }
+
+      closeAccountNumberEditor();
+      fetchData();
+      fetchStats();
+      onRefresh();
+    } catch (err) {
+      setAccountNumberError(err.message);
     } finally {
       setLoading(false);
     }
@@ -403,6 +469,46 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         </div>
       )}
 
+      {/* ACCOUNT NUMBER EDIT MODAL */}
+      {accountNumberOrg && (
+        <div className="modal-backdrop">
+          <div className="modal-content">
+            <h3 className="card-title">Edit Account Number</h3>
+            <p style={{ fontSize: '12px', marginBottom: '14px', color: 'var(--text-secondary)' }}>
+              {accountNumberOrg.name}
+            </p>
+
+            <form onSubmit={handleAccountNumberSubmit}>
+              <div className="form-group">
+                <label className="form-label">Account Number</label>
+                <input
+                  required
+                  className="form-control"
+                  value={accountNumberValue}
+                  onChange={e => {
+                    setAccountNumberValue(e.target.value);
+                    setAccountNumberError('');
+                  }}
+                  onBlur={e => setAccountNumberValue(normalizeAccountNumber(e.target.value))}
+                  placeholder="SL-ORG-000001"
+                />
+              </div>
+
+              {accountNumberError && (
+                <div role="alert" style={{ color: 'var(--danger)', fontSize: '12px', marginBottom: '12px' }}>
+                  {accountNumberError}
+                </div>
+              )}
+
+              <div className="flex-gap" style={{ marginTop: '20px' }}>
+                <button type="button" className="btn btn-secondary" onClick={closeAccountNumberEditor}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={loading}>Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* SUPER ADMIN MENU TABS */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)' }}>
         <button
@@ -548,6 +654,9 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
                   </span>
                 </div>
                 <p style={{ fontSize: '12px', marginTop: '2px' }}>Owner ID: {org.owner_user_id} • Country: {org.country}</p>
+                <div style={{ fontSize: '12px', marginTop: '6px' }}>
+                  Account Number: <strong style={{ color: 'var(--primary)' }}>{org.account_number || 'Not assigned'}</strong>
+                </div>
                 
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', background: 'var(--bg-surface-elevated)', padding: '6px', borderRadius: '4px', margin: '8px 0' }}>
                   <span>Sub: <strong>{org.subscription_tier.toUpperCase()}</strong></span>
@@ -555,6 +664,13 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
                 </div>
 
                 <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', marginTop: '12px' }}>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => openAccountNumberEditor(org)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Pencil size={12} /> Edit Account
+                  </button>
                   <button
                     className="btn btn-primary btn-sm"
                     onClick={() => setImpersonateOrg(org)}

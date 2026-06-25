@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { generateOrganizationAccountNumber, normalizeOrganizationAccountNumber } from './organizationAccountNumbers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,20 +57,49 @@ export function readDb() {
     if (!fs.existsSync(DB_FILE)) {
       writeDb(defaultDb);
       seedDb();
-      return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+      return ensureOrganizationAccountNumbers(JSON.parse(fs.readFileSync(DB_FILE, 'utf8')));
     }
     const content = fs.readFileSync(DB_FILE, 'utf8');
     if (!content.trim()) {
       writeDb(defaultDb);
       seedDb();
-      return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+      return ensureOrganizationAccountNumbers(JSON.parse(fs.readFileSync(DB_FILE, 'utf8')));
     }
-    return JSON.parse(content);
+    return ensureOrganizationAccountNumbers(JSON.parse(content));
   } catch (error) {
     console.error('Error reading database file, resetting:', error);
     writeDb(defaultDb);
     return defaultDb;
   }
+}
+
+function ensureOrganizationAccountNumbers(data) {
+  if (!data || !Array.isArray(data.organizations)) return data;
+
+  let changed = false;
+  const used = new Set(
+    data.organizations
+      .map(org => normalizeOrganizationAccountNumber(org.account_number))
+      .filter(Boolean)
+  );
+
+  for (const org of data.organizations) {
+    if (!String(org.account_number || '').trim()) {
+      const idNumber = Number(org.id || 0);
+      const preferred = idNumber > 0 ? `SL-ORG-${String(idNumber).padStart(6, '0')}` : '';
+      org.account_number = preferred && !used.has(preferred)
+        ? preferred
+        : generateOrganizationAccountNumber(data.organizations);
+      used.add(org.account_number);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    writeDb(data);
+  }
+
+  return data;
 }
 
 // Writing the DB atomically
@@ -241,6 +271,7 @@ function seedDb() {
   const landlordOrg = {
     id: 1,
     owner_user_id: 2,
+    account_number: 'SL-ORG-000001',
     name: 'Kamau Properties Ltd',
     type: 'company',
     registration_number: 'CPR/2022/1009482',
