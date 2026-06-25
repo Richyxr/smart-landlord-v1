@@ -44,6 +44,12 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
   const [activeTab, setActiveTab] = useState(initialSubTab || 'readiness'); // readiness, integrations, archive, audits, compliance, readings
   const [checklist, setChecklist] = useState({});
   const [integrations, setIntegrations] = useState([]);
+  const [emailSettings, setEmailSettings] = useState({
+    email_delivery_mode: 'use_platform_email',
+    email_status: 'not_configured',
+    platform_email: { status: 'not_configured', last_tested_at: null, has_credentials: false },
+    custom_smtp: null
+  });
   const [auditLogs, setAuditLogs] = useState([]);
   const [meterReadings, setMeterReadings] = useState([]);
   const [deletionLog, setDeletionLog] = useState([]);
@@ -191,10 +197,17 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         const data = await res.json();
         setChecklist(data && typeof data === 'object' && data.checklist ? data.checklist : {});
       } else if (activeTab === 'integrations') {
-        const res = await fetch('/api/integrations', { headers });
-        if (!res.ok) throw new Error('Failed to fetch integrations.');
-        const data = await res.json();
+        const [resIntegrations, resEmail] = await Promise.all([
+          fetch('/api/integrations', { headers }),
+          fetch('/api/settings/email', { headers })
+        ]);
+        if (!resIntegrations.ok) throw new Error('Failed to fetch integrations.');
+        const data = await resIntegrations.json();
         setIntegrations(Array.isArray(data) ? data : (data && Array.isArray(data.integrations) ? data.integrations : []));
+        if (resEmail.ok) {
+          const emailData = await resEmail.json();
+          setEmailSettings(emailData);
+        }
       } else if (activeTab === 'archive') {
         // Calculate transactions count before archive date
         const res = await fetch('/api/payments', { headers });
@@ -432,6 +445,28 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       setInfoMessage('Notification retry delivery initiated successfully.');
       setError('');
       fetchData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEmailModeChange = async (mode) => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/settings/email-mode', {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      });
+      const data = await safeParseJson(res, 'Failed to update email delivery mode');
+      if (!res.ok) throw new Error(data.error || data.message || 'Failed to update email delivery mode.');
+      setEmailSettings(prev => ({ ...prev, email_delivery_mode: mode }));
+      setInfoMessage(mode === 'use_custom_smtp' ? 'Landlord email now uses custom SMTP.' : 'Landlord email now uses platform email.');
+      fetchData();
+      onRefresh();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1305,9 +1340,38 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         const isAT = smsInt && smsInt.provider_name === 'Africa’s Talking';
         const isMobi = smsInt && smsInt.provider_name === 'Mobitech';
         const mpesaInt = integrations.find(i => i.provider_type === 'mpesa');
+        const emailInt = integrations.find(i => i.provider_type === 'email');
+        const customEmailActive = emailSettings.email_delivery_mode === 'use_custom_smtp';
 
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* Email Delivery Mode */}
+            <div className="card">
+              <div className="flex-row">
+                <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><Mail size={16} /> Email Delivery Mode</h4>
+                <span className={`badge ${customEmailActive ? 'badge-warning' : 'badge-success'}`}>
+                  {customEmailActive ? 'custom SMTP' : 'platform email'}
+                </span>
+              </div>
+              <p style={{ fontSize: '12px', marginTop: '6px' }}>
+                Platform email is the default for registration OTP and future system emails. Switch to custom SMTP only when you want landlord-specific sending.
+              </p>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+                <button className={`btn btn-sm ${!customEmailActive ? 'btn-primary' : 'btn-secondary'}`} onClick={() => handleEmailModeChange('use_platform_email')} disabled={loading} type="button">
+                  Use Platform Email
+                </button>
+                <button className={`btn btn-sm ${customEmailActive ? 'btn-primary' : 'btn-secondary'}`} onClick={() => handleEmailModeChange('use_custom_smtp')} disabled={loading} type="button">
+                  Use Custom SMTP
+                </button>
+              </div>
+              <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                Status: <strong>{emailSettings.email_status || emailSettings.platform_email?.status || 'not_configured'}</strong>
+                {emailSettings.platform_email?.last_tested_at && (
+                  <span> • Last tested {new Date(emailSettings.platform_email.last_tested_at).toLocaleString()}</span>
+                )}
+              </div>
+            </div>
+
             {/* SMS Gateway (Africa's Talking) */}
             <div className="card">
               <div className="flex-row">
@@ -1379,50 +1443,47 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
             </div>
 
             {/* Email / SMTP Integration */}
-            {(() => {
-              const emailInt = integrations.find(i => i.provider_type === 'email');
-              const emailStatus = emailInt?.status || 'draft';
-              return (
-                <div className="card">
-                  <div className="flex-row">
-                    <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><Mail size={16} /> Email / SMTP (Truehost Mailbox)</h4>
-                    <span className={`badge ${emailStatus === 'ready' || emailStatus === 'active' ? 'badge-success' : 'badge-warning'}`}>
-                      {emailStatus === 'ready' || emailStatus === 'active' ? 'connected' : emailStatus === 'draft' ? 'draft' : emailStatus}
-                    </span>
-                  </div>
-                  <p style={{ fontSize: '12px', marginTop: '6px' }}>Sends OTP verification codes, rent receipts, and platform notifications via your Truehost mailbox.</p>
-                  {emailInt?.config_masked && (
-                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      Host: <strong>{emailInt.config_masked.host || '—'}</strong> &nbsp;·&nbsp;
-                      User: <strong>{emailInt.config_masked.username || '—'}</strong>
-                    </p>
-                  )}
-                  <div className="flex-gap" style={{ marginTop: '12px' }}>
-                    <button className="btn btn-secondary btn-sm" onClick={() => {
-                      const masked = emailInt?.config_masked || {};
-                      setSmtpHost(masked.host || '');
-                      setSmtpPort(String(masked.port || '465'));
-                      setSmtpSecure(masked.secure !== false);
-                      setSmtpUsername(masked.username || '');
-                      setSmtpPassword('');
-                      setSmtpPasswordMasked(Boolean(emailInt?.has_credentials));
-                      setSmtpFromEmail(masked.from_email || '');
-                      setSmtpFromName(masked.from_name || 'Smart Landlord');
-                      setSmtpReplyTo(masked.reply_to || '');
-                      setEnv('production');
-                      setSelectedInt({ provider_type: 'email', provider_name: 'Truehost SMTP' });
-                    }}>Configure</button>
-                    {emailInt && (
-                      <>
-                        <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(emailInt.id)}>Test Connection</button>
-                        <button className="btn btn-secondary btn-sm" onClick={() => handleSendTestEmail(emailInt.id)}>Send Test Email</button>
-                        <button className="btn btn-danger btn-sm" onClick={() => handleDeleteIntegrationTrigger(emailInt.id)}>Delete keys</button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
+            <div className="card">
+              <div className="flex-row">
+                <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><Mail size={16} /> Landlord Custom SMTP</h4>
+                <span className={`badge ${emailSettings.email_delivery_mode === 'use_custom_smtp' && emailInt?.status === 'ready' ? 'badge-success' : 'badge-warning'}`}>
+                  {emailSettings.email_delivery_mode === 'use_custom_smtp' && emailInt?.status === 'ready' ? 'active' : emailInt?.status || 'draft'}
+                </span>
+              </div>
+              <p style={{ fontSize: '12px', marginTop: '6px' }}>
+                Configure this only if you want landlord-specific SMTP instead of the shared platform mailbox.
+              </p>
+              {emailInt?.config_masked && (
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Host: <strong>{emailInt.config_masked.host || '—'}</strong> &nbsp;·&nbsp;
+                  User: <strong>{emailInt.config_masked.username || '—'}</strong>
+                  {emailInt.last_tested_at && <span> &nbsp;·&nbsp; Last tested {new Date(emailInt.last_tested_at).toLocaleString()}</span>}
+                </p>
+              )}
+              <div className="flex-gap" style={{ marginTop: '12px' }}>
+                <button className="btn btn-secondary btn-sm" onClick={() => {
+                  const masked = emailInt?.config_masked || {};
+                  setSmtpHost(masked.host || '');
+                  setSmtpPort(String(masked.port || '465'));
+                  setSmtpSecure(masked.secure !== false);
+                  setSmtpUsername(masked.username || '');
+                  setSmtpPassword('');
+                  setSmtpPasswordMasked(Boolean(emailInt?.has_credentials));
+                  setSmtpFromEmail(masked.from_email || '');
+                  setSmtpFromName(masked.from_name || 'Smart Landlord');
+                  setSmtpReplyTo(masked.reply_to || '');
+                  setEnv('production');
+                  setSelectedInt({ provider_type: 'email', provider_name: 'Truehost SMTP' });
+                }}>Configure</button>
+                {emailInt && (
+                  <>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(emailInt.id)}>Test Connection</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleSendTestEmail(emailInt.id)}>Send Test Email</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleDeleteIntegrationTrigger(emailInt.id)}>Delete keys</button>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
         );
       })()}

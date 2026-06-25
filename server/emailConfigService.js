@@ -1,0 +1,128 @@
+import { decryptConfig } from './crypto.js';
+
+export const EMAIL_MODES = {
+  PLATFORM: 'use_platform_email',
+  CUSTOM: 'use_custom_smtp'
+};
+
+function cleanOptionalText(value) {
+  if (value === undefined || value === null) return '';
+  return String(value).trim();
+}
+
+function isMaskedPassword(value) {
+  const normalized = cleanOptionalText(value);
+  return normalized === '********' || normalized === '••••••••' || /^•{4,}$/.test(normalized);
+}
+
+export function normalizeSmtpConfig(configJson = {}) {
+  const port = Number.parseInt(configJson.port, 10);
+
+  return {
+    host: cleanOptionalText(configJson.host),
+    port: Number.isInteger(port) && port > 0 ? port : null,
+    secure: configJson.secure === true || String(configJson.secure).toLowerCase() === 'true',
+    username: cleanOptionalText(configJson.username),
+    password: cleanOptionalText(configJson.password),
+    from_email: cleanOptionalText(configJson.from_email || configJson.username),
+    from_name: cleanOptionalText(configJson.from_name) || 'Smart Landlord',
+    reply_to: cleanOptionalText(configJson.reply_to)
+  };
+}
+
+export function validateSmtpConfig(config) {
+  const missing = [];
+  if (!config.host) missing.push('host');
+  if (!Number.isInteger(config.port) || config.port <= 0 || config.port > 65535) missing.push('port');
+  if (!config.username) missing.push('username');
+  if (!config.password) missing.push('password');
+  if (!config.from_email) missing.push('from_email');
+  return missing;
+}
+
+export function maskSmtpConfig(config) {
+  if (!config || typeof config !== 'object') return {};
+
+  const masked = { ...config };
+  if (masked.password) {
+    const password = String(masked.password);
+    masked.password = password.length > 4 ? `${password.substring(0, 2)}********` : '********';
+  }
+
+  return masked;
+}
+
+export function prepareSmtpConfigForStorage({ incomingConfig = {}, existingEncryptedConfig = null } = {}) {
+  const normalized = normalizeSmtpConfig(incomingConfig);
+  const preserveExistingPassword = !cleanOptionalText(incomingConfig.password) || isMaskedPassword(incomingConfig.password);
+
+  if (preserveExistingPassword && existingEncryptedConfig) {
+    try {
+      const existingConfig = decryptConfig(existingEncryptedConfig);
+      if (existingConfig?.password) {
+        normalized.password = cleanOptionalText(existingConfig.password);
+      }
+    } catch (_error) {
+      // If the old ciphertext cannot be decrypted, fall back to the submitted value.
+    }
+  }
+
+  return {
+    configForStorage: normalized,
+    passwordPreserved: Boolean(normalized.password) && preserveExistingPassword && Boolean(existingEncryptedConfig)
+  };
+}
+
+export async function resolveEmailDeliveryConfig({ pgDb, organizationId }) {
+  if (!pgDb) {
+    throw new Error('Database access is required to resolve email delivery config.');
+  }
+
+  const organization = await pgDb.findOne('organizations', { id: organizationId });
+  if (!organization) {
+    const error = new Error('Organization not found.');
+    error.code = 'ORGANIZATION_NOT_FOUND';
+    throw error;
+  }
+
+  const mode = organization.email_delivery_mode || EMAIL_MODES.PLATFORM;
+  const customIntegration = await pgDb.findOne('organization_integrations', {
+    organization_id: organizationId,
+    provider_type: 'email'
+  });
+  const platformSettings = await pgDb.findOne('platform_billing_settings', { id: 1 });
+
+  if (mode === EMAIL_MODES.CUSTOM && customIntegration?.config_json_encrypted) {
+    const credentials = normalizeSmtpConfig(decryptConfig(customIntegration.config_json_encrypted));
+    const missing = validateSmtpConfig(credentials);
+    if (missing.length === 0 && ['ready', 'verified', 'active'].includes(customIntegration.status || '')) {
+      return {
+        source: 'landlord_custom_smtp',
+        mode,
+        status: customIntegration.status,
+        credentials,
+        integration: customIntegration,
+        organization
+      };
+    }
+  }
+
+  if (platformSettings?.smtp_config_encrypted) {
+    const credentials = normalizeSmtpConfig(decryptConfig(platformSettings.smtp_config_encrypted));
+    const missing = validateSmtpConfig(credentials);
+    if (missing.length === 0 && ['verified', 'active'].includes(platformSettings.smtp_status || '')) {
+      return {
+        source: 'platform_email',
+        mode: EMAIL_MODES.PLATFORM,
+        status: platformSettings.smtp_status,
+        credentials,
+        platformSettings,
+        organization
+      };
+    }
+  }
+
+  const error = new Error('Email delivery is not configured.');
+  error.code = 'EMAIL_CONFIGURATION_NOT_READY';
+  throw error;
+}

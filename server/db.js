@@ -249,6 +249,7 @@ function seedDb() {
     phone_number: '+254712345678',
     country: 'Kenya',
     billing_currency: 'KES',
+    email_delivery_mode: 'use_platform_email',
     subscription_tier: 'standard',
     subscription_status: 'active',
     is_locked: false,
@@ -869,6 +870,9 @@ function seedDb() {
       price_per_active_tenant: 200, // KES 200 per active tenant per month
       grace_period_days: 7,
       is_default: true,
+      smtp_config_encrypted: null,
+      smtp_status: 'not_configured',
+      smtp_last_tested_at: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }

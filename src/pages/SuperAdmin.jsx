@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Building2 } from 'lucide-react';
+import { Settings, Building2, Mail, ShieldCheck, TestTube2 } from 'lucide-react';
 
 export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTrigger, onRefresh }) {
   const routeTabMap = {
     admin_dashboard: 'dashboard',
     admin_orgs: 'landlords',
     admin_pricing: 'billing',
-    admin_errors: 'errors'
+    admin_errors: 'errors',
+    admin_email: 'email'
   };
 
-  const [activeTab, setActiveTab] = useState(routeTabMap[activeRoute] || 'dashboard'); // dashboard, landlords, billing, errors, audits
+  const [activeTab, setActiveTab] = useState(routeTabMap[activeRoute] || 'dashboard'); // dashboard, landlords, billing, email, errors, audits
 
   useEffect(() => {
     const nextTab = routeTabMap[activeRoute];
@@ -32,6 +33,23 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
   const [systemErrors, setSystemErrors] = useState([]);
   const [systemAudits, setSystemAudits] = useState([]);
   const [deletionRequests, setDeletionRequests] = useState([]);
+  const [platformEmail, setPlatformEmail] = useState({
+    status: 'not_configured',
+    last_tested_at: null,
+    config_masked: {},
+    has_credentials: false
+  });
+  const [platformEmailForm, setPlatformEmailForm] = useState({
+    host: '',
+    port: '465',
+    secure: true,
+    username: '',
+    password: '',
+    from_email: '',
+    from_name: 'Smart Landlord',
+    reply_to: ''
+  });
+  const [platformEmailPasswordMasked, setPlatformEmailPasswordMasked] = useState(false);
 
   // Pricing Form
   const [pricePerTenant, setPricePerTenant] = useState('200');
@@ -71,6 +89,22 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         const res = await fetch('/api/admin/platform-payments', { headers });
         const data = await res.json();
         setPendingPayments(data.filter(p => p.status === 'pending'));
+      } else if (activeTab === 'email') {
+        const res = await fetch('/api/admin/platform-email', { headers });
+        if (!res.ok) throw new Error('Failed to fetch platform email settings.');
+        const data = await res.json();
+        setPlatformEmail(data);
+        setPlatformEmailForm({
+          host: data.config_masked?.host || '',
+          port: String(data.config_masked?.port || '465'),
+          secure: data.config_masked?.secure !== false,
+          username: data.config_masked?.username || '',
+          password: '',
+          from_email: data.config_masked?.from_email || '',
+          from_name: data.config_masked?.from_name || 'Smart Landlord',
+          reply_to: data.config_masked?.reply_to || ''
+        });
+        setPlatformEmailPasswordMasked(Boolean(data.has_credentials));
       } else if (activeTab === 'errors') {
         const res = await fetch('/api/admin/system-errors', { headers });
         setSystemErrors(await res.json());
@@ -126,6 +160,68 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       }
     } catch (e) {
       setError('Confirm failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePlatformEmailSave = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const payload = {
+        host: platformEmailForm.host.trim(),
+        port: Number.parseInt(platformEmailForm.port, 10),
+        secure: platformEmailForm.secure,
+        username: platformEmailForm.username.trim(),
+        from_email: platformEmailForm.from_email.trim() || platformEmailForm.username.trim(),
+        from_name: platformEmailForm.from_name.trim() || 'Smart Landlord',
+        reply_to: platformEmailForm.reply_to.trim()
+      };
+
+      if (!platformEmailPasswordMasked || platformEmailForm.password.trim()) {
+        payload.password = platformEmailForm.password;
+      }
+
+      const res = await fetch('/api/admin/platform-email', {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config_json: payload })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || 'Failed to save platform email settings.');
+
+      setPlatformEmail(data);
+      setPlatformEmailPasswordMasked(true);
+      setPlatformEmailForm(prev => ({ ...prev, password: '' }));
+      onRefresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePlatformEmailTest = async () => {
+    const recipient = window.prompt('Enter a test recipient email address (leave blank to use your account email):');
+    if (recipient === null) return;
+
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/admin/platform-email/test', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(recipient.trim() ? { to: recipient.trim() } : {})
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || 'Failed to send platform email test.');
+      setPlatformEmail(prev => ({ ...prev, status: data.status || 'active', last_tested_at: data.last_tested_at || new Date().toISOString() }));
+      onRefresh();
+    } catch (err) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -252,6 +348,12 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           onClick={() => setActiveTab('billing')}
         >
           Confirm SaaS
+        </button>
+        <button
+          style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'email' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'email' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
+          onClick={() => setActiveTab('email')}
+        >
+          Email
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'errors' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'errors' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
@@ -405,6 +507,85 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* PLATFORM EMAIL */}
+      {activeTab === 'email' && (
+        <div className="card">
+          <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Mail size={18} /> Platform Email
+          </h3>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
+            Used for registration OTP, password reset later, and platform/system emails.
+          </p>
+
+          <div className="flex-row" style={{ marginBottom: '12px' }}>
+            <span className="badge badge-info">{platformEmail.status}</span>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              Last tested: {platformEmail.last_tested_at ? new Date(platformEmail.last_tested_at).toLocaleString() : 'Never'}
+            </span>
+          </div>
+
+          <form onSubmit={handlePlatformEmailSave} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">SMTP Host</label>
+                <input className="form-control" value={platformEmailForm.host} onChange={e => setPlatformEmailForm(prev => ({ ...prev, host: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">SMTP Port</label>
+                <input type="number" className="form-control" value={platformEmailForm.port} onChange={e => setPlatformEmailForm(prev => ({ ...prev, port: e.target.value }))} />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Secure (TLS/SSL)</label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+                <input type="checkbox" checked={platformEmailForm.secure} onChange={e => setPlatformEmailForm(prev => ({ ...prev, secure: e.target.checked }))} />
+                <span>{platformEmailForm.secure ? 'Enabled' : 'Disabled'}</span>
+              </label>
+            </div>
+
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Username</label>
+                <input className="form-control" value={platformEmailForm.username} onChange={e => setPlatformEmailForm(prev => ({ ...prev, username: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Password</label>
+                {platformEmailPasswordMasked ? (
+                  <div className="flex-row" style={{ gap: '8px' }}>
+                    <input className="form-control" value="••••••••" readOnly />
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setPlatformEmailPasswordMasked(false)}>Update</button>
+                  </div>
+                ) : (
+                  <input type="password" className="form-control" value={platformEmailForm.password} onChange={e => setPlatformEmailForm(prev => ({ ...prev, password: e.target.value }))} />
+                )}
+              </div>
+            </div>
+
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">From Email</label>
+                <input className="form-control" value={platformEmailForm.from_email} onChange={e => setPlatformEmailForm(prev => ({ ...prev, from_email: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">From Name</label>
+                <input className="form-control" value={platformEmailForm.from_name} onChange={e => setPlatformEmailForm(prev => ({ ...prev, from_name: e.target.value }))} />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Reply-To</label>
+              <input className="form-control" value={platformEmailForm.reply_to} onChange={e => setPlatformEmailForm(prev => ({ ...prev, reply_to: e.target.value }))} />
+            </div>
+
+            <div className="flex-gap" style={{ marginTop: '8px' }}>
+              <button type="submit" className="btn btn-primary btn-sm" disabled={loading}>Save Platform Email</button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={handlePlatformEmailTest} disabled={loading || !platformEmail.has_credentials}>Send Test Email</button>
+            </div>
+          </form>
         </div>
       )}
 

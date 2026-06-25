@@ -16,6 +16,10 @@
  *  12.  emailTemplates.js renders smtp_test without throwing
  *  13.  mailerService.js verifySmtpConfig returns { success: false } for unreachable host
  *  14.  SMTP integration test endpoint handles email provider type
+ *  15.  Email config helper preserves masked passwords on re-save
+ *  16.  Email config helper rejects invalid ports
+ *  17.  Email delivery resolver prefers landlord custom SMTP when active
+ *  18.  Email delivery resolver falls back to platform email
  *
  * Requirements:
  *   DATABASE_URL — PostgreSQL connection string
@@ -145,8 +149,22 @@ async function loadModules() {
   const { requestOtp, recordOtpSent, verifyOtp, invalidatePendingOtps, OtpError } = await import('../server/otpService.js');
   const { renderTemplate } = await import('../server/emailTemplates.js');
   const { verifySmtpConfig } = await import('../server/mailerService.js');
+  const { prepareSmtpConfigForStorage, validateSmtpConfig, resolveEmailDeliveryConfig } = await import('../server/emailConfigService.js');
+  const { encryptConfig } = await import('../server/crypto.js');
 
-  return { requestOtp, recordOtpSent, verifyOtp, invalidatePendingOtps, OtpError, renderTemplate, verifySmtpConfig };
+  return {
+    requestOtp,
+    recordOtpSent,
+    verifyOtp,
+    invalidatePendingOtps,
+    OtpError,
+    renderTemplate,
+    verifySmtpConfig,
+    prepareSmtpConfigForStorage,
+    validateSmtpConfig,
+    resolveEmailDeliveryConfig,
+    encryptConfig
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +205,7 @@ async function runTests() {
     process.exit(1);
   }
 
-  const { requestOtp, recordOtpSent, verifyOtp, invalidatePendingOtps, OtpError, renderTemplate, verifySmtpConfig } = modules;
+  const { requestOtp, recordOtpSent, verifyOtp, invalidatePendingOtps, OtpError, renderTemplate, verifySmtpConfig, prepareSmtpConfigForStorage, validateSmtpConfig, resolveEmailDeliveryConfig, encryptConfig } = modules;
 
   const orgId = await getOrCreateTestOrg();
   const TEST_ID = `smoke_${Date.now()}_test@example.com`;
@@ -239,12 +257,145 @@ async function runTests() {
   }
 
   try {
+    const existingEncryptedConfig = encryptConfig({
+      host: 'mail.example.com',
+      port: 465,
+      secure: true,
+      username: 'admin@example.com',
+      password: 'secret123',
+      from_email: 'admin@example.com',
+      from_name: 'Smart Landlord',
+      reply_to: 'reply@example.com'
+    });
+    const preserved = prepareSmtpConfigForStorage({
+      incomingConfig: {
+        host: 'mail.example.com',
+        port: 465,
+        secure: true,
+        username: 'admin@example.com',
+        password: '********',
+        from_email: 'admin@example.com',
+        from_name: 'Smart Landlord',
+        reply_to: 'reply@example.com'
+      },
+      existingEncryptedConfig
+    });
+    assert(
+      preserved.configForStorage.password === 'secret123',
+      'T05 — masked SMTP password is preserved on re-save',
+      `Got password: ${preserved.configForStorage.password}`
+    );
+    assert(
+      !Object.values(preserved.configForStorage).some(value => String(value).includes('secret123') && value !== 'secret123'),
+      'T06 — preserved config does not expose password in other fields',
+      `Config: ${JSON.stringify(preserved.configForStorage)}`
+    );
+  } catch (err) {
+    fail('T05/T06 — masked re-save helper', err.message);
+  }
+
+  try {
+    const invalidPort = validateSmtpConfig({ host: 'mail.example.com', port: 0, username: 'admin@example.com', password: 'secret123', from_email: 'admin@example.com' });
+    assert(
+      invalidPort.includes('port'),
+      'T07 — invalid SMTP port is rejected',
+      `Got missing fields: ${JSON.stringify(invalidPort)}`
+    );
+  } catch (err) {
+    fail('T07 — invalid port helper', err.message);
+  }
+
+  try {
+    const customDb = {
+      findOne: async (table) => {
+        if (table === 'organizations') {
+          return { id: orgId, email_delivery_mode: 'use_custom_smtp' };
+        }
+        if (table === 'organization_integrations') {
+          return {
+            id: 99,
+            provider_type: 'email',
+            status: 'ready',
+            config_json_encrypted: encryptConfig({
+              host: 'mail.custom.example.com',
+              port: 465,
+              secure: true,
+              username: 'landlord@example.com',
+              password: 'custom-secret',
+              from_email: 'landlord@example.com',
+              from_name: 'Landlord Mail',
+              reply_to: 'support@example.com'
+            })
+          };
+        }
+        if (table === 'platform_billing_settings') {
+          return { id: 1, smtp_status: 'verified', smtp_config_encrypted: encryptConfig({
+            host: 'mail.platform.example.com',
+            port: 465,
+            secure: true,
+            username: 'platform@example.com',
+            password: 'platform-secret',
+            from_email: 'platform@example.com',
+            from_name: 'Smart Landlord',
+            reply_to: 'reply@example.com'
+          }) };
+        }
+        return null;
+      }
+    };
+
+    const resolvedCustom = await resolveEmailDeliveryConfig({ pgDb: customDb, organizationId: orgId });
+    assert(
+      resolvedCustom.source === 'landlord_custom_smtp' && resolvedCustom.credentials.password === 'custom-secret',
+      'T08 — landlord custom SMTP is preferred when active',
+      `Got: ${JSON.stringify(resolvedCustom)}`
+    );
+  } catch (err) {
+    fail('T08 — custom SMTP resolver', err.message);
+  }
+
+  try {
+    const platformDb = {
+      findOne: async (table) => {
+        if (table === 'organizations') {
+          return { id: orgId, email_delivery_mode: 'use_platform_email' };
+        }
+        if (table === 'organization_integrations') {
+          return null;
+        }
+        if (table === 'platform_billing_settings') {
+          return { id: 1, smtp_status: 'active', smtp_config_encrypted: encryptConfig({
+            host: 'mail.platform.example.com',
+            port: 465,
+            secure: true,
+            username: 'platform@example.com',
+            password: 'platform-secret',
+            from_email: 'platform@example.com',
+            from_name: 'Smart Landlord',
+            reply_to: 'reply@example.com'
+          }) };
+        }
+        return null;
+      }
+    };
+
+    const resolvedPlatform = await resolveEmailDeliveryConfig({ pgDb: platformDb, organizationId: orgId });
+    assert(
+      resolvedPlatform.source === 'platform_email' && resolvedPlatform.credentials.password === 'platform-secret',
+      'T09 — platform email is used when landlord SMTP is not active',
+      `Got: ${JSON.stringify(resolvedPlatform)}`
+    );
+  } catch (err) {
+    fail('T09 — platform email resolver', err.message);
+  }
+
+  try {
     renderTemplate('nonexistent_template', {});
-    fail('T05 — unknown template throws an error', 'Should have thrown but did not');
+    fail('T10 — unknown template throws an error', 'Should have thrown but did not');
   } catch (err) {
     assert(
       err.message.includes('Unknown email template'),
-      'T05 — unknown template throws a descriptive error',
+      'T10 — unknown template throws a descriptive error',
       `Got: ${err.message}`
     );
   }
@@ -257,7 +408,7 @@ async function runTests() {
   const missingFieldsResult = await verifySmtpConfig({ host: '', port: 465, username: '', password: '' });
   assert(
     !missingFieldsResult.success,
-    'T06 — verifySmtpConfig returns { success: false } for missing required fields',
+    'T11 — verifySmtpConfig returns { success: false } for missing required fields',
     `Got success: ${missingFieldsResult.success}`
   );
 
@@ -270,12 +421,12 @@ async function runTests() {
   });
   assert(
     !unreachableResult.success,
-    'T07 — verifySmtpConfig returns { success: false } for unreachable SMTP host',
+    'T12 — verifySmtpConfig returns { success: false } for unreachable SMTP host',
     `Got success: ${unreachableResult.success}, summary: ${unreachableResult.summary}`
   );
   assert(
     typeof unreachableResult.errorMessage === 'string' && unreachableResult.errorMessage.length > 0,
-    'T08 — verifySmtpConfig errorMessage is a non-empty string',
+    'T13 — verifySmtpConfig errorMessage is a non-empty string',
     `Got: ${JSON.stringify(unreachableResult.errorMessage)}`
   );
 
@@ -309,7 +460,7 @@ async function runTests() {
       `Got expiresAt: ${otpResult.expiresAt}`
     );
   } catch (err) {
-    fail('T09/T10/T11 — requestOtp', err.message);
+    fail('T14/T15/T16 — requestOtp', err.message);
     // Cannot continue OTP tests without a valid OTP
     otpResult = null;
   }
@@ -319,7 +470,7 @@ async function runTests() {
     const dbRow = await findOne('otp_codes', { id: otpResult.otpId });
     assert(
       dbRow && dbRow.otp_hash && !dbRow.verified_at,
-      'T12 — OTP record persisted to otp_codes with hash, no verified_at',
+      'T17 — OTP record persisted to otp_codes with hash, no verified_at',
       `DB row: ${JSON.stringify(dbRow)}`
     );
   }
@@ -333,9 +484,9 @@ async function runTests() {
         organizationId: orgId,
         channel: 'email'
       });
-      pass('T13 — recordOtpSent writes otp_sent audit event without exposing OTP plaintext');
+      pass('T18 — recordOtpSent writes otp_sent audit event without exposing OTP plaintext');
     } catch (err) {
-      fail('T13 — recordOtpSent', err.message);
+      fail('T18 — recordOtpSent', err.message);
     }
   }
 
@@ -351,11 +502,11 @@ async function runTests() {
       });
       assert(
         verifyResult.verified === true,
-        'T14 — verifyOtp(correct code) → { verified: true }',
+        'T19 — verifyOtp(correct code) → { verified: true }',
         `Got: ${JSON.stringify(verifyResult)}`
       );
     } catch (err) {
-      fail('T14 — verifyOtp correct code', err.message);
+      fail('T19 — verifyOtp correct code', err.message);
     }
   }
 

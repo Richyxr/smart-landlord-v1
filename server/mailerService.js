@@ -25,6 +25,49 @@ function parseBoolean(value) {
   return String(value || '').toLowerCase() === 'true';
 }
 
+function parsePort(value) {
+  const port = Number.parseInt(value, 10);
+  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
+}
+
+export function normalizeSmtpCredentials(input = {}) {
+  const port = parsePort(input.port);
+  return {
+    host: String(input.host || '').trim(),
+    port,
+    secure: input.secure === true || String(input.secure || '').toLowerCase() === 'true' || port === 465,
+    username: String(input.username || '').trim(),
+    password: String(input.password || '').trim(),
+    from_email: String(input.from_email || input.username || '').trim(),
+    from_name: String(input.from_name || 'Smart Landlord').trim() || 'Smart Landlord',
+    reply_to: String(input.reply_to || '').trim()
+  };
+}
+
+export function validateSmtpCredentials(credentials) {
+  const missing = [];
+
+  if (!credentials.host) missing.push('host');
+  if (!Number.isInteger(credentials.port) || credentials.port <= 0 || credentials.port > 65535) missing.push('port');
+  if (!credentials.username) missing.push('username');
+  if (!credentials.password) missing.push('password');
+  if (!credentials.from_email) missing.push('from_email');
+
+  return missing;
+}
+
+export function maskSmtpCredentials(credentials) {
+  if (!credentials || typeof credentials !== 'object') return {};
+
+  const masked = { ...credentials };
+  if (masked.password) {
+    const value = String(masked.password);
+    masked.password = value.length > 4 ? `${value.slice(0, 2)}********` : '********';
+  }
+
+  return masked;
+}
+
 function getMissingEmailConfig() {
   return REQUIRED_SMTP_ENV.filter(name => !process.env[name]);
 }
@@ -103,6 +146,26 @@ export function getMailerStatus() {
     fromName: config.fromName,
     replyToConfigured: Boolean(config.replyTo),
     appPublicUrl: config.appPublicUrl
+  };
+}
+
+export async function testSmtpCredentials(credentials) {
+  const normalized = normalizeSmtpCredentials(credentials);
+  const missing = validateSmtpCredentials(normalized);
+
+  if (missing.length > 0) {
+    return {
+      success: false,
+      status: 'needs_credentials',
+      summary: `SMTP configuration is incomplete (${missing.join(', ')} missing).`,
+      errorMessage: 'Missing required SMTP fields.'
+    };
+  }
+
+  const verification = await verifySmtpConfig(normalized);
+  return {
+    ...verification,
+    status: verification.success ? 'verified' : 'test_failed'
   };
 }
 

@@ -15,6 +15,8 @@ import { createNotificationRoutes } from './routes/notificationRoutes.js';
 import { createSaasBillingRoutes } from './routes/saasBillingRoutes.js';
 import { NotificationService } from './notificationService.js';
 import { EmailNotConfiguredError, sendEmail } from './mailerService.js';
+import { EMAIL_MODES, maskSmtpConfig, normalizeSmtpConfig, prepareSmtpConfigForStorage, validateSmtpConfig } from './emailConfigService.js';
+import { decryptConfig, encryptConfig } from './crypto.js';
 import { renderTemplate } from './emailTemplates.js';
 import { invalidatePendingOtps, recordOtpSent, requestOtp, verifyOtp, OtpError } from './otpService.js';
 import { initializeApp as initializeFirebaseAdminApp, getApps as getFirebaseAdminApps } from 'firebase-admin/app';
@@ -415,6 +417,7 @@ async function ensureRegistrationProfile(decodedToken, profile = {}) {
       phone_number: phoneNumber,
       country: profile.country || 'Kenya',
       billing_currency: profile.billing_currency || 'KES',
+      email_delivery_mode: EMAIL_MODES.PLATFORM,
       subscription_tier: 'standard',
       subscription_status: 'trial',
       trial_start_at: new Date().toISOString(),
@@ -977,6 +980,7 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
         phone_number: phoneNumber,
         country: profile.country || 'Kenya',
         billing_currency: profile.billing_currency || 'KES',
+        email_delivery_mode: EMAIL_MODES.PLATFORM,
         subscription_tier: 'standard',
         subscription_status: 'trial',
         trial_start_at: new Date().toISOString(),
@@ -3798,6 +3802,236 @@ app.get('/api/settings/readiness', async (req, res) => {
     checklist,
     is_ready: Object.values(checklist).every(v => v === true)
   });
+});
+
+// Email configuration summary for landlord settings
+app.get('/api/settings/email', async (req, res) => {
+  const orgId = req.auth?.organizationId;
+  const role = req.auth?.role;
+  const activeDb = pgDb || db;
+
+  if (!orgId) return res.status(401).json({ error: 'Unauthorized' });
+  if (role === 'caretaker') {
+    return res.status(403).json({ error: 'ACCESS_DENIED', message: 'Caretakers cannot manage email settings.' });
+  }
+
+  const organization = await activeDb.findOne('organizations', { id: orgId });
+  if (!organization) return res.status(404).json({ error: 'Organization not found' });
+
+  const customIntegration = await activeDb.findOne('organization_integrations', {
+    organization_id: orgId,
+    provider_type: 'email'
+  });
+  const platformSettings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+
+  const mode = organization.email_delivery_mode || EMAIL_MODES.PLATFORM;
+  const customConfig = customIntegration?.config_json_encrypted ? decryptConfig(customIntegration.config_json_encrypted) : {};
+  const customSmtp = customIntegration
+    ? {
+        id: customIntegration.id,
+        status: customIntegration.status,
+        last_tested_at: customIntegration.last_tested_at,
+        has_credentials: Boolean(customIntegration.config_json_encrypted),
+        config_masked: customIntegration.config_json_encrypted ? maskSmtpConfig(normalizeSmtpConfig(customConfig)) : {}
+      }
+    : null;
+
+  const platformEmail = platformSettings
+    ? {
+        status: platformSettings.smtp_status || 'not_configured',
+        last_tested_at: platformSettings.smtp_last_tested_at || null,
+        has_credentials: Boolean(platformSettings.smtp_config_encrypted)
+      }
+    : {
+        status: 'not_configured',
+        last_tested_at: null,
+        has_credentials: false
+      };
+
+  res.json({
+    email_delivery_mode: mode,
+    email_status: organization.email_status || (mode === EMAIL_MODES.CUSTOM ? customIntegration?.status || 'not_configured' : platformEmail.status),
+    custom_smtp: customSmtp,
+    platform_email: platformEmail
+  });
+});
+
+// Landlord email mode selector
+app.put('/api/settings/email-mode', async (req, res) => {
+  const orgId = req.auth?.organizationId;
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
+  const { mode } = req.body || {};
+  const activeDb = pgDb || db;
+
+  if (!orgId) return res.status(401).json({ error: 'Unauthorized' });
+  if (role === 'caretaker') {
+    return res.status(403).json({ error: 'ACCESS_DENIED', message: 'Caretakers cannot manage email settings.' });
+  }
+  if (![EMAIL_MODES.PLATFORM, EMAIL_MODES.CUSTOM].includes(mode)) {
+    return res.status(400).json({ error: 'Invalid email mode.' });
+  }
+
+  const org = await activeDb.findOne('organizations', { id: orgId });
+  if (!org) return res.status(404).json({ error: 'Organization not found' });
+
+  await activeDb.update('organizations', orgId, {
+    email_delivery_mode: mode
+  });
+
+  const updatedOrg = await activeDb.findOne('organizations', { id: orgId });
+  await activeDb.logAudit(
+    orgId,
+    userId,
+    role,
+    'landlord_email_mode_changed',
+    'organizations',
+    orgId,
+    { email_delivery_mode: org.email_delivery_mode || EMAIL_MODES.PLATFORM },
+    { email_delivery_mode: mode },
+    `Landlord email mode changed to ${mode}.`
+  );
+
+  res.json({ organization: updatedOrg });
+});
+
+app.get('/api/admin/platform-email', async (req, res) => {
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
+  const activeDb = pgDb || db;
+
+  if (role !== 'super_admin' || !userId) {
+    return res.status(403).json({ error: 'SUPER_ADMIN_REQUIRED', message: 'Super admin access is required.' });
+  }
+
+  const settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+  if (!settings) {
+    return res.status(404).json({ error: 'Platform settings not found.' });
+  }
+
+  const config = settings.smtp_config_encrypted ? normalizeSmtpConfig(decryptConfig(settings.smtp_config_encrypted)) : {};
+
+  res.json({
+    status: settings.smtp_status || 'not_configured',
+    last_tested_at: settings.smtp_last_tested_at || null,
+    config_masked: settings.smtp_config_encrypted ? maskSmtpConfig(config) : {},
+    has_credentials: Boolean(settings.smtp_config_encrypted)
+  });
+});
+
+app.put('/api/admin/platform-email', async (req, res) => {
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
+  const activeDb = pgDb || db;
+  const { config_json } = req.body || {};
+
+  if (role !== 'super_admin' || !userId) {
+    return res.status(403).json({ error: 'SUPER_ADMIN_REQUIRED', message: 'Super admin access is required.' });
+  }
+
+  const settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+  if (!settings) {
+    return res.status(404).json({ error: 'Platform settings not found.' });
+  }
+
+  const { configForStorage } = prepareSmtpConfigForStorage({
+    incomingConfig: config_json || {},
+    existingEncryptedConfig: settings.smtp_config_encrypted || null
+  });
+
+  const missing = validateSmtpConfig(configForStorage);
+  if (missing.length > 0) {
+    return res.status(400).json({ error: `Missing required SMTP fields: ${missing.join(', ')}.` });
+  }
+
+  const encryptedConfig = encryptConfig(configForStorage);
+  const nextStatus = 'verified';
+
+  const updated = await activeDb.update('platform_billing_settings', settings.id, {
+    smtp_config_encrypted: encryptedConfig,
+    smtp_status: nextStatus,
+    smtp_last_tested_at: null
+  });
+
+  await activeDb.logAudit(
+    null,
+    userId,
+    'super_admin',
+    'platform_email_saved',
+    'platform_billing_settings',
+    settings.id,
+    { smtp_status: settings.smtp_status || 'not_configured' },
+    { smtp_status: nextStatus },
+    'Platform email configuration saved.'
+  );
+
+  res.json({
+    status: nextStatus,
+    last_tested_at: null,
+    config_masked: maskSmtpConfig(configForStorage),
+    has_credentials: true,
+    updated: updated[0] || null
+  });
+});
+
+app.post('/api/admin/platform-email/test', async (req, res) => {
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
+  const activeDb = pgDb || db;
+  const { to } = req.body || {};
+
+  if (role !== 'super_admin' || !userId) {
+    return res.status(403).json({ error: 'SUPER_ADMIN_REQUIRED', message: 'Super admin access is required.' });
+  }
+
+  const settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+  if (!settings?.smtp_config_encrypted) {
+    return res.status(400).json({ error: 'Platform email is not configured.' });
+  }
+
+  const config = normalizeSmtpConfig(decryptConfig(settings.smtp_config_encrypted));
+  const missing = validateSmtpConfig(config);
+  if (missing.length > 0) {
+    await activeDb.update('platform_billing_settings', settings.id, {
+      smtp_status: 'needs_credentials'
+    });
+    await activeDb.logAudit(null, userId, 'super_admin', 'platform_email_test_failed', 'platform_billing_settings', settings.id, { smtp_status: settings.smtp_status || 'not_configured' }, { smtp_status: 'needs_credentials' }, 'Platform email test failed because credentials are incomplete.');
+    return res.status(400).json({ error: `Missing required SMTP fields: ${missing.join(', ')}.` });
+  }
+
+  const adminUser = await activeDb.findOne('users', { id: userId });
+  const recipient = to || adminUser?.email || null;
+  if (!recipient) {
+    return res.status(400).json({ error: 'Provide a test recipient email address.' });
+  }
+
+  try {
+    const { sendEmailWithConfig } = await import('./mailerService.js');
+    const { subject, html, text } = renderTemplate('smtp_test', {
+      recipientName: 'Administrator',
+      host: config.host,
+      configuredBy: 'Super Admin'
+    });
+    const result = await sendEmailWithConfig(config, { to: recipient, subject, html, text });
+
+    await activeDb.update('platform_billing_settings', settings.id, {
+      smtp_status: 'active',
+      smtp_last_tested_at: new Date().toISOString()
+    });
+
+    await activeDb.logAudit(null, userId, 'super_admin', 'platform_email_test_sent', 'platform_billing_settings', settings.id, { smtp_status: settings.smtp_status || 'verified' }, { smtp_status: 'active', recipient }, 'Platform test email sent successfully.');
+
+    return res.json({ success: true, message_id: result.messageId || null, status: 'active', last_tested_at: new Date().toISOString() });
+  } catch (error) {
+    await activeDb.update('platform_billing_settings', settings.id, {
+      smtp_status: 'test_failed',
+      smtp_last_tested_at: new Date().toISOString()
+    });
+
+    await activeDb.logAudit(null, userId, 'super_admin', 'platform_email_test_failed', 'platform_billing_settings', settings.id, { smtp_status: settings.smtp_status || 'verified' }, { smtp_status: 'test_failed' }, `Platform test email failed: ${error.message}`);
+
+    return res.status(502).json({ error: error.message, status: 'test_failed' });
+  }
 });
 
 // Update Organization Profile details
