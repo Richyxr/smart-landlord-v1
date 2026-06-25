@@ -3902,6 +3902,73 @@ app.put('/api/settings/email-mode', async (req, res) => {
   res.json({ organization: updatedOrg });
 });
 
+function defaultPlatformBillingSettingsRow() {
+  return {
+    id: 1,
+    country: 'Kenya',
+    currency: 'KES',
+    price_per_active_tenant: 200,
+    grace_period_days: 7,
+    is_default: true,
+    mpesa_shortcode: '174379',
+    smtp_config_encrypted: null,
+    smtp_status: 'not_configured',
+    smtp_last_tested_at: null
+  };
+}
+
+function platformEmailResponseFromSettings(settings) {
+  if (!settings) {
+    return {
+      status: 'not_configured',
+      last_tested_at: null,
+      config_masked: {},
+      has_credentials: false
+    };
+  }
+
+  const config = settings.smtp_config_encrypted
+    ? normalizeSmtpConfig(decryptConfig(settings.smtp_config_encrypted))
+    : {};
+
+  return {
+    status: settings.smtp_status || 'not_configured',
+    last_tested_at: settings.smtp_last_tested_at || null,
+    config_masked: settings.smtp_config_encrypted ? maskSmtpConfig(config) : {},
+    has_credentials: Boolean(settings.smtp_config_encrypted)
+  };
+}
+
+async function ensurePlatformBillingSettings(activeDb) {
+  let settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+  if (settings) {
+    return settings;
+  }
+
+  if (pgDb) {
+    await pgDb.query(
+      `
+        INSERT INTO platform_billing_settings (
+          id,
+          country,
+          currency,
+          price_per_active_tenant,
+          grace_period_days,
+          is_default,
+          mpesa_shortcode
+        )
+        VALUES (1, 'Kenya', 'KES', 200, 7, true, '174379')
+        ON CONFLICT (id) DO NOTHING
+      `
+    );
+  } else {
+    activeDb.insert('platform_billing_settings', defaultPlatformBillingSettingsRow());
+  }
+
+  settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+  return settings;
+}
+
 app.get('/api/admin/platform-email', async (req, res) => {
   const role = req.auth?.role;
   const userId = req.auth?.userId;
@@ -3912,18 +3979,7 @@ app.get('/api/admin/platform-email', async (req, res) => {
   }
 
   const settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
-  if (!settings) {
-    return res.status(404).json({ error: 'Platform settings not found.' });
-  }
-
-  const config = settings.smtp_config_encrypted ? normalizeSmtpConfig(decryptConfig(settings.smtp_config_encrypted)) : {};
-
-  res.json({
-    status: settings.smtp_status || 'not_configured',
-    last_tested_at: settings.smtp_last_tested_at || null,
-    config_masked: settings.smtp_config_encrypted ? maskSmtpConfig(config) : {},
-    has_credentials: Boolean(settings.smtp_config_encrypted)
-  });
+  res.json(platformEmailResponseFromSettings(settings));
 });
 
 app.put('/api/admin/platform-email', async (req, res) => {
@@ -3936,9 +3992,9 @@ app.put('/api/admin/platform-email', async (req, res) => {
     return res.status(403).json({ error: 'SUPER_ADMIN_REQUIRED', message: 'Super admin access is required.' });
   }
 
-  const settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+  const settings = await ensurePlatformBillingSettings(activeDb);
   if (!settings) {
-    return res.status(404).json({ error: 'Platform settings not found.' });
+    return res.status(500).json({ error: 'Failed to initialize platform settings.' });
   }
 
   const { configForStorage } = prepareSmtpConfigForStorage({

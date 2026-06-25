@@ -472,7 +472,12 @@ export function createNotificationRoutes(pgDb) {
     const activeDb = pgDb || (await import('../db.js')).db;
     const settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
     if (!settings) {
-      return res.status(404).json({ error: 'Platform settings not found.' });
+      return res.json({
+        configured: false,
+        status: 'not_configured',
+        last_tested_at: null,
+        config_masked: {}
+      });
     }
 
     const config = settings.smtp_config_encrypted
