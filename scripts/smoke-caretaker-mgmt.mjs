@@ -1,8 +1,10 @@
 import { spawn } from 'node:child_process';
 import assert from 'node:assert';
+import { db } from '../server/db.js';
 
 const PORT = process.env.SMOKE_PORT || '5056';
 const BASE_URL = `http://127.0.0.1:${PORT}`;
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 function startServer() {
   const child = spawn(process.execPath, ['server/server.js'], {
@@ -11,15 +13,12 @@ function startServer() {
       PORT,
       NODE_ENV: 'development',
       DEMO_MODE: 'true',
-      DATA_BACKEND: 'json' // Test JSON backend first
+      DATA_BACKEND: 'json'
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
-  child.stdout.on('data', data => {
-    // Suppress verbose logging, but keep for debugging if needed
-  });
-
+  child.stderr.on('data', data => process.stderr.write(`[server] ${data}`));
   return child;
 }
 
@@ -29,7 +28,7 @@ async function waitForServer() {
     try {
       const res = await fetch(`${BASE_URL}/api/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ email: 'landlord@demo.com' })
       });
       if (res.ok) return;
@@ -40,14 +39,71 @@ async function waitForServer() {
   throw new Error('Server did not become ready in time.');
 }
 
-async function login(email) {
+async function landlordLogin() {
   const res = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email })
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ email: 'landlord@demo.com' })
   });
-  if (!res.ok) throw new Error(`Login failed for ${email}`);
+  if (!res.ok) throw new Error(`Landlord login failed: ${res.status}`);
   return res.json();
+}
+
+async function caretakerLogin(phoneNumber, pin) {
+  return fetch(`${BASE_URL}/api/auth/caretaker/login`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ phone_number: phoneNumber, pin })
+  });
+}
+
+async function postCaretaker(headers, body) {
+  return fetch(`${BASE_URL}/api/properties/caretakers`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body)
+  });
+}
+
+async function resetCaretakerPin(headers, caretakerId, pin) {
+  return fetch(`${BASE_URL}/api/properties/caretakers/${caretakerId}/reset-pin`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ pin })
+  });
+}
+
+function assertNoPinLeak(label, payload, pins) {
+  const body = typeof payload === 'string' ? JSON.parse(payload || '{}') : payload;
+  const sensitiveKeys = new Set(['pin', 'temporary_pin', 'caretaker_pin_hash']);
+
+  function visit(value, path = '') {
+    if (!value || typeof value !== 'object') {
+      if (typeof value === 'string') {
+        for (const pin of pins) {
+          assert.notStrictEqual(value, pin, `${label}: response exposed raw PIN at ${path}`);
+        }
+      }
+      return;
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      assert.ok(!sensitiveKeys.has(key), `${label}: response exposed sensitive key ${key}`);
+      visit(child, path ? `${path}.${key}` : key);
+    }
+  }
+
+  visit(body);
+}
+
+async function assertStatus(label, response, expectedStatus) {
+  const text = await response.text();
+  if (response.status !== expectedStatus) {
+    throw new Error(`${label}: expected ${expectedStatus}, got ${response.status}: ${text}`);
+  }
+  assertNoPinLeak(label, text, ['123456', '654321', '111111', '222222', '000000']);
+  console.log(`PASS ${label}: ${response.status}`);
+  return text ? JSON.parse(text) : {};
 }
 
 async function runTests() {
@@ -55,161 +111,112 @@ async function runTests() {
   try {
     await waitForServer();
 
-    // Generate unique phone numbers and emails per run
-    const uniqueSuffix = Date.now().toString().slice(-6); // last 6 digits of timestamp
-    const random8 = () => Math.floor(10000000 + Math.random() * 90000000).toString();
-    
-    const testPhone = `+2547${random8()}`;
-    const testPhoneUpdated = `+2547${random8()}`;
-    const testEmail = `testct_${uniqueSuffix}@demo.com`;
-    const testEmailUpdated = `testct_updated_${uniqueSuffix}@demo.com`;
+    const uniqueSuffix = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const phoneBase = uniqueSuffix.slice(-8);
+    const phoneNumber = `+2547${phoneBase}`;
+    const invalidPhoneOne = `+2546${phoneBase}`;
+    const invalidPhoneTwo = `+2545${phoneBase}`;
+    const testEmail = `caretaker_${uniqueSuffix}@demo.com`;
+    const initialPin = '123456';
+    const newPin = '654321';
 
-    // 1. Log in as landlord
-    console.log('Logging in as landlord...');
-    const landlord = await login('landlord@demo.com');
+    const landlord = await landlordLogin();
     const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${landlord.auth_token}`
+      ...JSON_HEADERS,
+      Authorization: `Bearer ${landlord.auth_token}`
     };
 
-    // 2. Fetch current caretakers list
-    console.log('Fetching current caretakers list...');
-    const listRes = await fetch(`${BASE_URL}/api/properties/caretakers`, { headers });
-    assert.strictEqual(listRes.status, 200);
-    const caretakersBefore = await listRes.json();
-    console.log(`Fetched ${caretakersBefore.length} caretakers successfully.`);
+    await assertStatus(
+      '4-digit caretaker PIN rejected on create',
+      await postCaretaker(headers, {
+        name: 'Invalid Short PIN',
+        email: `short_${testEmail}`,
+        phone_number: invalidPhoneOne,
+        pin: '1234',
+        assigned_properties: []
+      }),
+      400
+    );
 
-    // 3. Create a new caretaker
-    console.log(`Creating new caretaker with phone: ${testPhone}, email: ${testEmail}...`);
-    const createRes = await fetch(`${BASE_URL}/api/properties/caretakers`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        name: 'Test Caretaker',
+    await assertStatus(
+      'non-numeric caretaker PIN rejected on create',
+      await postCaretaker(headers, {
+        name: 'Invalid Alpha PIN',
+        email: `alpha_${testEmail}`,
+        phone_number: invalidPhoneTwo,
+        pin: '12A456',
+        assigned_properties: []
+      }),
+      400
+    );
+
+    const createData = await assertStatus(
+      '6-digit caretaker PIN accepted on create',
+      await postCaretaker(headers, {
+        name: 'PIN Lockout Test Caretaker',
         email: testEmail,
-        phone_number: testPhone,
+        phone_number: phoneNumber,
+        pin: initialPin,
         assigned_properties: []
-      })
-    });
-    
-    if (createRes.status !== 201) {
-      const body = await createRes.text();
-      console.error('Create caretaker failed:', createRes.status, body);
-    }
-    assert.strictEqual(createRes.status, 201);
-    
-    const createdData = await createRes.json();
-    assert.ok(createdData.temporary_pin);
-    const caretakerId = createdData.user.id;
-    const initialPin = createdData.temporary_pin;
-    console.log(`Created caretaker with ID: ${caretakerId}, temporary PIN: ${initialPin}`);
+      }),
+      201
+    );
 
-    // 4. Verify caretaker can login with initial PIN
-    console.log('Verifying caretaker login with initial PIN...');
-    const loginRes1 = await fetch(`${BASE_URL}/api/auth/caretaker/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone_number: testPhone, pin: initialPin })
-    });
-    if (loginRes1.status !== 200) {
-      const body = await loginRes1.text();
-      console.error('Login with initial PIN failed:', loginRes1.status, body);
-    }
-    assert.strictEqual(loginRes1.status, 200);
-    console.log('Login with initial PIN succeeded.');
+    const caretakerId = createData.user.id;
 
-    // 5. Update caretaker details (Edit Name, Phone, and disable them)
-    console.log(`Updating caretaker details (Edit & Deactivate) to phone: ${testPhoneUpdated}...`);
-    const updateRes1 = await fetch(`${BASE_URL}/api/properties/caretakers/${caretakerId}`, {
-      method: 'PUT',
-      headers,
-      body: JSON.stringify({
-        name: 'Updated Caretaker Name',
-        phone_number: testPhoneUpdated,
-        email: testEmailUpdated,
-        status: 'disabled',
-        assigned_properties: []
-      })
-    });
-    if (updateRes1.status !== 200) {
-      const body = await updateRes1.text();
-      console.error('Update caretaker (deactivate) failed:', updateRes1.status, body);
-    }
-    assert.strictEqual(updateRes1.status, 200);
-    console.log('Caretaker updated to inactive status.');
+    let loginRes = await caretakerLogin(phoneNumber, initialPin);
+    const loginData = await assertStatus('caretaker login succeeds with 6-digit PIN', loginRes, 200);
+    assert.ok(loginData.auth_token, 'caretaker login did not return auth token');
 
-    // 6. Verify disabled caretaker login is rejected
-    console.log('Verifying deactivated caretaker login is rejected...');
-    const loginRes2 = await fetch(`${BASE_URL}/api/auth/caretaker/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone_number: testPhoneUpdated, pin: initialPin })
-    });
-    assert.strictEqual(loginRes2.status, 403);
-    console.log('Deactivated login rejected correctly with 403.');
+    await assertStatus('first wrong PIN attempt rejected', await caretakerLogin(phoneNumber, '000000'), 401);
+    await assertStatus('second wrong PIN attempt rejected', await caretakerLogin(phoneNumber, '000000'), 401);
+    await assertStatus('third wrong PIN attempt rejected and locks account', await caretakerLogin(phoneNumber, '000000'), 401);
 
-    // 7. Reactivate caretaker
-    console.log('Reactivating caretaker...');
-    const updateRes2 = await fetch(`${BASE_URL}/api/properties/caretakers/${caretakerId}`, {
-      method: 'PUT',
-      headers,
-      body: JSON.stringify({
-        name: 'Updated Caretaker Name',
-        phone_number: testPhoneUpdated,
-        email: testEmailUpdated,
-        status: 'active',
-        assigned_properties: []
-      })
-    });
-    if (updateRes2.status !== 200) {
-      const body = await updateRes2.text();
-      console.error('Update caretaker (reactivate) failed:', updateRes2.status, body);
-    }
-    assert.strictEqual(updateRes2.status, 200);
-    console.log('Caretaker reactivated.');
+    await assertStatus(
+      'correct PIN during lockout rejected',
+      await caretakerLogin(phoneNumber, initialPin),
+      423
+    );
 
-    // 8. Reset caretaker PIN
-    console.log('Resetting caretaker PIN...');
-    const resetRes = await fetch(`${BASE_URL}/api/properties/caretakers/${caretakerId}/reset-pin`, {
-      method: 'POST',
-      headers
+    db.update('users', caretakerId, {
+      caretaker_locked_until: new Date(Date.now() - 1000).toISOString()
     });
-    if (resetRes.status !== 200) {
-      const body = await resetRes.text();
-      console.error('Reset caretaker PIN failed:', resetRes.status, body);
-    }
-    assert.strictEqual(resetRes.status, 200);
-    const resetData = await resetRes.json();
-    const newPin = resetData.temporary_pin;
-    assert.ok(newPin);
-    assert.notStrictEqual(newPin, initialPin);
-    console.log(`PIN reset succeeded. New PIN: ${newPin}`);
 
-    // 9. Verify login with old PIN fails
-    console.log('Verifying login with old PIN is rejected...');
-    const loginRes3 = await fetch(`${BASE_URL}/api/auth/caretaker/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone_number: testPhoneUpdated, pin: initialPin })
-    });
-    assert.strictEqual(loginRes3.status, 401);
-    console.log('Old PIN login rejected correctly.');
+    loginRes = await caretakerLogin(phoneNumber, initialPin);
+    const unlockedLoginData = await assertStatus('correct PIN after lockout expiry succeeds', loginRes, 200);
+    assert.ok(unlockedLoginData.auth_token, 'unlock login did not return auth token');
 
-    // 10. Verify login with new PIN succeeds
-    console.log('Verifying login with new PIN...');
-    const loginRes4 = await fetch(`${BASE_URL}/api/auth/caretaker/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone_number: testPhoneUpdated, pin: newPin })
-    });
-    if (loginRes4.status !== 200) {
-      const body = await loginRes4.text();
-      console.error('Login with new PIN failed:', loginRes4.status, body);
-    }
-    assert.strictEqual(loginRes4.status, 200);
-    console.log('New PIN login succeeded.');
+    const userAfterSuccess = db.findOne('users', { id: caretakerId });
+    assert.strictEqual(Number(userAfterSuccess.caretaker_failed_login_attempts || 0), 0);
+    assert.strictEqual(userAfterSuccess.caretaker_locked_until || null, null);
+    assert.strictEqual(userAfterSuccess.caretaker_last_failed_login_at || null, null);
+    console.log('PASS successful login resets failed attempts and lockout fields');
 
-    console.log('ALL CARETAKER MGMT SMOKE TESTS PASSED.');
+    await assertStatus(
+      '4-digit caretaker PIN rejected on reset',
+      await resetCaretakerPin(headers, caretakerId, '2222'),
+      400
+    );
+
+    await assertStatus(
+      '6-digit caretaker PIN accepted on reset',
+      await resetCaretakerPin(headers, caretakerId, newPin),
+      200
+    );
+
+    await assertStatus('old PIN rejected after reset', await caretakerLogin(phoneNumber, initialPin), 401);
+    loginRes = await caretakerLogin(phoneNumber, newPin);
+    const finalLoginData = await assertStatus('new PIN accepted after reset', loginRes, 200);
+
+    await assertStatus(
+      'caretaker RBAC still blocks landlord-only invoice route',
+      await fetch(`${BASE_URL}/api/invoices`, {
+        headers: { Authorization: `Bearer ${finalLoginData.auth_token}` }
+      }),
+      403
+    );
+
+    console.log('Caretaker PIN and lockout smoke test passed.');
   } finally {
     server.kill('SIGTERM');
   }
@@ -219,5 +226,3 @@ runTests().catch(err => {
   console.error('TEST FAIL:', err);
   process.exit(1);
 });
-
-

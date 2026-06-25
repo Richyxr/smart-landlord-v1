@@ -49,6 +49,10 @@ if (IS_PRODUCTION) {
 const pgDb = DATA_BACKEND === 'postgres' ? createPostgresDb() : null;
 const SESSION_SECRET = process.env.SESSION_SECRET || (IS_PRODUCTION ? null : 'smart-landlord-dev-session-secret');
 const SESSION_TTL_SECONDS = parseInt(process.env.SESSION_TTL_SECONDS || '86400', 10);
+const CARETAKER_PIN_PATTERN = /^\d{6}$/;
+const CARETAKER_MAX_FAILED_LOGIN_ATTEMPTS = 3;
+const CARETAKER_LOCKOUT_MS = 15 * 60 * 1000;
+const CARETAKER_LOGIN_ERROR = 'Invalid phone number or PIN.';
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'smart-landlord-1e526';
 const firebaseAdminApp = getFirebaseAdminApps().length
   ? getFirebaseAdminApps()[0]
@@ -182,6 +186,84 @@ async function activeInsert(table, data) {
 
 async function activeUpdate(table, idOrFilter, data) {
   return pgDb ? pgDb.update(table, idOrFilter, data) : db.update(table, idOrFilter, data);
+}
+
+function isValidCaretakerPin(pin) {
+  return CARETAKER_PIN_PATTERN.test(String(pin || ''));
+}
+
+function generateCaretakerPin() {
+  const pin = crypto.randomInt(100000, 1000000).toString();
+  if (!isValidCaretakerPin(pin)) {
+    throw new Error('Generated caretaker PIN did not meet the 6-digit numeric requirement.');
+  }
+  return pin;
+}
+
+function getCaretakerLockedUntil(user) {
+  if (!user?.caretaker_locked_until) return null;
+  const lockedUntil = new Date(user.caretaker_locked_until);
+  return Number.isNaN(lockedUntil.getTime()) ? null : lockedUntil;
+}
+
+async function findCaretakerMembership(userId) {
+  const memberships = pgDb
+    ? await pgDb.find('organization_members', { user_id: userId, role: 'caretaker' })
+    : db.find('organization_members', { user_id: userId, role: 'caretaker' });
+  return memberships.find(member => member.status === 'active') || memberships[0] || null;
+}
+
+async function logCaretakerAuditSafe(organizationId, userId, actionType, reason, status = null) {
+  const activeDb = pgDb || db;
+  if (!activeDb?.logAudit) return;
+
+  try {
+    await activeDb.logAudit(
+      organizationId || null,
+      userId || null,
+      'caretaker',
+      actionType,
+      'user',
+      userId || null,
+      null,
+      null,
+      reason,
+      status
+    );
+  } catch (error) {
+    console.warn(`[caretaker-auth] Audit log failed (non-fatal): ${error.message}`);
+  }
+}
+
+async function resetCaretakerLoginState(userId) {
+  await activeUpdate('users', userId, {
+    caretaker_failed_login_attempts: 0,
+    caretaker_locked_until: null,
+    caretaker_last_failed_login_at: null
+  });
+}
+
+async function recordCaretakerLoginFailure(user, membership, reason) {
+  if (!user) return;
+  if (!user.caretaker_pin_hash && !membership) return;
+
+  const failedAttempts = Number(user.caretaker_failed_login_attempts || 0) + 1;
+  const lockNow = failedAttempts >= CARETAKER_MAX_FAILED_LOGIN_ATTEMPTS;
+  const lockedUntil = lockNow ? new Date(Date.now() + CARETAKER_LOCKOUT_MS).toISOString() : null;
+
+  await activeUpdate('users', user.id, {
+    caretaker_failed_login_attempts: failedAttempts,
+    caretaker_last_failed_login_at: new Date().toISOString(),
+    caretaker_locked_until: lockedUntil
+  });
+
+  await logCaretakerAuditSafe(
+    membership?.organization_id,
+    user.id,
+    lockNow ? 'caretaker_login_locked' : 'caretaker_login_failed',
+    lockNow ? 'Caretaker login locked after repeated failed attempts.' : `Caretaker login failed: ${reason}.`,
+    'failed'
+  );
 }
 
 async function attachSessionContext(req, res, next) {
@@ -613,33 +695,59 @@ app.post('/api/auth/verify-pin', (req, res) => {
 app.post('/api/auth/caretaker/login', async (req, res) => {
   try {
     const { phone_number, pin } = req.body;
-    if (!phone_number || !pin) {
-      return res.status(400).json({ error: 'Phone number and PIN are required.' });
+    const user = phone_number ? await activeFindOne('users', { phone_number }) : null;
+    const membership = user ? await findCaretakerMembership(user.id) : null;
+
+    if (!phone_number || !isValidCaretakerPin(pin)) {
+      await recordCaretakerLoginFailure(user, membership, 'invalid_pin_format');
+      return res.status(401).json({ error: CARETAKER_LOGIN_ERROR });
     }
 
-    const user = await activeFindOne('users', { phone_number });
     if (!user || !user.caretaker_pin_hash) {
-      return res.status(401).json({ error: 'Invalid phone number or PIN.' });
+      return res.status(401).json({ error: CARETAKER_LOGIN_ERROR });
     }
 
-    const isValid = bcrypt.compareSync(pin, user.caretaker_pin_hash);
+    const lockedUntil = getCaretakerLockedUntil(user);
+    if (lockedUntil && lockedUntil.getTime() > Date.now()) {
+      await logCaretakerAuditSafe(
+        membership?.organization_id,
+        user.id,
+        'caretaker_login_locked',
+        'Caretaker login rejected during active lockout.',
+        'failed'
+      );
+      return res.status(423).json({ error: 'Caretaker login is temporarily locked. Please try again later.' });
+    }
+
+    const effectiveUser = lockedUntil ? {
+      ...user,
+      caretaker_failed_login_attempts: 0,
+      caretaker_locked_until: null,
+      caretaker_last_failed_login_at: null
+    } : user;
+
+    const isValid = bcrypt.compareSync(pin, effectiveUser.caretaker_pin_hash);
     if (!isValid) {
-      return res.status(401).json({ error: 'Invalid phone number or PIN.' });
+      await recordCaretakerLoginFailure(effectiveUser, membership, 'invalid_credentials');
+      return res.status(401).json({ error: CARETAKER_LOGIN_ERROR });
     }
 
-    const membership = await activeFindOne('organization_members', { user_id: user.id, role: 'caretaker', status: 'active' });
-    if (!membership) {
-      return res.status(403).json({ error: 'Access denied. Account is not configured as caretaker or is inactive.' });
+    if (!membership || membership.status !== 'active') {
+      await recordCaretakerLoginFailure(effectiveUser, membership, 'inactive_or_missing_membership');
+      return res.status(401).json({ error: CARETAKER_LOGIN_ERROR });
     }
 
     const organization = await activeFindOne('organizations', { id: membership.organization_id });
     const token = createSessionToken(user, 'caretaker', organization);
+    await resetCaretakerLoginState(user.id);
 
-    if (pgDb) {
-      await pgDb.logAudit(organization.id, user.id, 'caretaker', 'login', 'user', user.id, null, null, 'Caretaker logged in successfully', 'success');
-    } else {
-      db.logAudit(organization.id, user.id, 'caretaker', 'login', 'user', user.id, null, null, 'Caretaker logged in successfully', 'success');
-    }
+    await logCaretakerAuditSafe(
+      organization.id,
+      user.id,
+      'caretaker_login_success',
+      'Caretaker logged in successfully.',
+      'success'
+    );
 
     res.json({
       user: {
@@ -746,7 +854,7 @@ app.post('/api/properties/caretakers', (req, res) => {
   const orgId = req.auth?.organizationId;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
-  const { name, email, phone_number, assigned_properties } = req.body;
+  const { name, email, phone_number, assigned_properties, pin: requestedPin } = req.body;
 
   if (role !== 'landlord') {
     return res.status(403).json({ error: 'ACCESS_DENIED', message: 'Only landlords can manage staff.' });
@@ -785,8 +893,11 @@ app.post('/api/properties/caretakers', (req, res) => {
     }
   }
 
-  // Generate 6-digit PIN securely using Node crypto
-  const pin = crypto.randomInt(100000, 1000000).toString();
+  const pin = requestedPin !== undefined ? String(requestedPin) : generateCaretakerPin();
+  if (!isValidCaretakerPin(pin)) {
+    return res.status(400).json({ error: 'Caretaker PIN must be exactly 6 numeric digits.' });
+  }
+
   const salt = bcrypt.genSaltSync(10);
   const pinHash = bcrypt.hashSync(pin, salt);
 
@@ -796,12 +907,20 @@ app.post('/api/properties/caretakers', (req, res) => {
       email: email || null,
       phone_number,
       caretaker_pin_hash: pinHash,
+      caretaker_failed_login_attempts: 0,
+      caretaker_locked_until: null,
+      caretaker_last_failed_login_at: null,
       status: 'active',
       email_verified: false,
       phone_verified: false
     });
   } else {
-    db.update('users', user.id, { caretaker_pin_hash: pinHash });
+    db.update('users', user.id, {
+      caretaker_pin_hash: pinHash,
+      caretaker_failed_login_attempts: 0,
+      caretaker_locked_until: null,
+      caretaker_last_failed_login_at: null
+    });
     user = db.findOne('users', { id: user.id });
   }
 
@@ -841,8 +960,7 @@ app.post('/api/properties/caretakers', (req, res) => {
       email: user.email,
       phone_number: user.phone_number,
       status: user.status
-    },
-    temporary_pin: pin
+    }
   });
 });
 
@@ -862,7 +980,7 @@ app.put('/api/properties/caretakers/:id', (req, res) => {
     return res.status(404).json({ error: 'Caretaker not found in this organization.' });
   }
 
-  const { name, phone_number, email, status, assigned_properties } = req.body;
+  const { name, phone_number, email, status, assigned_properties, pin } = req.body;
 
   if (!name || !phone_number) {
     return res.status(400).json({ error: 'Name and phone number are required.' });
@@ -901,6 +1019,17 @@ app.put('/api/properties/caretakers/:id', (req, res) => {
   }
   if (status && ['active', 'disabled'].includes(status)) {
     updateData.status = status;
+  }
+  if (pin !== undefined) {
+    const nextPin = String(pin);
+    if (!isValidCaretakerPin(nextPin)) {
+      return res.status(400).json({ error: 'Caretaker PIN must be exactly 6 numeric digits.' });
+    }
+    const salt = bcrypt.genSaltSync(10);
+    updateData.caretaker_pin_hash = bcrypt.hashSync(nextPin, salt);
+    updateData.caretaker_failed_login_attempts = 0;
+    updateData.caretaker_locked_until = null;
+    updateData.caretaker_last_failed_login_at = null;
   }
   db.update('users', caretakerId, updateData);
 
@@ -948,6 +1077,7 @@ app.post('/api/properties/caretakers/:id/reset-pin', (req, res) => {
   const userId = req.auth?.userId;
   const role = req.auth?.role;
   const caretakerId = Number(req.params.id);
+  const { pin: requestedPin } = req.body || {};
 
   if (role !== 'landlord') {
     return res.status(403).json({ error: 'ACCESS_DENIED', message: 'Only landlords can manage staff.' });
@@ -959,19 +1089,26 @@ app.post('/api/properties/caretakers/:id/reset-pin', (req, res) => {
     return res.status(404).json({ error: 'Caretaker not found in this organization.' });
   }
 
-  // Generate secure 6-digit PIN
-  const pin = crypto.randomInt(100000, 1000000).toString();
+  const pin = requestedPin !== undefined ? String(requestedPin) : generateCaretakerPin();
+  if (!isValidCaretakerPin(pin)) {
+    return res.status(400).json({ error: 'Caretaker PIN must be exactly 6 numeric digits.' });
+  }
+
   const salt = bcrypt.genSaltSync(10);
   const pinHash = bcrypt.hashSync(pin, salt);
 
-  db.update('users', caretakerId, { caretaker_pin_hash: pinHash });
+  db.update('users', caretakerId, {
+    caretaker_pin_hash: pinHash,
+    caretaker_failed_login_attempts: 0,
+    caretaker_locked_until: null,
+    caretaker_last_failed_login_at: null
+  });
   const updatedUser = db.findOne('users', { id: caretakerId });
 
   db.logAudit(orgId, userId, role, 'caretaker_pin_reset', 'user', caretakerId, null, null, 'Caretaker PIN reset');
 
   res.json({
     success: true,
-    temporary_pin: pin,
     user: {
       id: updatedUser.id,
       name: updatedUser.name,

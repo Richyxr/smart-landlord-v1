@@ -8,6 +8,20 @@ function asyncHandler(handler) {
   };
 }
 
+const CARETAKER_PIN_PATTERN = /^\d{6}$/;
+
+function isValidCaretakerPin(pin) {
+  return CARETAKER_PIN_PATTERN.test(String(pin || ''));
+}
+
+function generateCaretakerPin() {
+  const pin = crypto.randomInt(100000, 1000000).toString();
+  if (!isValidCaretakerPin(pin)) {
+    throw new Error('Generated caretaker PIN did not meet the 6-digit numeric requirement.');
+  }
+  return pin;
+}
+
 function getContext(req) {
   return {
     orgId: req.auth?.organizationId,
@@ -100,7 +114,7 @@ export function createPropertyRoutes(pgDb) {
 
   router.post('/properties/caretakers', requireLandlord, asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
-    const { name, email, phone_number, assigned_properties } = req.body;
+    const { name, email, phone_number, assigned_properties, pin: requestedPin } = req.body;
 
     if (!name || !phone_number) {
       return res.status(400).json({ error: 'Name and phone number are required.' });
@@ -139,8 +153,11 @@ export function createPropertyRoutes(pgDb) {
       }
     }
 
-    // Generate 6-digit PIN securely
-    const pin = crypto.randomInt(100000, 1000000).toString();
+    const pin = requestedPin !== undefined ? String(requestedPin) : generateCaretakerPin();
+    if (!isValidCaretakerPin(pin)) {
+      return res.status(400).json({ error: 'Caretaker PIN must be exactly 6 numeric digits.' });
+    }
+
     const salt = bcrypt.genSaltSync(10);
     const pinHash = bcrypt.hashSync(pin, salt);
 
@@ -150,12 +167,20 @@ export function createPropertyRoutes(pgDb) {
         email: email || null,
         phone_number,
         caretaker_pin_hash: pinHash,
+        caretaker_failed_login_attempts: 0,
+        caretaker_locked_until: null,
+        caretaker_last_failed_login_at: null,
         status: 'active',
         email_verified: false,
         phone_verified: false
       });
     } else {
-      await pgDb.update('users', user.id, { caretaker_pin_hash: pinHash });
+      await pgDb.update('users', user.id, {
+        caretaker_pin_hash: pinHash,
+        caretaker_failed_login_attempts: 0,
+        caretaker_locked_until: null,
+        caretaker_last_failed_login_at: null
+      });
       user = await pgDb.findOne('users', { id: user.id });
     }
 
@@ -195,8 +220,7 @@ export function createPropertyRoutes(pgDb) {
         email: user.email,
         phone_number: user.phone_number,
         status: user.status
-      },
-      temporary_pin: pin
+      }
     });
   }));
 
@@ -210,7 +234,7 @@ export function createPropertyRoutes(pgDb) {
       return res.status(404).json({ error: 'Caretaker not found in this organization.' });
     }
 
-    const { name, phone_number, email, status, assigned_properties } = req.body;
+    const { name, phone_number, email, status, assigned_properties, pin } = req.body;
 
     if (!name || !phone_number) {
       return res.status(400).json({ error: 'Name and phone number are required.' });
@@ -254,6 +278,17 @@ export function createPropertyRoutes(pgDb) {
     }
     if (status && ['active', 'disabled'].includes(status)) {
       updateFields.status = status;
+    }
+    if (pin !== undefined) {
+      const nextPin = String(pin);
+      if (!isValidCaretakerPin(nextPin)) {
+        return res.status(400).json({ error: 'Caretaker PIN must be exactly 6 numeric digits.' });
+      }
+      const salt = bcrypt.genSaltSync(10);
+      updateFields.caretaker_pin_hash = bcrypt.hashSync(nextPin, salt);
+      updateFields.caretaker_failed_login_attempts = 0;
+      updateFields.caretaker_locked_until = null;
+      updateFields.caretaker_last_failed_login_at = null;
     }
     const [updatedUser] = await pgDb.update('users', { id: caretakerId }, updateFields);
 
@@ -299,6 +334,7 @@ export function createPropertyRoutes(pgDb) {
   router.post('/properties/caretakers/:id/reset-pin', requireLandlord, asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const caretakerId = parseInt(req.params.id, 10);
+    const { pin: requestedPin } = req.body || {};
 
     // Verify caretaker belongs to this organization
     const member = await pgDb.findOne('organization_members', { organization_id: orgId, user_id: caretakerId, role: 'caretaker' });
@@ -306,19 +342,26 @@ export function createPropertyRoutes(pgDb) {
       return res.status(404).json({ error: 'Caretaker not found in this organization.' });
     }
 
-    // Generate secure 6-digit PIN
-    const pin = crypto.randomInt(100000, 1000000).toString();
+    const pin = requestedPin !== undefined ? String(requestedPin) : generateCaretakerPin();
+    if (!isValidCaretakerPin(pin)) {
+      return res.status(400).json({ error: 'Caretaker PIN must be exactly 6 numeric digits.' });
+    }
+
     const salt = bcrypt.genSaltSync(10);
     const pinHash = bcrypt.hashSync(pin, salt);
 
     const oldUser = await pgDb.findOne('users', { id: caretakerId });
-    const [updatedUser] = await pgDb.update('users', { id: caretakerId }, { caretaker_pin_hash: pinHash });
+    const [updatedUser] = await pgDb.update('users', { id: caretakerId }, {
+      caretaker_pin_hash: pinHash,
+      caretaker_failed_login_attempts: 0,
+      caretaker_locked_until: null,
+      caretaker_last_failed_login_at: null
+    });
 
     await pgDb.logAudit(orgId, userId, role, 'caretaker_pin_reset', 'user', caretakerId, null, null, 'Caretaker PIN reset');
 
     res.json({
       success: true,
-      temporary_pin: pin,
       user: {
         id: updatedUser.id,
         name: updatedUser.name,
