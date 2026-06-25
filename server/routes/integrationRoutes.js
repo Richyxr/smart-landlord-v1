@@ -107,7 +107,7 @@ function normalizeSmtpConfig(configJson = {}) {
   const port = Number.parseInt(configJson.port, 10);
   return {
     host: cleanOptionalText(configJson.host),
-    port: Number.isInteger(port) && port > 0 ? port : 465,
+    port: Number.isInteger(port) && port > 0 ? port : null,
     secure: configJson.secure === true || String(configJson.secure).toLowerCase() === 'true',
     username: cleanOptionalText(configJson.username),
     password: cleanOptionalText(configJson.password),
@@ -120,7 +120,7 @@ function normalizeSmtpConfig(configJson = {}) {
 function validateSmtpConfig(config) {
   const missing = [];
   if (!config.host) missing.push('host');
-  if (!config.port) missing.push('port');
+  if (!Number.isInteger(config.port) || config.port <= 0 || config.port > 65535) missing.push('port');
   if (!config.username) missing.push('username');
   if (!config.password) missing.push('password');
   if (!config.from_email) missing.push('from_email');
@@ -276,11 +276,26 @@ export function createIntegrationRoutes(pgDb) {
     const normalizedEnvironment = provider_type === 'mpesa' ? (environment === 'live' ? 'live' : 'sandbox') : (environment || 'production');
     let configForStorage = config_json || {};
 
+    // Check for existing integration of this type for this org before validation.
+    // SMTP edits may intentionally omit the password when the UI shows a masked saved value.
+    const existing = await pgDb.findOne('organization_integrations', {
+      provider_type,
+      organization_id: orgId
+    });
+
     // -----------------------------------------------------------------------
     // Email / SMTP integration
     // -----------------------------------------------------------------------
     if (provider_type === 'email') {
       configForStorage = normalizeSmtpConfig(config_json || {});
+      if (!configForStorage.password && existing?.config_json_encrypted) {
+        try {
+          const existingConfig = decryptConfig(existing.config_json_encrypted);
+          configForStorage.password = cleanOptionalText(existingConfig?.password);
+        } catch (_error) {
+          configForStorage.password = '';
+        }
+      }
       const missing = validateSmtpConfig(configForStorage);
       if (missing.length > 0) {
         return res.status(400).json({
@@ -345,12 +360,6 @@ export function createIntegrationRoutes(pgDb) {
     } else if (provider_type === 'bank') {
       callbackUrl = '/api/webhooks/bank';
     }
-
-    // Check for existing integration of this type for this org
-    const existing = await pgDb.findOne('organization_integrations', {
-      provider_type,
-      organization_id: orgId
-    });
 
     let integration;
     const hasCredentials = Boolean(encryptedConfig);

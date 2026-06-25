@@ -11,7 +11,7 @@
  *   7.  OTP verification after expiry → OTP_NOT_FOUND_OR_EXPIRED
  *   8.  Rate limit: 5 OTPs/hour per identifier+context, 6th → RATE_LIMIT_EXCEEDED
  *   9.  invalidatePendingOtps removes active OTPs
- *  10.  Audit log entries (otp_requested, otp_verified, otp_failed, otp_expired) persisted
+ *  10.  Audit log entries (otp_requested, otp_sent, otp_verified, otp_failed, otp_expired) persisted
  *  11.  emailTemplates.js renders otp_verification without throwing
  *  12.  emailTemplates.js renders smtp_test without throwing
  *  13.  mailerService.js verifySmtpConfig returns { success: false } for unreachable host
@@ -142,11 +142,11 @@ const pgDb = {
 // ---------------------------------------------------------------------------
 
 async function loadModules() {
-  const { requestOtp, verifyOtp, invalidatePendingOtps, OtpError } = await import('../server/otpService.js');
+  const { requestOtp, recordOtpSent, verifyOtp, invalidatePendingOtps, OtpError } = await import('../server/otpService.js');
   const { renderTemplate } = await import('../server/emailTemplates.js');
   const { verifySmtpConfig } = await import('../server/mailerService.js');
 
-  return { requestOtp, verifyOtp, invalidatePendingOtps, OtpError, renderTemplate, verifySmtpConfig };
+  return { requestOtp, recordOtpSent, verifyOtp, invalidatePendingOtps, OtpError, renderTemplate, verifySmtpConfig };
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +187,7 @@ async function runTests() {
     process.exit(1);
   }
 
-  const { requestOtp, verifyOtp, invalidatePendingOtps, OtpError, renderTemplate, verifySmtpConfig } = modules;
+  const { requestOtp, recordOtpSent, verifyOtp, invalidatePendingOtps, OtpError, renderTemplate, verifySmtpConfig } = modules;
 
   const orgId = await getOrCreateTestOrg();
   const TEST_ID = `smoke_${Date.now()}_test@example.com`;
@@ -324,7 +324,22 @@ async function runTests() {
     );
   }
 
-  // T13: Verify correct OTP
+  // T13: Record OTP sent audit event
+  if (otpResult) {
+    try {
+      await recordOtpSent({
+        pgDb,
+        otpId: otpResult.otpId,
+        organizationId: orgId,
+        channel: 'email'
+      });
+      pass('T13 — recordOtpSent writes otp_sent audit event without exposing OTP plaintext');
+    } catch (err) {
+      fail('T13 — recordOtpSent', err.message);
+    }
+  }
+
+  // T14: Verify correct OTP
   if (otpResult) {
     try {
       const verifyResult = await verifyOtp({
@@ -336,15 +351,15 @@ async function runTests() {
       });
       assert(
         verifyResult.verified === true,
-        'T13 — verifyOtp(correct code) → { verified: true }',
+        'T14 — verifyOtp(correct code) → { verified: true }',
         `Got: ${JSON.stringify(verifyResult)}`
       );
     } catch (err) {
-      fail('T13 — verifyOtp correct code', err.message);
+      fail('T14 — verifyOtp correct code', err.message);
     }
   }
 
-  // T14: A second OTP request invalidates the first
+  // T15: A second OTP request invalidates the first
   // Use a unique identifier so T13's verified OTP doesn't interfere
   let otp2;
   try {
@@ -373,22 +388,22 @@ async function runTests() {
         otp: otp2.otp,
         organizationId: orgId
       });
-      fail('T14 — Superseded OTP should not verify', 'verifyOtp succeeded when it should have failed');
+      fail('T15 — Superseded OTP should not verify', 'verifyOtp succeeded when it should have failed');
     } catch (err) {
       assert(
         err instanceof OtpError &&
           (err.code === 'OTP_NOT_FOUND_OR_EXPIRED' || err.code === 'OTP_INVALID'),
-        'T14 — Superseded OTP cannot verify (OTP_NOT_FOUND_OR_EXPIRED or OTP_INVALID)',
+        'T15 — Superseded OTP cannot verify (OTP_NOT_FOUND_OR_EXPIRED or OTP_INVALID)',
         `Got error code: ${err.code}, message: ${err.message}`
       );
     }
   } catch (err) {
     if (!(err instanceof OtpError)) {
-      fail('T14 — Superseded OTP invalidation', err.message);
+      fail('T15 — Superseded OTP invalidation', err.message);
     }
   }
 
-  // T15: Wrong OTP → OTP_INVALID
+  // T16: Wrong OTP → OTP_INVALID
   let otp3;
   try {
     otp3 = await requestOtp({
@@ -405,21 +420,21 @@ async function runTests() {
         otp: '000000',
         organizationId: orgId
       });
-      fail('T15 — Wrong OTP should throw OTP_INVALID', 'Did not throw');
+      fail('T16 — Wrong OTP should throw OTP_INVALID', 'Did not throw');
     } catch (err) {
       assert(
         err instanceof OtpError && err.code === 'OTP_INVALID',
-        'T15 — Wrong OTP → OtpError.code === OTP_INVALID',
+        'T16 — Wrong OTP → OtpError.code === OTP_INVALID',
         `Got: code=${err.code}`
       );
     }
   } catch (err) {
     if (!(err instanceof OtpError)) {
-      fail('T15 — Wrong OTP test setup', err.message);
+      fail('T16 — Wrong OTP test setup', err.message);
     }
   }
 
-  // T16: Max attempts (3 wrong attempts → OTP_INVALID, 4th → MAX_ATTEMPTS_EXCEEDED)
+  // T17: Max attempts (3 wrong attempts → OTP_INVALID, 4th → MAX_ATTEMPTS_EXCEEDED)
   // OTP_MAX_ATTEMPTS = 3; check is newAttempts > 3, so the 4th attempt triggers it.
   try {
     const otp4 = await requestOtp({
@@ -439,21 +454,21 @@ async function runTests() {
     // 4th wrong attempt → attempts becomes 4, which is > OTP_MAX_ATTEMPTS (3)
     try {
       await verifyOtp({ pgDb, identifier: `${TEST_ID}_maxattempts`, context: TEST_CONTEXT, otp: '000000', organizationId: orgId });
-      fail('T16 — 4th wrong attempt should exceed max attempts', 'Did not throw');
+      fail('T17 — 4th wrong attempt should exceed max attempts', 'Did not throw');
     } catch (err) {
       assert(
         err instanceof OtpError && err.code === 'MAX_ATTEMPTS_EXCEEDED',
-        'T16 — 4 wrong attempts (>OTP_MAX_ATTEMPTS=3) → MAX_ATTEMPTS_EXCEEDED',
+        'T17 — 4 wrong attempts (>OTP_MAX_ATTEMPTS=3) → MAX_ATTEMPTS_EXCEEDED',
         `Got: code=${err.code}, message=${err.message}`
       );
     }
   } catch (err) {
     if (!(err instanceof OtpError)) {
-      fail('T16 — Max attempts test', err.message);
+      fail('T17 — Max attempts test', err.message);
     }
   }
 
-  // T17: Expired OTP (manipulate expires_at directly in DB)
+  // T18: Expired OTP (manipulate expires_at directly in DB)
   try {
     const otp5 = await requestOtp({
       pgDb,
@@ -470,21 +485,21 @@ async function runTests() {
 
     try {
       await verifyOtp({ pgDb, identifier: `${TEST_ID}_expired`, context: TEST_CONTEXT, otp: otp5.otp, organizationId: orgId });
-      fail('T17 — Expired OTP should throw OTP_NOT_FOUND_OR_EXPIRED', 'Did not throw');
+      fail('T18 — Expired OTP should throw OTP_NOT_FOUND_OR_EXPIRED', 'Did not throw');
     } catch (err) {
       assert(
         err instanceof OtpError && err.code === 'OTP_NOT_FOUND_OR_EXPIRED',
-        'T17 — Expired OTP → OtpError.code === OTP_NOT_FOUND_OR_EXPIRED',
+        'T18 — Expired OTP → OtpError.code === OTP_NOT_FOUND_OR_EXPIRED',
         `Got: code=${err.code}`
       );
     }
   } catch (err) {
     if (!(err instanceof OtpError)) {
-      fail('T17 — Expired OTP test', err.message);
+      fail('T18 — Expired OTP test', err.message);
     }
   }
 
-  // T18: Rate limit (5 OTPs/hour → 6th throws RATE_LIMIT_EXCEEDED)
+  // T19: Rate limit (5 OTPs/hour → 6th throws RATE_LIMIT_EXCEEDED)
   const RL_ID = `${TEST_ID}_ratelimit_${Date.now()}`;
   try {
     // Insert 5 OTP records manually (to avoid actually creating them via the service which
@@ -502,21 +517,21 @@ async function runTests() {
 
     try {
       await requestOtp({ pgDb, identifier: RL_ID, context: TEST_CONTEXT, organizationId: orgId });
-      fail('T18 — 6th OTP request should throw RATE_LIMIT_EXCEEDED', 'Did not throw');
+      fail('T19 — 6th OTP request should throw RATE_LIMIT_EXCEEDED', 'Did not throw');
     } catch (err) {
       assert(
         err instanceof OtpError && err.code === 'RATE_LIMIT_EXCEEDED',
-        'T18 — 6th OTP in 1 hour → RATE_LIMIT_EXCEEDED',
+        'T19 — 6th OTP in 1 hour → RATE_LIMIT_EXCEEDED',
         `Got: code=${err.code}`
       );
     }
   } catch (err) {
     if (!(err instanceof OtpError)) {
-      fail('T18 — Rate limit test', err.message);
+      fail('T19 — Rate limit test', err.message);
     }
   }
 
-  // T19: invalidatePendingOtps
+  // T20: invalidatePendingOtps
   try {
     const INV_ID = `${TEST_ID}_invalidateAll`;
     await requestOtp({ pgDb, identifier: INV_ID, context: TEST_CONTEXT, organizationId: orgId });
@@ -530,14 +545,14 @@ async function runTests() {
     );
     assert(
       parseInt(active.rows[0].cnt, 10) === 0,
-      'T19 — invalidatePendingOtps clears all active OTPs for identifier+context',
+      'T20 — invalidatePendingOtps clears all active OTPs for identifier+context',
       `Active count: ${active.rows[0].cnt}`
     );
   } catch (err) {
-    fail('T19 — invalidatePendingOtps', err.message);
+    fail('T20 — invalidatePendingOtps', err.message);
   }
 
-  // T20: Audit log entries persisted
+  // T21: Audit log entries persisted
   try {
     const auditRes = await query(
       `SELECT action_type FROM audit_logs
@@ -548,21 +563,26 @@ async function runTests() {
     const types = auditRes.rows.map(r => r.action_type);
     assert(
       types.includes('otp_requested'),
-      'T20a — audit_logs contains otp_requested events',
+      'T21a — audit_logs contains otp_requested events',
       `Found: ${types.join(', ') || '(empty — check audit_logs table schema)'}`
     );
     assert(
+      types.includes('otp_sent'),
+      'T21b — audit_logs contains otp_sent events',
+      `Found: ${types.join(', ') || '(empty)'}`
+    );
+    assert(
       types.includes('otp_verified'),
-      'T20b — audit_logs contains otp_verified events',
+      'T21c — audit_logs contains otp_verified events',
       `Found: ${types.join(', ') || '(empty)'}`
     );
     assert(
       types.includes('otp_failed') || types.includes('otp_expired'),
-      'T20c — audit_logs contains otp_failed or otp_expired events',
+      'T21d — audit_logs contains otp_failed or otp_expired events',
       `Found: ${types.join(', ') || '(empty)'}`
     );
   } catch (err) {
-    fail('T20 — Audit log verification', err.message);
+    fail('T21 — Audit log verification', err.message);
   }
 
   // ─── Summary ──────────────────────────────────────────────────────────────

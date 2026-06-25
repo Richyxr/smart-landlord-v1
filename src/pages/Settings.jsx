@@ -333,7 +333,9 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       config.port = parseInt(smtpPort, 10) || 465;
       config.secure = smtpSecure;
       config.username = smtpUsername.trim();
-      config.password = smtpPassword;
+      if (!smtpPasswordMasked || smtpPassword.trim()) {
+        config.password = smtpPassword;
+      }
       config.from_email = smtpFromEmail.trim() || smtpUsername.trim();
       config.from_name = smtpFromName.trim() || 'Smart Landlord';
       config.reply_to = smtpReplyTo.trim();
