@@ -14,6 +14,7 @@
     "smoke:postgres-financial": "node scripts/smoke-postgres-financial.mjs",
     "smoke:postgres-reconciliation": "node scripts/smoke-postgres-reconciliation.mjs",
     "smoke:postgres-webhook": "node scripts/smoke-postgres-webhook.mjs",
+    "smoke:smtp-otp": "node scripts/smoke-smtp-otp.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:seed:from-json": "node scripts/db-seed-from-json.mjs",
     "db:seed:reset-from-json": "node scripts/db-seed-from-json.mjs --truncate",

@@ -1,6 +1,8 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import { encryptConfig, decryptConfig, maskConfig } from '../crypto.js';
+import { verifySmtpConfig, sendEmailWithConfig } from '../mailerService.js';
+import { renderTemplate } from '../emailTemplates.js';
 
 // ---------------------------------------------------------------------------
 // Phase 7: PostgreSQL-backed integration CRUD with real encryption
@@ -52,6 +54,7 @@ function requireAuthenticatedContext(req, res, next) {
 /**
  * Prepare an integration row for frontend consumption.
  * Strips the encrypted config and replaces it with a masked version.
+ * For SMTP integrations, only the password field is masked.
  */
 function sanitizeForFrontend(row) {
   if (!row) return row;
@@ -63,7 +66,12 @@ function sanitizeForFrontend(row) {
   let configMasked = {};
   if (config_json_encrypted) {
     const plainConfig = decryptConfig(config_json_encrypted);
-    configMasked = maskConfig(plainConfig);
+    // Use selective mask for SMTP (show host/port/username clearly, mask only password)
+    if (row.provider_type === 'email') {
+      configMasked = maskSmtpConfig(plainConfig);
+    } else {
+      configMasked = maskConfig(plainConfig);
+    }
   }
 
   return {
@@ -90,6 +98,53 @@ function cleanOptionalText(value) {
   if (value === undefined || value === null) return '';
   return String(value).trim();
 }
+
+// ---------------------------------------------------------------------------
+// SMTP helpers
+// ---------------------------------------------------------------------------
+
+function normalizeSmtpConfig(configJson = {}) {
+  const port = Number.parseInt(configJson.port, 10);
+  return {
+    host: cleanOptionalText(configJson.host),
+    port: Number.isInteger(port) && port > 0 ? port : 465,
+    secure: configJson.secure === true || String(configJson.secure).toLowerCase() === 'true',
+    username: cleanOptionalText(configJson.username),
+    password: cleanOptionalText(configJson.password),
+    from_email: cleanOptionalText(configJson.from_email || configJson.username),
+    from_name: cleanOptionalText(configJson.from_name) || 'Smart Landlord',
+    reply_to: cleanOptionalText(configJson.reply_to)
+  };
+}
+
+function validateSmtpConfig(config) {
+  const missing = [];
+  if (!config.host) missing.push('host');
+  if (!config.port) missing.push('port');
+  if (!config.username) missing.push('username');
+  if (!config.password) missing.push('password');
+  if (!config.from_email) missing.push('from_email');
+  return missing;
+}
+
+/**
+ * Produce a selective mask for SMTP config:
+ * password is masked; host/port/username/from_email are returned clearly
+ * so the UI can show the server configuration without exposing the password.
+ */
+function maskSmtpConfig(config) {
+  if (!config || typeof config !== 'object') return {};
+  const masked = { ...config };
+  if (masked.password) {
+    const p = String(masked.password);
+    masked.password = p.length > 4 ? p.substring(0, 2) + '********' : '********';
+  }
+  return masked;
+}
+
+// ---------------------------------------------------------------------------
+// M-Pesa helpers
+// ---------------------------------------------------------------------------
 
 function normalizeMpesaSandboxConfig(configJson = {}) {
   return {
@@ -218,10 +273,36 @@ export function createIntegrationRoutes(pgDb) {
       return res.status(400).json({ error: 'provider_type and provider_name are required.' });
     }
 
-    const normalizedEnvironment = provider_type === 'mpesa' ? (environment === 'live' ? 'live' : 'sandbox') : (environment || 'sandbox');
+    const normalizedEnvironment = provider_type === 'mpesa' ? (environment === 'live' ? 'live' : 'sandbox') : (environment || 'production');
     let configForStorage = config_json || {};
 
-    if (provider_type === 'mpesa') {
+    // -----------------------------------------------------------------------
+    // Email / SMTP integration
+    // -----------------------------------------------------------------------
+    if (provider_type === 'email') {
+      configForStorage = normalizeSmtpConfig(config_json || {});
+      const missing = validateSmtpConfig(configForStorage);
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: `Missing required SMTP fields: ${missing.join(', ')}.`
+        });
+      }
+
+      // Validate the SMTP connection before saving (real TCP handshake)
+      const verifyResult = await verifySmtpConfig(configForStorage);
+      if (!verifyResult.success) {
+        return res.status(400).json({
+          error: 'SMTP_CONNECTION_FAILED',
+          message: verifyResult.errorMessage || 'SMTP connection verification failed.',
+          summary: verifyResult.summary
+        });
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // M-Pesa integration
+    // -----------------------------------------------------------------------
+    else if (provider_type === 'mpesa') {
       if (environment && environment !== 'sandbox') {
         if (environment === 'live') {
           if (!req.body.acknowledge_live_gate) {
@@ -363,6 +444,59 @@ export function createIntegrationRoutes(pgDb) {
     // Decrypt credentials for the test call (server-side only)
     const credentials = decryptConfig(integration.config_json_encrypted);
 
+    // -----------------------------------------------------------------------
+    // Email / SMTP test
+    // -----------------------------------------------------------------------
+    if (integration.provider_type === 'email') {
+      const smtpCredentials = normalizeSmtpConfig(credentials);
+      const missingFields = validateSmtpConfig(smtpCredentials);
+      if (missingFields.length > 0) {
+        return res.status(400).json({
+          error: `Missing required SMTP fields: ${missingFields.join(', ')}.`
+        });
+      }
+
+      const testResult = await verifySmtpConfig(smtpCredentials);
+      const testLog = await pgDb.insert('integration_test_logs', {
+        organization_id: orgId,
+        integration_id: integrationId,
+        tested_by: userId,
+        status: testResult.success ? 'success' : 'failed',
+        response_summary: testResult.summary,
+        error_message: testResult.errorMessage
+      });
+
+      const newStatus = resolveStatus(integration.status, true, testResult.success);
+      await pgDb.update('organization_integrations', integrationId, {
+        status: newStatus,
+        last_tested_at: new Date().toISOString()
+      });
+
+      await pgDb.logAudit(
+        orgId, userId, 'landlord',
+        testResult.success ? 'smtp_test_passed' : 'smtp_test_failed',
+        'organization_integrations',
+        integrationId,
+        { status: integration.status },
+        { status: newStatus, test_log_id: testLog.id },
+        `SMTP connection test ${testResult.success ? 'passed' : 'failed'}.`
+      );
+
+      const responseBody = {
+        ...testLog,
+        new_status: newStatus,
+        success: testResult.success
+      };
+
+      if (!testResult.success) {
+        return res.status(502).json(responseBody);
+      }
+      return res.json(responseBody);
+    }
+
+    // -----------------------------------------------------------------------
+    // M-Pesa test
+    // -----------------------------------------------------------------------
     if (integration.provider_type === 'mpesa') {
       if (integration.environment !== 'sandbox' && integration.environment !== 'live') {
         return res.status(400).json({ error: 'M-Pesa Daraja testing only supports sandbox and live environments.' });
@@ -602,6 +736,117 @@ export function createIntegrationRoutes(pgDb) {
     res.json({
       success: true,
       message: summary,
+      test_log_id: testLog.id,
+      new_status: newStatus
+    });
+  }));
+
+  // =========================================================================
+  // POST /integrations/:id/test-email — Send a real test email via org's SMTP
+  // =========================================================================
+  // Uses the organisation's saved SMTP credentials (decrypted in memory).
+  // Sends a branded test email rendered from the smtp_test template.
+  // =========================================================================
+  router.post('/integrations/:id/test-email', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+    const { orgId, userId, role } = getContext(req);
+    const integrationId = parseInt(req.params.id);
+    const { to } = req.body;
+
+    const integration = await pgDb.findOne('organization_integrations', {
+      id: integrationId,
+      organization_id: orgId
+    });
+
+    if (!integration) {
+      return res.status(404).json({ error: 'Integration not found.' });
+    }
+
+    if (integration.provider_type !== 'email') {
+      return res.status(400).json({ error: 'This action is only supported for Email / SMTP integrations.' });
+    }
+
+    if (!integration.config_json_encrypted) {
+      return res.status(400).json({ error: 'No SMTP credentials configured. Please save your SMTP settings first.' });
+    }
+
+    // Resolve recipient — use provided `to`, otherwise fall back to the logged-in user's email
+    let recipient = to;
+    if (!recipient) {
+      const user = await pgDb.findOne('users', { id: userId });
+      recipient = user?.email;
+    }
+    if (!recipient) {
+      return res.status(400).json({ error: 'Provide a recipient email address or ensure your account has an email set.' });
+    }
+
+    // Decrypt credentials for the send (never returned to the frontend)
+    const credentials = decryptConfig(integration.config_json_encrypted);
+    const smtpCredentials = normalizeSmtpConfig(credentials);
+
+    // Resolve sender name for the template
+    const senderUser = await pgDb.findOne('users', { id: userId });
+    const { subject, html, text } = renderTemplate('smtp_test', {
+      recipientName: senderUser?.name || 'there',
+      host: smtpCredentials.host,
+      configuredBy: senderUser?.name || senderUser?.email || 'Administrator'
+    });
+
+    let success = false;
+    let summary = '';
+    let errorMsg = null;
+    let messageId = null;
+
+    try {
+      const result = await sendEmailWithConfig(smtpCredentials, { to: recipient, subject, html, text });
+      success = true;
+      messageId = result.messageId;
+      summary = `Test email delivered successfully to ${recipient}. Message ID: ${messageId || 'N/A'}`;
+    } catch (err) {
+      success = false;
+      errorMsg = err.message;
+      summary = `Failed to send test email: ${err.message}`;
+    }
+
+    const testLog = await pgDb.insert('integration_test_logs', {
+      organization_id: orgId,
+      integration_id: integrationId,
+      tested_by: userId,
+      status: success ? 'success' : 'failed',
+      response_summary: summary,
+      error_message: errorMsg
+    });
+
+    const newStatus = resolveStatus(integration.status, true, success);
+    await pgDb.update('organization_integrations', integrationId, {
+      status: newStatus,
+      last_tested_at: new Date().toISOString()
+    });
+
+    await pgDb.logAudit(
+      orgId, userId, role,
+      success ? 'smtp_test_email_sent' : 'smtp_test_email_failed',
+      'organization_integrations',
+      integrationId,
+      { status: integration.status },
+      { status: newStatus, test_log_id: testLog.id, recipient },
+      `SMTP test email ${success ? 'sent to' : 'failed for'} ${recipient}.`
+    );
+
+    if (!success) {
+      await pgDb.logError(
+        orgId, userId,
+        'SmtpIntegration.testEmail',
+        `Test email failed: ${errorMsg}. Recipient: ${recipient}`,
+        null,
+        { integration_id: integrationId }
+      );
+      return res.status(502).json({ error: errorMsg, summary });
+    }
+
+    return res.json({
+      success: true,
+      message: summary,
+      message_id: messageId,
       test_log_id: testLog.id,
       new_status: newStatus
     });

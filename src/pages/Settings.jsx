@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
-import { MessageSquare, Coins, Archive, Lock, FileText, Search, Check, X, Smartphone } from 'lucide-react';
+import { MessageSquare, Coins, Archive, Lock, FileText, Search, Check, X, Smartphone, Mail } from 'lucide-react';
 
 const getChecklistLabel = (key, orgType) => {
   switch (key) {
@@ -130,6 +130,17 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
   const [passkey, setPasskey] = useState('');
   const [env, setEnv] = useState('sandbox');
   const [acknowledgeLiveGate, setAcknowledgeLiveGate] = useState(false);
+
+  // SMTP / Email Integration State
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState('465');
+  const [smtpSecure, setSmtpSecure] = useState(true);
+  const [smtpUsername, setSmtpUsername] = useState('');
+  const [smtpPassword, setSmtpPassword] = useState('');
+  const [smtpFromEmail, setSmtpFromEmail] = useState('');
+  const [smtpFromName, setSmtpFromName] = useState('Smart Landlord');
+  const [smtpReplyTo, setSmtpReplyTo] = useState('');
+  const [smtpPasswordMasked, setSmtpPasswordMasked] = useState(false); // true after first save
 
   // PIN modal triggers
   const [pinAction, setPinAction] = useState(null); // { type: 'delete_int' | 'archive_tx', data: any }
@@ -317,6 +328,15 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       config.consumer_secret = consumerSecret;
       config.shortcode = shortcode;
       config.passkey = passkey;
+    } else if (selectedInt.provider_type === 'email') {
+      config.host = smtpHost.trim();
+      config.port = parseInt(smtpPort, 10) || 465;
+      config.secure = smtpSecure;
+      config.username = smtpUsername.trim();
+      config.password = smtpPassword;
+      config.from_email = smtpFromEmail.trim() || smtpUsername.trim();
+      config.from_name = smtpFromName.trim() || 'Smart Landlord';
+      config.reply_to = smtpReplyTo.trim();
     }
 
     const integrationEnvironment = env;
@@ -341,12 +361,17 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       });
 
       const data = await safeParseJson(res, 'Save integration failed');
-      if (!res.ok) throw new Error(data.error || 'Save integration failed.');
+      if (!res.ok) throw new Error(data.error || data.message || data.summary || 'Save integration failed.');
       setSelectedInt(null);
       setActiveTab('integrations');
-      setInfoMessage(selectedInt.provider_type === 'mpesa'
-        ? `M-Pesa ${integrationEnvironment} credentials saved securely. Use Test to validate the Daraja ${integrationEnvironment} token.`
-        : 'Integration credentials saved securely.');
+      if (selectedInt.provider_type === 'mpesa') {
+        setInfoMessage(`M-Pesa ${integrationEnvironment} credentials saved securely. Use Test to validate the Daraja ${integrationEnvironment} token.`);
+      } else if (selectedInt.provider_type === 'email') {
+        setSmtpPasswordMasked(true);
+        setInfoMessage('SMTP credentials saved and connection verified. Use Send Test Email to confirm delivery.');
+      } else {
+        setInfoMessage('Integration credentials saved securely.');
+      }
       setError('');
       fetchData();
       onRefresh();
@@ -446,6 +471,35 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         throw new Error(data.error || 'Failed to send test SMS.');
       }
       setInfoMessage(`Test SMS dispatched successfully. Details: ${data.message || 'Sent'}`);
+      setError('');
+      fetchData();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendTestEmail = async (id) => {
+    const recipient = window.prompt('Enter the email address to send the test email to (leave blank to use your account email):');
+    // User pressed Cancel
+    if (recipient === null) return;
+
+    setLoading(true);
+    setError('');
+    setInfoMessage('');
+    try {
+      const body = recipient.trim() ? { to: recipient.trim() } : {};
+      const res = await fetch(`/api/integrations/${id}/test-email`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await safeParseJson(res, 'Failed to send test email');
+      if (!res.ok) {
+        throw new Error(data.error || data.summary || 'Failed to send test email.');
+      }
+      setInfoMessage(`Test email sent successfully. ${data.message || ''}`);
       setError('');
       fetchData();
     } catch (err) {
@@ -918,6 +972,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         <div className="card">
           <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {selectedInt.provider_type === 'mpesa' && <Smartphone size={16} />}
+            {selectedInt.provider_type === 'email' && <Mail size={16} />}
             Setup {selectedInt.provider_name}
           </h3>
           <form onSubmit={handleSaveIntegration}>
@@ -928,6 +983,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                   <option value="sandbox">Sandbox Testing</option>
                   <option value="live">Live Production (Readiness Gate)</option>
                 </select>
+              ) : selectedInt.provider_type === 'email' ? (
+                <input type="text" className="form-control" value="production" readOnly style={{ background: 'var(--bg-secondary)', color: 'var(--text-muted)' }} />
               ) : (
                 <select className="form-control" value={env} onChange={e => setEnv(e.target.value)}>
                   <option value="sandbox">Sandbox Testing</option>
@@ -1043,9 +1100,150 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
               </>
             )}
 
+            {selectedInt.provider_type === 'email' && (
+              <>
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--primary-glow)',
+                    border: '1px solid var(--primary)',
+                    fontSize: '12px',
+                    lineHeight: '1.5',
+                    marginBottom: '16px'
+                  }}
+                >
+                  ✉️ SMTP credentials are encrypted at rest. The password is masked after saving. A connection test is run automatically before saving.
+                </div>
+                <div className="form-group">
+                  <label className="form-label">SMTP Host</label>
+                  <input
+                    id="smtp_host"
+                    type="text"
+                    required
+                    className="form-control"
+                    placeholder="e.g. mail.truehost.com"
+                    value={smtpHost}
+                    onChange={e => setSmtpHost(e.target.value)}
+                    autoComplete="off"
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <div className="form-group">
+                    <label className="form-label">SMTP Port</label>
+                    <input
+                      id="smtp_port"
+                      type="number"
+                      required
+                      className="form-control"
+                      placeholder="465"
+                      value={smtpPort}
+                      onChange={e => setSmtpPort(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Secure (SSL/TLS)</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '8px' }}>
+                      <input
+                        id="smtp_secure"
+                        type="checkbox"
+                        checked={smtpSecure}
+                        onChange={e => setSmtpSecure(e.target.checked)}
+                      />
+                      <label htmlFor="smtp_secure" style={{ cursor: 'pointer', fontSize: '13px' }}>
+                        {smtpSecure ? 'SSL on port 465' : 'STARTTLS on port 587'}
+                      </label>
+                    </div>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Username (Email Address)</label>
+                  <input
+                    id="smtp_username"
+                    type="email"
+                    required
+                    className="form-control"
+                    placeholder="e.g. info@yourdomain.co.ke"
+                    value={smtpUsername}
+                    onChange={e => setSmtpUsername(e.target.value)}
+                    autoComplete="email"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Password</label>
+                  {smtpPasswordMasked ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input
+                        type="password"
+                        className="form-control"
+                        value="••••••••"
+                        readOnly
+                        style={{ background: 'var(--bg-secondary)', flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => { setSmtpPassword(''); setSmtpPasswordMasked(false); }}
+                        style={{ whiteSpace: 'nowrap' }}
+                      >
+                        Update
+                      </button>
+                    </div>
+                  ) : (
+                    <input
+                      id="smtp_password"
+                      type="password"
+                      required
+                      className="form-control"
+                      placeholder="Your mailbox password"
+                      value={smtpPassword}
+                      onChange={e => setSmtpPassword(e.target.value)}
+                      autoComplete="new-password"
+                    />
+                  )}
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Encrypted before storage. Never exposed in API responses.</span>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">From Email</label>
+                  <input
+                    id="smtp_from_email"
+                    type="email"
+                    className="form-control"
+                    placeholder="Defaults to username if blank"
+                    value={smtpFromEmail}
+                    onChange={e => setSmtpFromEmail(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">From Name</label>
+                  <input
+                    id="smtp_from_name"
+                    type="text"
+                    className="form-control"
+                    placeholder="Smart Landlord"
+                    value={smtpFromName}
+                    onChange={e => setSmtpFromName(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Reply-To (optional)</label>
+                  <input
+                    id="smtp_reply_to"
+                    type="email"
+                    className="form-control"
+                    placeholder="e.g. support@yourdomain.co.ke"
+                    value={smtpReplyTo}
+                    onChange={e => setSmtpReplyTo(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+
             <div className="flex-gap" style={{ marginTop: '20px' }}>
               <button type="button" className="btn btn-secondary" onClick={() => setSelectedInt(null)}>Cancel</button>
-              <button type="submit" className="btn btn-primary">Save API Keys</button>
+              <button type="submit" className="btn btn-primary" disabled={loading}>
+                {loading ? 'Verifying & Saving…' : 'Save API Keys'}
+              </button>
             </div>
           </form>
         </div>
@@ -1150,7 +1348,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
               </div>
             </div>
 
-            {/* M-Pesa Integration */}
+          {/* M-Pesa Integration */}
             <div className="card">
               <div className="flex-row">
                 <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> Safaricom M-Pesa C2B / STK</h4>
@@ -1177,6 +1375,52 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                 )}
               </div>
             </div>
+
+            {/* Email / SMTP Integration */}
+            {(() => {
+              const emailInt = integrations.find(i => i.provider_type === 'email');
+              const emailStatus = emailInt?.status || 'draft';
+              return (
+                <div className="card">
+                  <div className="flex-row">
+                    <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><Mail size={16} /> Email / SMTP (Truehost Mailbox)</h4>
+                    <span className={`badge ${emailStatus === 'ready' || emailStatus === 'active' ? 'badge-success' : 'badge-warning'}`}>
+                      {emailStatus === 'ready' || emailStatus === 'active' ? 'connected' : emailStatus === 'draft' ? 'draft' : emailStatus}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '12px', marginTop: '6px' }}>Sends OTP verification codes, rent receipts, and platform notifications via your Truehost mailbox.</p>
+                  {emailInt?.config_masked && (
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Host: <strong>{emailInt.config_masked.host || '—'}</strong> &nbsp;·&nbsp;
+                      User: <strong>{emailInt.config_masked.username || '—'}</strong>
+                    </p>
+                  )}
+                  <div className="flex-gap" style={{ marginTop: '12px' }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => {
+                      const masked = emailInt?.config_masked || {};
+                      setSmtpHost(masked.host || '');
+                      setSmtpPort(String(masked.port || '465'));
+                      setSmtpSecure(masked.secure !== false);
+                      setSmtpUsername(masked.username || '');
+                      setSmtpPassword('');
+                      setSmtpPasswordMasked(Boolean(emailInt?.has_credentials));
+                      setSmtpFromEmail(masked.from_email || '');
+                      setSmtpFromName(masked.from_name || 'Smart Landlord');
+                      setSmtpReplyTo(masked.reply_to || '');
+                      setEnv('production');
+                      setSelectedInt({ provider_type: 'email', provider_name: 'Truehost SMTP' });
+                    }}>Configure</button>
+                    {emailInt && (
+                      <>
+                        <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(emailInt.id)}>Test Connection</button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => handleSendTestEmail(emailInt.id)}>Send Test Email</button>
+                        <button className="btn btn-danger btn-sm" onClick={() => handleDeleteIntegrationTrigger(emailInt.id)}>Delete keys</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
