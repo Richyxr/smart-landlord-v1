@@ -20,7 +20,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
   const routeTabMap = {
     admin_dashboard: 'dashboard',
     admin_orgs: 'landlords',
-    admin_pricing: 'billing',
+    admin_pricing: 'dashboard',
     admin_errors: 'errors',
     admin_email: 'email'
   };
@@ -480,64 +480,78 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {/* LANDLORDS LIST */}
       {activeTab === 'landlords' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {landlords.map(org => (
-            <div key={org.id} className="sl-list-card">
-              <div className="flex-row">
-                <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Building2 size={18} style={{ color: 'var(--primary)' }} />
-                  <span>{org.name}</span>
-                </h3>
-                <span className={`badge ${org.is_locked ? 'badge-danger' : 'badge-success'}`}>
-                  {org.is_locked ? 'locked' : 'active'}
-                </span>
-              </div>
-              <p style={{ fontSize: '12px', marginTop: '2px' }}>Owner ID: {org.owner_user_id} • Country: {org.country}</p>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', background: 'var(--bg-surface-elevated)', padding: '6px', borderRadius: '4px', margin: '8px 0' }}>
-                <span>Sub: <strong>{org.subscription_tier.toUpperCase()}</strong></span>
-                <span>Active Tenants: <strong>{toFiniteNumber(org.active_tenant_count)}</strong></span>
-              </div>
-
-              <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', marginTop: '12px' }}>
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => setImpersonateOrg(org)}
-                >
-                  Impersonate Dashboard
-                </button>
-              </div>
+          {landlords.length === 0 ? (
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div className="sl-empty-state-title">No landlords found yet.</div>
+              <div className="sl-empty-state-desc">Organizations will appear here once landlord accounts are created.</div>
             </div>
-          ))}
+          ) : (
+            landlords.map(org => (
+              <div key={org.id} className="sl-list-card">
+                <div className="flex-row">
+                  <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Building2 size={18} style={{ color: 'var(--primary)' }} />
+                    <span>{org.name}</span>
+                  </h3>
+                  <span className={`badge ${org.is_locked ? 'badge-danger' : 'badge-success'}`}>
+                    {org.is_locked ? 'locked' : 'active'}
+                  </span>
+                </div>
+                <p style={{ fontSize: '12px', marginTop: '2px' }}>Owner ID: {org.owner_user_id} • Country: {org.country}</p>
+                
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', background: 'var(--bg-surface-elevated)', padding: '6px', borderRadius: '4px', margin: '8px 0' }}>
+                  <span>Sub: <strong>{org.subscription_tier.toUpperCase()}</strong></span>
+                  <span>Active Tenants: <strong>{toFiniteNumber(org.active_tenant_count)}</strong></span>
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', marginTop: '12px' }}>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => setImpersonateOrg(org)}
+                  >
+                    Impersonate Dashboard
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
 
       {/* CONFIRM SAAS PAYMENTS */}
       {activeTab === 'billing' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {pendingPayments.map(pay => (
-            <div key={pay.id} className="sl-list-card">
-              <div className="flex-row">
-                <span className="badge badge-warning">{pay.payment_method.toUpperCase()} Payment</span>
-                <span className="badge badge-danger">pending confirmation</span>
-              </div>
-              <h3 className="card-title" style={{ margin: '6px 0 2px 0' }}>{pay.organization_name}</h3>
-              <p style={{ fontSize: '12px' }}>Ref: <strong>{pay.reference_number}</strong> • Date: {new Date(pay.created_at).toLocaleString()}</p>
-              
-              <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
-              
-              <div className="flex-row" style={{ fontSize: '13px', marginBottom: '12px' }}>
-                <span>Amount:</span>
-                <strong style={{ color: 'var(--success)', fontSize: '16px' }}>{formatCurrency(pay.amount)}</strong>
-              </div>
-
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => handleConfirmPayment(pay.id)}
-              >
-                Confirm Bank Deposit & Unlock Org
-              </button>
+          {pendingPayments.length === 0 ? (
+            <div className="card" style={{ marginBottom: 0 }}>
+              <div className="sl-empty-state-title">No pending SaaS billing confirmations.</div>
+              <div className="sl-empty-state-desc">Incoming pending platform payment confirmations will appear here.</div>
             </div>
-          ))}
+          ) : (
+            pendingPayments.map(pay => (
+              <div key={pay.id} className="sl-list-card">
+                <div className="flex-row">
+                  <span className="badge badge-warning">{pay.payment_method.toUpperCase()} Payment</span>
+                  <span className="badge badge-danger">pending confirmation</span>
+                </div>
+                <h3 className="card-title" style={{ margin: '6px 0 2px 0' }}>{pay.organization_name}</h3>
+                <p style={{ fontSize: '12px' }}>Ref: <strong>{pay.reference_number}</strong> • Date: {new Date(pay.created_at).toLocaleString()}</p>
+                
+                <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
+                
+                <div className="flex-row" style={{ fontSize: '13px', marginBottom: '12px' }}>
+                  <span>Amount:</span>
+                  <strong style={{ color: 'var(--success)', fontSize: '16px' }}>{formatCurrency(pay.amount)}</strong>
+                </div>
+
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => handleConfirmPayment(pay.id)}
+                >
+                  Confirm Bank Deposit & Unlock Org
+                </button>
+              </div>
+            ))
+          )}
         </div>
       )}
 
