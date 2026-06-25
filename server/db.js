@@ -46,7 +46,8 @@ const defaultDb = {
   platform_billing_invoices: [],
   platform_billing_payments: [],
   deletion_requests: [],
-  maintenance_requests: []
+  maintenance_requests: [],
+  otp_codes: []
 };
 
 // Reading the DB

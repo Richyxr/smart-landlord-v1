@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Mail, Smartphone, Lock } from 'lucide-react';
 import { setSessionToken } from '../lib/session.js';
 import { auth } from '../lib/firebase.js';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 const isGoogleHostedEmail = (value) => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -51,6 +51,7 @@ export default function Auth({ onAuthSuccess }) {
   const [orgId, setOrgId] = useState(null);
   const [authToken, setAuthToken] = useState(null);
   const [error, setError] = useState('');
+  const [emailOtp, setEmailOtp] = useState('');
   const [loading, setLoading] = useState(false);
 
   // Login State
@@ -78,10 +79,24 @@ export default function Auth({ onAuthSuccess }) {
 
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.message || data.error || 'Failed to load landlord profile.');
+      const error = new Error(data.message || data.error || 'Failed to load landlord profile.');
+      error.code = data.error;
+      throw error;
     }
 
     return data;
+  };
+
+  const getFirebaseAuthHeaders = async () => {
+    if (!auth.currentUser) {
+      throw new Error('Registration session expired. Please sign in again.');
+    }
+
+    const idToken = await auth.currentUser.getIdToken();
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`
+    };
   };
 
   const handleRegister = async (e) => {
@@ -122,23 +137,63 @@ export default function Auth({ onAuthSuccess }) {
 
     try {
       const credential = await createUserWithEmailAndPassword(auth, email, password);
+      const idToken = await credential.user.getIdToken();
+      const res = await fetch('/api/auth/registration/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          name,
+          email,
+          phone_number: phone,
+          country,
+          billing_currency: currency,
+          type: isCompany ? 'company' : 'individual',
+          registration_number: regNum,
+          tax_identifier: taxId
+        })
+      });
+      const data = await res.json();
 
-      try {
-        await sendEmailVerification(credential.user);
-      } catch (verifyError) {
-        console.warn('Firebase email verification could not be sent immediately.', verifyError);
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to start email verification.');
       }
 
-      const data = await resolveFirebaseProfile(credential.user, {
-        name,
-        email,
-        phone_number: phone,
-        country,
-        billing_currency: currency,
-        type: isCompany ? 'company' : 'individual',
-        registration_number: regNum,
-        tax_identifier: taxId
+      setUserId(data.user_id);
+      setOrgId(data.organization_id);
+      setEmailOtp('');
+      setScreen('verify_email');
+    } catch (err) {
+      setError(getFriendlyAuthError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyEmailOtp = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!/^\d{6}$/.test(emailOtp)) {
+      setError('Enter the 6-digit verification code.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const headers = await getFirebaseAuthHeaders();
+      const res = await fetch('/api/auth/registration/verify-email', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ email, otp: emailOtp })
       });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Email verification failed.');
+      }
 
       setUserId(data.user.id);
       setOrgId(data.organization.id);
@@ -146,7 +201,31 @@ export default function Auth({ onAuthSuccess }) {
       setSessionToken(data.auth_token);
       setScreen('pin_setup');
     } catch (err) {
-      setError(getFriendlyAuthError(err));
+      setError(err.message || 'Email verification failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendEmailOtp = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const headers = await getFirebaseAuthHeaders();
+      const res = await fetch('/api/auth/registration/resend-otp', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Could not resend verification code.');
+      }
+
+      setEmailOtp('');
+    } catch (err) {
+      setError(err.message || 'Could not resend verification code.');
     } finally {
       setLoading(false);
     }
@@ -175,6 +254,13 @@ export default function Auth({ onAuthSuccess }) {
 
       onAuthSuccess(data.user, data.role, data.organization, data.auth_token);
     } catch (err) {
+      if (err.code === 'EMAIL_VERIFICATION_REQUIRED') {
+        setEmail(loginEmail);
+        setEmailOtp('');
+        setScreen('verify_email');
+        setError('Please verify your email address before continuing.');
+        return;
+      }
       setError(getFriendlyAuthError(err));
     } finally {
       setLoading(false);
@@ -643,20 +729,35 @@ export default function Auth({ onAuthSuccess }) {
           </div>
           <h2 style={{ fontSize: '24px', margin: '12px 0 6px 0' }}>Verify Your Email</h2>
           <p style={{ marginBottom: '24px', fontSize: '13px' }}>
-            We've sent a mock verification email to <strong>{email}</strong>.
+            We've sent a 6-digit verification code to <strong>{email}</strong>.
           </p>
-          <div className="form-group" style={{ alignItems: 'center' }}>
-            <input
-              type="text"
-              placeholder="0 0 0 0"
-              className="form-control"
-              style={{ textAlign: 'center', fontSize: '24px', letterSpacing: '6px', width: '140px' }}
-              maxLength="4"
-              defaultValue="1234"
-            />
-          </div>
-          <button className="btn btn-primary" onClick={() => setScreen('verify_phone')} style={{ marginTop: '12px' }}>
-            Verify Email Address
+          <form onSubmit={handleVerifyEmailOtp}>
+            <div className="form-group" style={{ alignItems: 'center' }}>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="0 0 0 0 0 0"
+                className="form-control"
+                style={{ textAlign: 'center', fontSize: '24px', letterSpacing: '6px', width: '190px' }}
+                maxLength="6"
+                value={emailOtp}
+                onChange={e => setEmailOtp(e.target.value.replace(/[^0-9]/g, ''))}
+              />
+            </div>
+            {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
+            <button type="submit" className="btn btn-primary" disabled={loading} style={{ marginTop: '12px' }}>
+              {loading ? 'Verifying...' : 'Verify Email Address'}
+            </button>
+          </form>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={loading}
+            onClick={handleResendEmailOtp}
+            style={{ marginTop: '12px' }}
+          >
+            Resend Code
           </button>
         </div>
       )}

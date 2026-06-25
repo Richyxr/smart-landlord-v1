@@ -14,6 +14,9 @@ import { createIntegrationRoutes } from './routes/integrationRoutes.js';
 import { createNotificationRoutes } from './routes/notificationRoutes.js';
 import { createSaasBillingRoutes } from './routes/saasBillingRoutes.js';
 import { NotificationService } from './notificationService.js';
+import { EmailNotConfiguredError, sendEmail } from './mailerService.js';
+import { renderTemplate } from './emailTemplates.js';
+import { invalidatePendingOtps, recordOtpSent, requestOtp, verifyOtp, OtpError } from './otpService.js';
 import { initializeApp as initializeFirebaseAdminApp, getApps as getFirebaseAdminApps } from 'firebase-admin/app';
 import { getAuth as getFirebaseAdminAuth } from 'firebase-admin/auth';
 
@@ -53,6 +56,8 @@ const CARETAKER_PIN_PATTERN = /^\d{6}$/;
 const CARETAKER_MAX_FAILED_LOGIN_ATTEMPTS = 3;
 const CARETAKER_LOCKOUT_MS = 15 * 60 * 1000;
 const CARETAKER_LOGIN_ERROR = 'Invalid phone number or PIN.';
+const REGISTRATION_OTP_CONTEXT = 'registration_email_verify';
+const REGISTRATION_SMOKE_HEADER = 'x-smart-landlord-registration-smoke';
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'smart-landlord-1e526';
 const firebaseAdminApp = getFirebaseAdminApps().length
   ? getFirebaseAdminApps()[0]
@@ -63,6 +68,9 @@ const publicApiPaths = new Set([
   '/api/auth/login',
   '/api/auth/register',
   '/api/auth/firebase-profile',
+  '/api/auth/registration/start',
+  '/api/auth/registration/resend-otp',
+  '/api/auth/registration/verify-email',
   '/api/auth/caretaker/login',
   '/api/webhooks/payment',
   '/api/webhooks/mpesa/c2b',
@@ -188,6 +196,341 @@ async function activeUpdate(table, idOrFilter, data) {
   return pgDb ? pgDb.update(table, idOrFilter, data) : db.update(table, idOrFilter, data);
 }
 
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function createJsonOtpDb() {
+  return {
+    async query(sql, params = []) {
+      const normalizedSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
+
+      if (normalizedSql.startsWith('select count(*) as cnt from otp_codes')) {
+        const [identifier, context, createdAfter] = params;
+        const createdAfterTime = new Date(createdAfter).getTime();
+        const count = db.get('otp_codes').filter(row =>
+          row.identifier === identifier &&
+          row.context === context &&
+          new Date(row.created_at).getTime() > createdAfterTime
+        ).length;
+        return { rows: [{ cnt: String(count) }] };
+      }
+
+      if (normalizedSql.startsWith('update otp_codes set invalidated_at = now() where identifier')) {
+        const [identifier, context] = params;
+        const nowIso = new Date().toISOString();
+        const activeRows = db.get('otp_codes').filter(row =>
+          row.identifier === identifier &&
+          row.context === context &&
+          !row.verified_at &&
+          !row.invalidated_at &&
+          new Date(row.expires_at).getTime() > Date.now()
+        );
+        for (const row of activeRows) {
+          db.update('otp_codes', row.id, { invalidated_at: nowIso });
+        }
+        return { rows: [] };
+      }
+
+      if (normalizedSql.startsWith('select * from otp_codes where identifier')) {
+        const [identifier, context] = params;
+        const rows = db.get('otp_codes')
+          .filter(row =>
+            row.identifier === identifier &&
+            row.context === context &&
+            !row.verified_at &&
+            !row.invalidated_at &&
+            new Date(row.expires_at).getTime() > Date.now()
+          )
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        return { rows: rows.slice(0, 1) };
+      }
+
+      if (normalizedSql.startsWith('update otp_codes set attempts =')) {
+        const [attempts, id] = params;
+        db.update('otp_codes', Number(id), { attempts });
+        return { rows: [] };
+      }
+
+      if (normalizedSql.startsWith('update otp_codes set invalidated_at = now() where id')) {
+        const [id] = params;
+        db.update('otp_codes', Number(id), { invalidated_at: new Date().toISOString() });
+        return { rows: [] };
+      }
+
+      if (normalizedSql.startsWith('update otp_codes set verified_at = now() where id')) {
+        const [id] = params;
+        db.update('otp_codes', Number(id), { verified_at: new Date().toISOString() });
+        return { rows: [] };
+      }
+
+      throw new Error(`Unsupported JSON OTP query: ${sql}`);
+    },
+
+    async insert(table, rowData) {
+      return db.insert(table, rowData);
+    },
+
+    async update(table, query, updates) {
+      return db.update(table, query, updates);
+    },
+
+    async logAudit(orgId, actorUserId, actorRole, actionType, targetType, targetId, oldValues = null, newValues = null, reason = '', pinValidated = null) {
+      return db.logAudit(orgId, actorUserId, actorRole, actionType, targetType, targetId, oldValues, newValues, reason, pinValidated);
+    },
+
+    async logError(orgId, userId, source, message) {
+      return db.logError(orgId, userId, source, message);
+    }
+  };
+}
+
+const jsonOtpDb = pgDb ? null : createJsonOtpDb();
+
+function getOtpDb() {
+  return pgDb || jsonOtpDb;
+}
+
+async function logRegistrationAudit(orgId, userId, actionType, reason, status = null, newValues = null) {
+  const activeDb = pgDb || db;
+  if (!activeDb?.logAudit) return;
+
+  try {
+    await activeDb.logAudit(
+      orgId || null,
+      userId || null,
+      'system',
+      actionType,
+      'registration',
+      userId || null,
+      null,
+      newValues,
+      reason,
+      status
+    );
+  } catch (error) {
+    console.warn(`[registration] Audit log failed (non-fatal): ${error.message}`);
+  }
+}
+
+async function verifyFirebaseOrSmokeRegistrationToken(req) {
+  if (DEMO_MODE && req.headers[REGISTRATION_SMOKE_HEADER] === 'true') {
+    const body = req.body || {};
+    const email = normalizeEmail(body.email);
+    if (!email) {
+      const error = new Error('EMAIL_REQUIRED');
+      error.statusCode = 400;
+      throw error;
+    }
+    return {
+      uid: body.firebase_uid || `smoke:${email}`,
+      email,
+      email_verified: false,
+      name: body.name || email.split('@')[0],
+      phone_number: body.phone_number || ''
+    };
+  }
+
+  const authHeader = req.headers.authorization || '';
+  const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!idToken) {
+    const error = new Error('FIREBASE_TOKEN_REQUIRED');
+    error.statusCode = 401;
+    throw error;
+  }
+
+  const decodedToken = await firebaseAdminAuth.verifyIdToken(idToken);
+  return decodedToken;
+}
+
+async function ensureRegistrationProfile(decodedToken, profile = {}) {
+  const firebaseUid = decodedToken.uid;
+  const email = normalizeEmail(decodedToken.email || profile.email);
+
+  if (!firebaseUid || !email) {
+    const error = new Error('REGISTRATION_PROFILE_INVALID');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const displayName = profile.name || decodedToken.name || email.split('@')[0];
+  const phoneNumber = profile.phone_number || decodedToken.phone_number || '';
+
+  let user = await activeFindOne('users', { auth_provider_uid: firebaseUid });
+  if (!user) {
+    user = await activeFindOne('users', { email });
+  }
+
+  if (user?.email_verified && user.status === 'active') {
+    const error = new Error('ACCOUNT_ALREADY_ACTIVE');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  if (user?.auth_provider_uid && user.auth_provider_uid !== firebaseUid) {
+    const error = new Error('REGISTRATION_UNAVAILABLE');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  if (!user) {
+    user = await activeInsert('users', {
+      auth_provider_uid: firebaseUid,
+      email,
+      email_verified: false,
+      phone_number: phoneNumber,
+      phone_verified: Boolean(decodedToken.phone_number),
+      name: displayName,
+      status: 'pending_verification'
+    });
+  } else {
+    await activeUpdate('users', user.id, {
+      auth_provider_uid: user.auth_provider_uid || firebaseUid,
+      email,
+      email_verified: false,
+      phone_number: phoneNumber || user.phone_number,
+      name: displayName || user.name,
+      status: 'pending_verification'
+    });
+    user = await activeFindOne('users', { id: user.id });
+  }
+
+  let membership = await activeFindOne('organization_members', {
+    user_id: user.id,
+    role: 'landlord'
+  });
+
+  let organization = membership?.organization_id
+    ? await activeFindOne('organizations', { id: membership.organization_id })
+    : null;
+
+  if (!organization) {
+    organization = await activeInsert('organizations', {
+      owner_user_id: user.id,
+      name: displayName,
+      type: profile.type || 'individual',
+      registration_number: profile.registration_number || '',
+      tax_identifier: profile.tax_identifier || '',
+      email,
+      phone_number: phoneNumber,
+      country: profile.country || 'Kenya',
+      billing_currency: profile.billing_currency || 'KES',
+      subscription_tier: 'standard',
+      subscription_status: 'trial',
+      trial_start_at: new Date().toISOString(),
+      trial_ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      subscription_expires_at: null,
+      is_locked: false,
+      security_pin_hash: '',
+      status: 'active'
+    });
+
+    membership = await activeInsert('organization_members', {
+      organization_id: organization.id,
+      user_id: user.id,
+      role: 'landlord',
+      status: 'active'
+    });
+
+    await activeInsert('notification_settings', {
+      organization_id: organization.id,
+      rent_reminders_enabled: true,
+      reminder_days_before_due: 3,
+      payment_confirmation_enabled: true,
+      unmatched_payment_alert_enabled: true,
+      meter_reading_alert_enabled: true,
+      billing_alerts_enabled: true,
+      sms_provider: 'None'
+    });
+  }
+
+  return { user, organization, membership };
+}
+
+async function sendRegistrationOtpEmail({ user, organization }) {
+  const otpDb = getOtpDb();
+  const normalizedEmail = normalizeEmail(user.email);
+
+  const otpRequest = await requestOtp({
+    pgDb: otpDb,
+    identifier: normalizedEmail,
+    context: REGISTRATION_OTP_CONTEXT,
+    organizationId: organization?.id || null,
+    userId: user.id
+  });
+
+  await logRegistrationAudit(
+    organization?.id,
+    user.id,
+    'registration_otp_requested',
+    'Registration email OTP requested.',
+    null,
+    { email: normalizedEmail, context: REGISTRATION_OTP_CONTEXT }
+  );
+
+  const { subject, html, text } = renderTemplate('otp_verification', {
+    otp: otpRequest.otp,
+    context: 'email_verify',
+    recipientName: user.name,
+    expiryMinutes: 10
+  });
+
+  try {
+    await sendEmail({
+      to: normalizedEmail,
+      subject,
+      html,
+      text
+    });
+  } catch (error) {
+    await invalidatePendingOtps({
+      pgDb: otpDb,
+      identifier: normalizedEmail,
+      context: REGISTRATION_OTP_CONTEXT
+    });
+    throw error;
+  }
+
+  await recordOtpSent({
+    pgDb: otpDb,
+    otpId: otpRequest.otpId,
+    organizationId: organization?.id || null,
+    userId: user.id,
+    channel: 'email'
+  });
+
+  await logRegistrationAudit(
+    organization?.id,
+    user.id,
+    'registration_otp_sent',
+    'Registration email OTP sent.',
+    'success',
+    { email: normalizedEmail, context: REGISTRATION_OTP_CONTEXT }
+  );
+
+  return { expiresAt: otpRequest.expiresAt };
+}
+
+function mapOtpErrorToResponse(error) {
+  if (error instanceof OtpError && error.code === 'RATE_LIMIT_EXCEEDED') {
+    return {
+      status: 429,
+      body: {
+        error: 'REGISTRATION_OTP_RATE_LIMITED',
+        message: 'Too many verification code requests. Please wait before requesting another code.'
+      }
+    };
+  }
+
+  return {
+    status: 400,
+    body: {
+      error: 'REGISTRATION_OTP_INVALID',
+      message: 'The verification code is invalid or expired. Please request a new code if needed.'
+    }
+  };
+}
+
 function isValidCaretakerPin(pin) {
   return CARETAKER_PIN_PATTERN.test(String(pin || ''));
 }
@@ -276,7 +619,7 @@ async function attachSessionContext(req, res, next) {
       if (!session) {
         // /api/auth/firebase-profile receives Firebase ID tokens, not legacy Smart Landlord session tokens.
         // Let the route handler verify Firebase tokens with firebase-admin.
-        if (req.path === '/api/auth/firebase-profile') {
+        if (req.path === '/api/auth/firebase-profile' || req.path.startsWith('/api/auth/registration/')) {
           return next();
         }
 
@@ -290,6 +633,13 @@ async function attachSessionContext(req, res, next) {
 
       if (!user || (session.organization_id && !organization)) {
         return res.status(401).json({ error: 'INVALID_SESSION', message: 'Session user or organization no longer exists.' });
+      }
+
+      if (session.role === 'landlord' && (user.status === 'pending_verification' || user.email_verified === false)) {
+        return res.status(403).json({
+          error: 'EMAIL_VERIFICATION_REQUIRED',
+          message: 'Please verify your email address before continuing.'
+        });
       }
 
       req.auth = {
@@ -363,20 +713,198 @@ async function checkOrganizationLock(req, res, next) {
 app.use(attachSessionContext);
 app.use(checkOrganizationLock);
 
-// --- FIREBASE AUTH PROFILE API ---
-app.post('/api/auth/firebase-profile', async (req, res, next) => {
+// --- REGISTRATION EMAIL OTP API ---
+app.post('/api/auth/registration/start', async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization || '';
-    const idToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    const decodedToken = await verifyFirebaseOrSmokeRegistrationToken(req);
+    const profile = req.body || {};
+    const { user, organization } = await ensureRegistrationProfile(decodedToken, profile);
+    const otpResult = await sendRegistrationOtpEmail({ user, organization });
 
-    if (!idToken) {
-      return res.status(401).json({
-        error: 'FIREBASE_TOKEN_REQUIRED',
-        message: 'A Firebase ID token is required.'
+    return res.status(202).json({
+      email_verification_required: true,
+      email: user.email,
+      user_id: user.id,
+      organization_id: organization.id,
+      expires_at: otpResult.expiresAt.toISOString()
+    });
+  } catch (error) {
+    if (error instanceof OtpError) {
+      const mapped = mapOtpErrorToResponse(error);
+      return res.status(mapped.status).json(mapped.body);
+    }
+
+    if (error instanceof EmailNotConfiguredError || error.code === 'email_not_configured') {
+      return res.status(503).json({
+        error: 'REGISTRATION_EMAIL_NOT_CONFIGURED',
+        message: 'Email verification is temporarily unavailable. Please try again later.'
       });
     }
 
-    const decodedToken = await firebaseAdminAuth.verifyIdToken(idToken);
+    if (error.statusCode === 409) {
+      return res.status(409).json({
+        error: 'REGISTRATION_UNAVAILABLE',
+        message: 'Registration could not be completed with these details.'
+      });
+    }
+
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        error: error.message,
+        message: 'Registration could not be completed.'
+      });
+    }
+
+    next(error);
+  }
+});
+
+app.post('/api/auth/registration/resend-otp', async (req, res, next) => {
+  try {
+    const decodedToken = await verifyFirebaseOrSmokeRegistrationToken(req);
+    const email = normalizeEmail(decodedToken.email || req.body?.email);
+    const user = await activeFindOne('users', { email });
+
+    if (!user || user.email_verified || user.status !== 'pending_verification') {
+      return res.status(400).json({
+        error: 'REGISTRATION_OTP_UNAVAILABLE',
+        message: 'A verification code cannot be resent for this registration.'
+      });
+    }
+
+    const membership = await activeFindOne('organization_members', { user_id: user.id, role: 'landlord' });
+    const organization = membership?.organization_id
+      ? await activeFindOne('organizations', { id: membership.organization_id })
+      : null;
+
+    const otpResult = await sendRegistrationOtpEmail({ user, organization });
+    return res.json({
+      email_verification_required: true,
+      email: user.email,
+      expires_at: otpResult.expiresAt.toISOString()
+    });
+  } catch (error) {
+    if (error instanceof OtpError) {
+      const mapped = mapOtpErrorToResponse(error);
+      return res.status(mapped.status).json(mapped.body);
+    }
+
+    if (error instanceof EmailNotConfiguredError || error.code === 'email_not_configured') {
+      return res.status(503).json({
+        error: 'REGISTRATION_EMAIL_NOT_CONFIGURED',
+        message: 'Email verification is temporarily unavailable. Please try again later.'
+      });
+    }
+
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        error: error.message,
+        message: 'Verification code could not be resent.'
+      });
+    }
+
+    next(error);
+  }
+});
+
+app.post('/api/auth/registration/verify-email', async (req, res, next) => {
+  try {
+    const decodedToken = await verifyFirebaseOrSmokeRegistrationToken(req);
+    const email = normalizeEmail(decodedToken.email || req.body?.email);
+    const otp = String(req.body?.otp || '').trim();
+    const user = await activeFindOne('users', { email });
+
+    if (!user || user.email_verified || user.status !== 'pending_verification') {
+      return res.status(400).json({
+        error: 'REGISTRATION_OTP_INVALID',
+        message: 'The verification code is invalid or expired. Please request a new code if needed.'
+      });
+    }
+
+    const membership = await activeFindOne('organization_members', { user_id: user.id, role: 'landlord' });
+    const organization = membership?.organization_id
+      ? await activeFindOne('organizations', { id: membership.organization_id })
+      : null;
+
+    try {
+      await verifyOtp({
+        pgDb: getOtpDb(),
+        identifier: email,
+        context: REGISTRATION_OTP_CONTEXT,
+        otp,
+        organizationId: organization?.id || null,
+        userId: user.id
+      });
+    } catch (error) {
+      await logRegistrationAudit(
+        organization?.id,
+        user.id,
+        'registration_otp_failed',
+        'Registration email OTP verification failed.',
+        'failed',
+        { email, context: REGISTRATION_OTP_CONTEXT, code: error.code || 'unknown' }
+      );
+
+      if (error instanceof OtpError && error.code === 'OTP_INVALID' && /0 attempts remaining/i.test(error.message || '')) {
+        await invalidatePendingOtps({
+          pgDb: getOtpDb(),
+          identifier: email,
+          context: REGISTRATION_OTP_CONTEXT
+        });
+      }
+
+      const mapped = mapOtpErrorToResponse(error);
+      return res.status(mapped.status).json(mapped.body);
+    }
+
+    await logRegistrationAudit(
+      organization?.id,
+      user.id,
+      'registration_otp_verified',
+      'Registration email OTP verified.',
+      'success',
+      { email, context: REGISTRATION_OTP_CONTEXT }
+    );
+
+    await activeUpdate('users', user.id, {
+      email_verified: true,
+      status: 'active'
+    });
+
+    const verifiedUser = await activeFindOne('users', { id: user.id });
+
+    await logRegistrationAudit(
+      organization?.id,
+      user.id,
+      'registration_email_verified',
+      'Registration email marked verified and account activated.',
+      'success',
+      { email }
+    );
+
+    const authToken = createSessionToken(verifiedUser, 'landlord', organization);
+    return res.json({
+      user: verifiedUser,
+      role: 'landlord',
+      organization,
+      auth_token: authToken
+    });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        error: error.message,
+        message: 'Email verification could not be completed.'
+      });
+    }
+
+    next(error);
+  }
+});
+
+// --- FIREBASE AUTH PROFILE API ---
+app.post('/api/auth/firebase-profile', async (req, res, next) => {
+  try {
+    const decodedToken = await verifyFirebaseOrSmokeRegistrationToken(req);
     const firebaseUid = decodedToken.uid;
     const email = decodedToken.email || req.body.email;
 
@@ -405,20 +933,23 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
     }
 
     if (!user) {
+      const isEmailVerified = Boolean(decodedToken.email_verified);
       user = await activeInsert('users', {
         auth_provider_uid: firebaseUid,
         email,
-        email_verified: Boolean(decodedToken.email_verified),
+        email_verified: isEmailVerified,
         phone_number: phoneNumber,
         phone_verified: Boolean(decodedToken.phone_number),
         name: displayName,
-        status: 'active'
+        status: isEmailVerified ? 'active' : 'pending_verification'
       });
     } else if (!user.auth_provider_uid) {
+      const isEmailVerified = Boolean(user.email_verified || decodedToken.email_verified);
       await activeUpdate('users', user.id, {
         auth_provider_uid: firebaseUid,
-        email_verified: Boolean(decodedToken.email_verified),
-        phone_verified: Boolean(decodedToken.phone_number)
+        email_verified: isEmailVerified,
+        phone_verified: Boolean(user.phone_verified || decodedToken.phone_number),
+        status: isEmailVerified ? 'active' : 'pending_verification'
       });
 
       user = await activeFindOne('users', { id: user.id });
@@ -488,6 +1019,13 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
       }
     }
 
+    if (user.status === 'pending_verification' || user.email_verified === false) {
+      return res.status(403).json({
+        error: 'EMAIL_VERIFICATION_REQUIRED',
+        message: 'Please verify your email address before continuing.'
+      });
+    }
+
     const role = membership?.role || 'landlord';
     const authToken = createSessionToken(user, role, organization);
 
@@ -498,6 +1036,15 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
       auth_token: authToken
     });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        error: error.message,
+        message: error.message === 'FIREBASE_TOKEN_REQUIRED'
+          ? 'A Firebase ID token is required.'
+          : 'Failed to verify Firebase registration session.'
+      });
+    }
+
     if (
       error?.code === 'auth/id-token-expired' ||
       error?.code === 'auth/argument-error' ||
