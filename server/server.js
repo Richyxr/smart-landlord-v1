@@ -1035,13 +1035,14 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
       });
     }
 
-    const role = membership?.role || 'landlord';
-    const authToken = createSessionToken(user, role, organization);
+    const role = user.is_super_admin ? 'super_admin' : (membership?.role || 'landlord');
+    const organizationForSession = role === 'super_admin' ? null : organization;
+    const authToken = createSessionToken(user, role, organizationForSession);
 
     return res.status(200).json({
       user,
       role,
-      organization,
+      organization: organizationForSession,
       auth_token: authToken
     });
   } catch (error) {
@@ -1112,15 +1113,16 @@ app.post('/api/auth/login', (req, res) => {
     org = db.findOne('organizations', { id: member.organization_id });
   }
 
-  const resolvedRole = member ? member.role : (user.email.includes('admin') ? 'super_admin' : 'landlord');
-  const authToken = createSessionToken(user, resolvedRole, org);
+  const resolvedRole = user.is_super_admin ? 'super_admin' : (member ? member.role : (user.email.includes('admin') ? 'super_admin' : 'landlord'));
+  const organizationForSession = resolvedRole === 'super_admin' ? null : org;
+  const authToken = createSessionToken(user, resolvedRole, organizationForSession);
 
   db.logAudit(org ? org.id : null, user.id, resolvedRole || requestedRole || 'unknown', 'login', 'user', user.id, null, null, 'User logged in successfully', 'success');
 
   res.json({
     user,
     role: resolvedRole,
-    organization: org,
+    organization: organizationForSession,
     auth_token: authToken
   });
 });

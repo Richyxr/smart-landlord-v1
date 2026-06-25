@@ -227,9 +227,9 @@ function seedDb() {
 
   // Create Users
   // Password hash isn't used strictly since we mock authentication, but we keep structure
-  const adminUser = { id: 1, email: 'admin@smartlandlord.com', email_verified: true, phone_number: '+254700000000', phone_verified: true, name: 'Super Admin', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-  const landlordUser = { id: 2, email: 'landlord@demo.com', email_verified: true, phone_number: '+254712345678', phone_verified: true, name: 'Maina Kamau', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-  const caretakerUser = { id: 3, email: 'caretaker@demo.com', email_verified: true, phone_number: '+254722111222', phone_verified: true, name: 'Juma Omondi', caretaker_pin_hash: '$2a$10$LhgFLAFrl6frTX9../AgreYmI1T5/oJPLGrNznXu5H0JuW7L0iblm', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const adminUser = { id: 1, email: 'admin@smartlandlord.com', is_super_admin: true, email_verified: true, phone_number: '+254700000000', phone_verified: true, name: 'Super Admin', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const landlordUser = { id: 2, email: 'landlord@demo.com', is_super_admin: false, email_verified: true, phone_number: '+254712345678', phone_verified: true, name: 'Maina Kamau', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const caretakerUser = { id: 3, email: 'caretaker@demo.com', is_super_admin: false, email_verified: true, phone_number: '+254722111222', phone_verified: true, name: 'Juma Omondi', caretaker_pin_hash: '$2a$10$LhgFLAFrl6frTX9../AgreYmI1T5/oJPLGrNznXu5H0JuW7L0iblm', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   
   data.users = [adminUser, landlordUser, caretakerUser];
 

@@ -5,6 +5,7 @@ CREATE TABLE users (
   id BIGSERIAL PRIMARY KEY,
   auth_provider_uid TEXT UNIQUE,
   email TEXT NOT NULL UNIQUE,
+  is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
   email_verified BOOLEAN NOT NULL DEFAULT FALSE,
   phone_number TEXT NOT NULL,
   phone_verified BOOLEAN NOT NULL DEFAULT FALSE,
