@@ -1,6 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Building2, Mail, ShieldCheck, TestTube2 } from 'lucide-react';
 
+const DEFAULT_STATS = {
+  total_organizations: 0,
+  active_organizations: 0,
+  locked_organizations: 0,
+  total_active_tenants: 0,
+  monthly_saas_revenue: 0,
+  pending_confirmations: 0,
+  system_errors_count: 0
+};
+
+function toFiniteNumber(value, fallback = 0) {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTrigger, onRefresh }) {
   const routeTabMap = {
     admin_dashboard: 'dashboard',
@@ -18,15 +33,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       setActiveTab(nextTab);
     }
   }, [activeRoute]);
-  const [stats, setStats] = useState({
-    total_organizations: 0,
-    active_organizations: 0,
-    locked_organizations: 0,
-    total_active_tenants: 0,
-    monthly_saas_revenue: 0,
-    pending_confirmations: 0,
-    system_errors_count: 0
-  });
+  const [stats, setStats] = useState(DEFAULT_STATS);
 
   const [landlords, setLandlords] = useState([]);
   const [pendingPayments, setPendingPayments] = useState([]);
@@ -72,7 +79,23 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
   const fetchStats = async () => {
     try {
       const res = await fetch('/api/admin/stats', { headers });
-      setStats(await res.json());
+      if (!res.ok) {
+        throw new Error('Failed to fetch platform stats.');
+      }
+
+      const payload = await res.json();
+      const source = payload && typeof payload === 'object' ? payload : {};
+
+      setStats({
+        ...DEFAULT_STATS,
+        total_organizations: toFiniteNumber(source.total_organizations),
+        active_organizations: toFiniteNumber(source.active_organizations),
+        locked_organizations: toFiniteNumber(source.locked_organizations),
+        total_active_tenants: toFiniteNumber(source.total_active_tenants),
+        monthly_saas_revenue: toFiniteNumber(source.monthly_saas_revenue),
+        pending_confirmations: toFiniteNumber(source.pending_confirmations),
+        system_errors_count: toFiniteNumber(source.system_errors_count)
+      });
     } catch (e) {
       console.error(e);
     }
@@ -292,7 +315,15 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
   };
 
   const formatCurrency = (val) => {
-    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(val);
+    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(toFiniteNumber(val));
+  };
+
+  const safeStats = {
+    total_organizations: toFiniteNumber(stats.total_organizations),
+    total_active_tenants: toFiniteNumber(stats.total_active_tenants),
+    locked_organizations: toFiniteNumber(stats.locked_organizations),
+    pending_confirmations: toFiniteNumber(stats.pending_confirmations),
+    monthly_saas_revenue: toFiniteNumber(stats.monthly_saas_revenue)
   };
 
   return (
@@ -384,22 +415,22 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           <div className="grid-2">
             <div className="card" style={{ marginBottom: 0 }}>
               <span className="kpi-lbl">Total Landlords</span>
-              <div className="kpi-num">{stats.total_organizations}</div>
+              <div className="kpi-num">{safeStats.total_organizations}</div>
             </div>
             <div className="card" style={{ marginBottom: 0 }}>
               <span className="kpi-lbl">Active Tenants</span>
-              <div className="kpi-num">{stats.total_active_tenants}</div>
+              <div className="kpi-num">{safeStats.total_active_tenants}</div>
             </div>
             <div className="card" style={{ marginBottom: 0 }}>
               <span className="kpi-lbl">Locked accounts</span>
-              <div className="kpi-num" style={{ color: stats.locked_organizations > 0 ? 'var(--danger)' : 'var(--text-primary)' }}>
-                {stats.locked_organizations}
+              <div className="kpi-num" style={{ color: safeStats.locked_organizations > 0 ? 'var(--danger)' : 'var(--text-primary)' }}>
+                {safeStats.locked_organizations}
               </div>
             </div>
             <div className="card" style={{ marginBottom: 0 }}>
               <span className="kpi-lbl">SaaS Billing Confirmations</span>
-              <div className="kpi-num" style={{ color: stats.pending_confirmations > 0 ? 'var(--warning)' : 'var(--text-primary)' }}>
-                {stats.pending_confirmations}
+              <div className="kpi-num" style={{ color: safeStats.pending_confirmations > 0 ? 'var(--warning)' : 'var(--text-primary)' }}>
+                {safeStats.pending_confirmations}
               </div>
             </div>
           </div>
@@ -407,7 +438,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           <div className="card">
             <span className="kpi-lbl">Total Monthly SaaS Revenue</span>
             <div className="kpi-num" style={{ color: 'var(--success)', fontSize: '28px' }}>
-              {formatCurrency(stats.monthly_saas_revenue)}
+              {formatCurrency(safeStats.monthly_saas_revenue)}
             </div>
           </div>
 
@@ -464,7 +495,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
               
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', background: 'var(--bg-surface-elevated)', padding: '6px', borderRadius: '4px', margin: '8px 0' }}>
                 <span>Sub: <strong>{org.subscription_tier.toUpperCase()}</strong></span>
-                <span>Active Tenants: <strong>{org.active_tenant_count}</strong></span>
+                <span>Active Tenants: <strong>{toFiniteNumber(org.active_tenant_count)}</strong></span>
               </div>
 
               <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', marginTop: '12px' }}>

@@ -41,6 +41,11 @@ function requireSuperAdminContext(req, res, next) {
   next();
 }
 
+function toFiniteNumber(value, fallback = 0) {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret = null, sessionTtlSeconds = 86400, createSessionToken = null } = {}) {
   const router = express.Router();
 
@@ -390,23 +395,23 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // =========================================================================
   router.get('/admin/stats', requireSuperAdminContext, asyncHandler(async (req, res) => {
     if (pgDb) {
-      const totalOrgsRes = await pgDb.query("SELECT COUNT(*) FROM organizations WHERE status <> 'deleted'");
-      const activeOrgsRes = await pgDb.query("SELECT COUNT(*) FROM organizations WHERE status = 'active'");
-      const lockedOrgsRes = await pgDb.query("SELECT COUNT(*) FROM organizations WHERE is_locked = true AND status <> 'deleted'");
-      const activeTenantsRes = await pgDb.query("SELECT COUNT(*) FROM tenants WHERE status = 'active' AND deleted_at IS NULL");
+      const totalOrgsRes = await pgDb.query("SELECT COUNT(*) AS count FROM organizations WHERE status <> 'deleted'");
+      const activeOrgsRes = await pgDb.query("SELECT COUNT(*) AS count FROM organizations WHERE status = 'active'");
+      const lockedOrgsRes = await pgDb.query("SELECT COUNT(*) AS count FROM organizations WHERE is_locked = true AND status <> 'deleted'");
+      const activeTenantsRes = await pgDb.query("SELECT COUNT(*) AS count FROM tenants WHERE status = 'active' AND deleted_at IS NULL");
       
-      const revenueRes = await pgDb.query("SELECT SUM(total) FROM platform_billing_invoices WHERE status = 'paid'");
-      const pendingRes = await pgDb.query("SELECT COUNT(*) FROM platform_billing_payments WHERE status = 'pending'");
-      const errorsRes = await pgDb.query("SELECT COUNT(*) FROM system_errors WHERE status = 'open'");
+      const revenueRes = await pgDb.query("SELECT COALESCE(SUM(total), 0) AS total FROM platform_billing_invoices WHERE status = 'paid'");
+      const pendingRes = await pgDb.query("SELECT COUNT(*) AS count FROM platform_billing_payments WHERE status = 'pending'");
+      const errorsRes = await pgDb.query("SELECT COUNT(*) AS count FROM system_errors WHERE status = 'open'");
 
       res.json({
-        total_organizations: parseInt(totalOrgsRes.rows[0].count),
-        active_organizations: parseInt(activeOrgsRes.rows[0].count),
-        locked_organizations: parseInt(lockedOrgsRes.rows[0].count),
-        total_active_tenants: parseInt(activeTenantsRes.rows[0].count),
-        monthly_saas_revenue: parseFloat(revenueRes.rows[0].sum || '0'),
-        pending_confirmations: parseInt(pendingRes.rows[0].count),
-        system_errors_count: parseInt(errorsRes.rows[0].count)
+        total_organizations: toFiniteNumber(totalOrgsRes.rows[0]?.count),
+        active_organizations: toFiniteNumber(activeOrgsRes.rows[0]?.count),
+        locked_organizations: toFiniteNumber(lockedOrgsRes.rows[0]?.count),
+        total_active_tenants: toFiniteNumber(activeTenantsRes.rows[0]?.count),
+        monthly_saas_revenue: toFiniteNumber(revenueRes.rows[0]?.total),
+        pending_confirmations: toFiniteNumber(pendingRes.rows[0]?.count),
+        system_errors_count: toFiniteNumber(errorsRes.rows[0]?.count)
       });
     } else {
       const localDb = await reqDb();
@@ -416,14 +421,18 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       const invoices = localDb.get('platform_billing_invoices');
       const payments = localDb.get('platform_billing_payments');
 
+      const paidRevenue = invoices
+        .filter(i => i.status === 'paid')
+        .reduce((sum, i) => sum + toFiniteNumber(i?.total), 0);
+
       res.json({
-        total_organizations: orgs.length,
-        active_organizations: orgs.filter(o => o.status === 'active').length,
-        locked_organizations: orgs.filter(o => o.is_locked).length,
-        total_active_tenants: tenants.filter(t => t.status === 'active' && !t.deleted_at).length,
-        monthly_saas_revenue: invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.total, 0),
-        pending_confirmations: payments.filter(p => p.status === 'pending').length,
-        system_errors_count: errors.filter(e => e.status === 'open').length
+        total_organizations: toFiniteNumber(orgs.length),
+        active_organizations: toFiniteNumber(orgs.filter(o => o.status === 'active').length),
+        locked_organizations: toFiniteNumber(orgs.filter(o => o.is_locked).length),
+        total_active_tenants: toFiniteNumber(tenants.filter(t => t.status === 'active' && !t.deleted_at).length),
+        monthly_saas_revenue: toFiniteNumber(paidRevenue),
+        pending_confirmations: toFiniteNumber(payments.filter(p => p.status === 'pending').length),
+        system_errors_count: toFiniteNumber(errors.filter(e => e.status === 'open').length)
       });
     }
   }));
@@ -613,6 +622,17 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       return res.status(400).json({ error: 'Missing price_per_active_tenant or grace_period_days.' });
     }
 
+    const parsedPricePerTenant = Number(price_per_active_tenant);
+    const parsedGracePeriodDays = Number(grace_period_days);
+
+    if (!Number.isFinite(parsedPricePerTenant) || parsedPricePerTenant < 0) {
+      return res.status(400).json({ error: 'price_per_active_tenant must be a finite number greater than or equal to 0.' });
+    }
+
+    if (!Number.isFinite(parsedGracePeriodDays) || !Number.isInteger(parsedGracePeriodDays) || parsedGracePeriodDays < 0) {
+      return res.status(400).json({ error: 'grace_period_days must be a finite integer greater than or equal to 0.' });
+    }
+
     let updated;
     if (pgDb) {
       const result = await pgDb.query(
@@ -622,7 +642,7 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
              updated_at = now()
          WHERE id = 1
          RETURNING *`,
-        [parseFloat(price_per_active_tenant), parseInt(grace_period_days)]
+        [parsedPricePerTenant, parsedGracePeriodDays]
       );
       updated = result.rows[0];
 
@@ -635,8 +655,8 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
     } else {
       const localDb = await reqDb();
       const resUpdated = localDb.update('platform_billing_settings', 1, {
-        price_per_active_tenant: parseFloat(price_per_active_tenant),
-        grace_period_days: parseInt(grace_period_days),
+        price_per_active_tenant: parsedPricePerTenant,
+        grace_period_days: parsedGracePeriodDays,
         updated_at: new Date().toISOString()
       });
       updated = resUpdated[0];
