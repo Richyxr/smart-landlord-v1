@@ -305,7 +305,7 @@ function findMatch({ rowData, tenants, invoices, unitsById, mappings }) {
 export function createReconciliationRoutes(pgDb) {
   const router = express.Router();
 
-  router.use(requireAuthenticatedContext);
+  router.use('/reconciliation', requireAuthenticatedContext);
 
   router.get('/reconciliation/staging', requireLandlord, asyncHandler(async (req, res) => {
     const { orgId } = getContext(req);

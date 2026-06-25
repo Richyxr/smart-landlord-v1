@@ -75,7 +75,7 @@ function requireLandlord(req, res, next) {
 export function createPropertyRoutes(pgDb) {
   const router = express.Router();
 
-  router.use(requireAuthenticatedContext);
+  router.use(['/properties', '/units', '/tenants'], requireAuthenticatedContext);
 
   router.get('/properties/caretakers', requireLandlord, asyncHandler(async (req, res) => {
     const { orgId } = getContext(req);

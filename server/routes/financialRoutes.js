@@ -261,7 +261,7 @@ async function buildReceiptPayload(client, orgId, transactionId) {
 export function createFinancialRoutes(pgDb) {
   const router = express.Router();
 
-  router.use(requireAuthenticatedContext);
+  router.use(['/invoices', '/payments'], requireAuthenticatedContext);
 
   router.get('/invoices', requireLandlord, asyncHandler(async (req, res) => {
     const { orgId } = getContext(req);
