@@ -107,3 +107,6 @@ backups/*
 *.dump
 *.backup
 *.sql.gz
+
+# Gemini / Antigravity local tooling
+.gemini/
