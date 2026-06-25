@@ -5,8 +5,11 @@ const DEFAULT_STATS = {
   total_organizations: 0,
   active_organizations: 0,
   locked_organizations: 0,
+  active_rental_tenants: 0,
+  billable_tenants: 0,
   total_active_tenants: 0,
   monthly_saas_revenue: 0,
+  lifetime_saas_revenue: 0,
   pending_confirmations: 0,
   system_errors_count: 0
 };
@@ -95,8 +98,11 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         total_organizations: toFiniteNumber(source.total_organizations),
         active_organizations: toFiniteNumber(source.active_organizations),
         locked_organizations: toFiniteNumber(source.locked_organizations),
+        active_rental_tenants: toFiniteNumber(source.active_rental_tenants, toFiniteNumber(source.total_active_tenants)),
+        billable_tenants: toFiniteNumber(source.billable_tenants, toFiniteNumber(source.total_active_tenants)),
         total_active_tenants: toFiniteNumber(source.total_active_tenants),
         monthly_saas_revenue: toFiniteNumber(source.monthly_saas_revenue),
+        lifetime_saas_revenue: toFiniteNumber(source.lifetime_saas_revenue, toFiniteNumber(source.monthly_saas_revenue)),
         pending_confirmations: toFiniteNumber(source.pending_confirmations),
         system_errors_count: toFiniteNumber(source.system_errors_count)
       });
@@ -349,10 +355,13 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
 
   const safeStats = {
     total_organizations: toFiniteNumber(stats.total_organizations),
+    active_rental_tenants: toFiniteNumber(stats.active_rental_tenants, toFiniteNumber(stats.total_active_tenants)),
+    billable_tenants: toFiniteNumber(stats.billable_tenants, toFiniteNumber(stats.total_active_tenants)),
     total_active_tenants: toFiniteNumber(stats.total_active_tenants),
     locked_organizations: toFiniteNumber(stats.locked_organizations),
     pending_confirmations: toFiniteNumber(stats.pending_confirmations),
-    monthly_saas_revenue: toFiniteNumber(stats.monthly_saas_revenue)
+    monthly_saas_revenue: toFiniteNumber(stats.monthly_saas_revenue),
+    lifetime_saas_revenue: toFiniteNumber(stats.lifetime_saas_revenue)
   };
   const safeLandlords = safeArrayPayload(landlords);
   const safePendingPayments = safeArrayPayload(pendingPayments);
@@ -452,8 +461,12 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
               <div className="kpi-num">{safeStats.total_organizations}</div>
             </div>
             <div className="card" style={{ marginBottom: 0 }}>
-              <span className="kpi-lbl">Active Tenants</span>
-              <div className="kpi-num">{safeStats.total_active_tenants}</div>
+              <span className="kpi-lbl">Active Rental Tenants</span>
+              <div className="kpi-num">{safeStats.active_rental_tenants}</div>
+            </div>
+            <div className="card" style={{ marginBottom: 0 }}>
+              <span className="kpi-lbl">Billable Tenants</span>
+              <div className="kpi-num">{safeStats.billable_tenants}</div>
             </div>
             <div className="card" style={{ marginBottom: 0 }}>
               <span className="kpi-lbl">Locked accounts</span>
@@ -470,9 +483,12 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           </div>
 
           <div className="card">
-            <span className="kpi-lbl">Total Monthly SaaS Revenue</span>
+            <span className="kpi-lbl">This Month SaaS Revenue</span>
             <div className="kpi-num" style={{ color: 'var(--success)', fontSize: '28px' }}>
               {formatCurrency(safeStats.monthly_saas_revenue)}
+            </div>
+            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              Lifetime SaaS Revenue: <strong>{formatCurrency(safeStats.lifetime_saas_revenue)}</strong>
             </div>
           </div>
 

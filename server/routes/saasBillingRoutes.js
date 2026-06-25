@@ -398,18 +398,54 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       const totalOrgsRes = await pgDb.query("SELECT COUNT(*) AS count FROM organizations WHERE status <> 'deleted'");
       const activeOrgsRes = await pgDb.query("SELECT COUNT(*) AS count FROM organizations WHERE status = 'active'");
       const lockedOrgsRes = await pgDb.query("SELECT COUNT(*) AS count FROM organizations WHERE is_locked = true AND status <> 'deleted'");
-      const activeTenantsRes = await pgDb.query("SELECT COUNT(*) AS count FROM tenants WHERE status = 'active' AND deleted_at IS NULL");
-      
-      const revenueRes = await pgDb.query("SELECT COALESCE(SUM(total), 0) AS total FROM platform_billing_invoices WHERE status = 'paid'");
+      const activeRentalTenantsRes = await pgDb.query(
+        `
+          SELECT COUNT(*) AS count
+          FROM tenants t
+          JOIN organizations o ON o.id = t.organization_id
+          WHERE t.status = 'active'
+            AND t.deleted_at IS NULL
+            AND o.status <> 'deleted'
+        `
+      );
+      const billableTenantsRes = await pgDb.query(
+        `
+          SELECT COUNT(*) AS count
+          FROM tenants t
+          JOIN organizations o ON o.id = t.organization_id
+          WHERE t.status = 'active'
+            AND t.deleted_at IS NULL
+            AND o.status = 'active'
+        `
+      );
+
+      const monthlyRevenueRes = await pgDb.query(
+        `
+          SELECT COALESCE(SUM(total), 0) AS total
+          FROM platform_billing_invoices
+          WHERE status = 'paid'
+            AND paid_at >= date_trunc('month', now())
+            AND paid_at < (date_trunc('month', now()) + interval '1 month')
+        `
+      );
+      const lifetimeRevenueRes = await pgDb.query("SELECT COALESCE(SUM(total), 0) AS total FROM platform_billing_invoices WHERE status = 'paid'");
       const pendingRes = await pgDb.query("SELECT COUNT(*) AS count FROM platform_billing_payments WHERE status = 'pending'");
       const errorsRes = await pgDb.query("SELECT COUNT(*) AS count FROM system_errors WHERE status = 'open'");
+
+      const activeRentalTenants = toFiniteNumber(activeRentalTenantsRes.rows[0]?.count);
+      const billableTenants = toFiniteNumber(billableTenantsRes.rows[0]?.count);
+      const monthlyRevenue = toFiniteNumber(monthlyRevenueRes.rows[0]?.total);
+      const lifetimeRevenue = toFiniteNumber(lifetimeRevenueRes.rows[0]?.total);
 
       res.json({
         total_organizations: toFiniteNumber(totalOrgsRes.rows[0]?.count),
         active_organizations: toFiniteNumber(activeOrgsRes.rows[0]?.count),
         locked_organizations: toFiniteNumber(lockedOrgsRes.rows[0]?.count),
-        total_active_tenants: toFiniteNumber(activeTenantsRes.rows[0]?.count),
-        monthly_saas_revenue: toFiniteNumber(revenueRes.rows[0]?.total),
+        active_rental_tenants: activeRentalTenants,
+        billable_tenants: billableTenants,
+        total_active_tenants: activeRentalTenants,
+        monthly_saas_revenue: monthlyRevenue,
+        lifetime_saas_revenue: lifetimeRevenue,
         pending_confirmations: toFiniteNumber(pendingRes.rows[0]?.count),
         system_errors_count: toFiniteNumber(errorsRes.rows[0]?.count)
       });
@@ -421,6 +457,39 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       const invoices = localDb.get('platform_billing_invoices');
       const payments = localDb.get('platform_billing_payments');
 
+      const nonDeletedOrgIds = new Set(
+        orgs
+          .filter(o => o.status !== 'deleted')
+          .map(o => o.id)
+      );
+      const activeOrgIds = new Set(
+        orgs
+          .filter(o => o.status === 'active')
+          .map(o => o.id)
+      );
+
+      const activeRentalTenants = tenants.filter(
+        t => t.status === 'active' && !t.deleted_at && nonDeletedOrgIds.has(t.organization_id)
+      ).length;
+      const billableTenants = tenants.filter(
+        t => t.status === 'active' && !t.deleted_at && activeOrgIds.has(t.organization_id)
+      ).length;
+
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+      const nextMonthStart = new Date(monthStart);
+      nextMonthStart.setMonth(nextMonthStart.getMonth() + 1);
+
+      const monthlyRevenue = invoices
+        .filter(i => {
+          if (i.status !== 'paid' || !i.paid_at) return false;
+          const paidAt = new Date(i.paid_at);
+          if (Number.isNaN(paidAt.getTime())) return false;
+          return paidAt >= monthStart && paidAt < nextMonthStart;
+        })
+        .reduce((sum, i) => sum + toFiniteNumber(i?.total), 0);
+
       const paidRevenue = invoices
         .filter(i => i.status === 'paid')
         .reduce((sum, i) => sum + toFiniteNumber(i?.total), 0);
@@ -429,8 +498,11 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         total_organizations: toFiniteNumber(orgs.length),
         active_organizations: toFiniteNumber(orgs.filter(o => o.status === 'active').length),
         locked_organizations: toFiniteNumber(orgs.filter(o => o.is_locked).length),
-        total_active_tenants: toFiniteNumber(tenants.filter(t => t.status === 'active' && !t.deleted_at).length),
-        monthly_saas_revenue: toFiniteNumber(paidRevenue),
+        active_rental_tenants: toFiniteNumber(activeRentalTenants),
+        billable_tenants: toFiniteNumber(billableTenants),
+        total_active_tenants: toFiniteNumber(activeRentalTenants),
+        monthly_saas_revenue: toFiniteNumber(monthlyRevenue),
+        lifetime_saas_revenue: toFiniteNumber(paidRevenue),
         pending_confirmations: toFiniteNumber(payments.filter(p => p.status === 'pending').length),
         system_errors_count: toFiniteNumber(errors.filter(e => e.status === 'open').length)
       });
