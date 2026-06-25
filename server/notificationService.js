@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { db } from './db.js';
-import { EmailNotConfiguredError, sendEmail } from './mailerService.js';
+import { sendEmailWithConfig } from './mailerService.js';
+import { resolveEmailDeliveryConfig } from './emailConfigService.js';
 
 // Predefined templates for various notification types
 const TEMPLATES = {
@@ -225,7 +226,11 @@ export class NotificationService {
         }
 
         const subject = log.type.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-        const result = await sendEmail({
+        const delivery = await resolveEmailDeliveryConfig({
+          pgDb: this.pgDb || db,
+          organizationId: log.organization_id
+        });
+        const result = await sendEmailWithConfig(delivery.credentials, {
           to: log.phone_number,
           subject,
           text: log.message,
@@ -355,7 +360,7 @@ export class NotificationService {
         }
       }
     } catch (error) {
-      const publicError = error instanceof EmailNotConfiguredError ? error.code : error.message;
+      const publicError = error.code || error.message;
       console.error(`[NotificationService ERROR] Log ${log.id} failed:`, publicError);
       
       const newRetryCount = (log.retry_count || 0) + 1;

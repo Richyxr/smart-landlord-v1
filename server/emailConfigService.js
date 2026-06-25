@@ -74,11 +74,12 @@ export function prepareSmtpConfigForStorage({ incomingConfig = {}, existingEncry
 }
 
 export async function resolveEmailDeliveryConfig({ pgDb, organizationId }) {
-  if (!pgDb) {
+  const activeDb = pgDb;
+  if (!activeDb) {
     throw new Error('Database access is required to resolve email delivery config.');
   }
 
-  const organization = await pgDb.findOne('organizations', { id: organizationId });
+  const organization = await activeDb.findOne('organizations', { id: organizationId });
   if (!organization) {
     const error = new Error('Organization not found.');
     error.code = 'ORGANIZATION_NOT_FOUND';
@@ -86,11 +87,11 @@ export async function resolveEmailDeliveryConfig({ pgDb, organizationId }) {
   }
 
   const mode = organization.email_delivery_mode || EMAIL_MODES.PLATFORM;
-  const customIntegration = await pgDb.findOne('organization_integrations', {
+  const customIntegration = await activeDb.findOne('organization_integrations', {
     organization_id: organizationId,
     provider_type: 'email'
   });
-  const platformSettings = await pgDb.findOne('platform_billing_settings', { id: 1 });
+  const platformSettings = await activeDb.findOne('platform_billing_settings', { id: 1 });
 
   if (mode === EMAIL_MODES.CUSTOM && customIntegration?.config_json_encrypted) {
     const credentials = normalizeSmtpConfig(decryptConfig(customIntegration.config_json_encrypted));

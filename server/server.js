@@ -14,8 +14,8 @@ import { createIntegrationRoutes } from './routes/integrationRoutes.js';
 import { createNotificationRoutes } from './routes/notificationRoutes.js';
 import { createSaasBillingRoutes } from './routes/saasBillingRoutes.js';
 import { NotificationService } from './notificationService.js';
-import { EmailNotConfiguredError, sendEmail } from './mailerService.js';
-import { EMAIL_MODES, maskSmtpConfig, normalizeSmtpConfig, prepareSmtpConfigForStorage, validateSmtpConfig } from './emailConfigService.js';
+import { sendEmailWithConfig } from './mailerService.js';
+import { EMAIL_MODES, maskSmtpConfig, normalizeSmtpConfig, prepareSmtpConfigForStorage, resolveEmailDeliveryConfig, validateSmtpConfig } from './emailConfigService.js';
 import { decryptConfig, encryptConfig } from './crypto.js';
 import { renderTemplate } from './emailTemplates.js';
 import { invalidatePendingOtps, recordOtpSent, requestOtp, verifyOtp, OtpError } from './otpService.js';
@@ -479,7 +479,12 @@ async function sendRegistrationOtpEmail({ user, organization }) {
   });
 
   try {
-    await sendEmail({
+    const delivery = await resolveEmailDeliveryConfig({
+      pgDb: (pgDb || db),
+      organizationId: organization?.id
+    });
+
+    await sendEmailWithConfig(delivery.credentials, {
       to: normalizedEmail,
       subject,
       html,
@@ -737,7 +742,7 @@ app.post('/api/auth/registration/start', async (req, res, next) => {
       return res.status(mapped.status).json(mapped.body);
     }
 
-    if (error instanceof EmailNotConfiguredError || error.code === 'email_not_configured') {
+    if (error.code === 'email_not_configured' || error.code === 'EMAIL_CONFIGURATION_NOT_READY') {
       return res.status(503).json({
         error: 'REGISTRATION_EMAIL_NOT_CONFIGURED',
         message: 'Email verification is temporarily unavailable. Please try again later.'
@@ -792,7 +797,7 @@ app.post('/api/auth/registration/resend-otp', async (req, res, next) => {
       return res.status(mapped.status).json(mapped.body);
     }
 
-    if (error instanceof EmailNotConfiguredError || error.code === 'email_not_configured') {
+    if (error.code === 'email_not_configured' || error.code === 'EMAIL_CONFIGURATION_NOT_READY') {
       return res.status(503).json({
         error: 'REGISTRATION_EMAIL_NOT_CONFIGURED',
         message: 'Email verification is temporarily unavailable. Please try again later.'

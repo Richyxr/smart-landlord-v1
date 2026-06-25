@@ -1,6 +1,8 @@
 import express from 'express';
 import { NotificationService } from '../notificationService.js';
-import { EmailNotConfiguredError, getMailerStatus, sendEmail } from '../mailerService.js';
+import { sendEmailWithConfig } from '../mailerService.js';
+import { decryptConfig } from '../crypto.js';
+import { maskSmtpConfig, normalizeSmtpConfig, validateSmtpConfig } from '../emailConfigService.js';
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -467,7 +469,22 @@ export function createNotificationRoutes(pgDb) {
   // GET /admin/email-status — Super admin SMTP configuration status
   // =========================================================================
   router.get('/admin/email-status', requireSuperAdminContext, asyncHandler(async (_req, res) => {
-    res.json(getMailerStatus());
+    const activeDb = pgDb || (await import('../db.js')).db;
+    const settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+    if (!settings) {
+      return res.status(404).json({ error: 'Platform settings not found.' });
+    }
+
+    const config = settings.smtp_config_encrypted
+      ? normalizeSmtpConfig(decryptConfig(settings.smtp_config_encrypted))
+      : {};
+
+    res.json({
+      configured: Boolean(settings.smtp_config_encrypted),
+      status: settings.smtp_status || 'not_configured',
+      last_tested_at: settings.smtp_last_tested_at || null,
+      config_masked: settings.smtp_config_encrypted ? maskSmtpConfig(config) : {}
+    });
   }));
 
   // =========================================================================
@@ -496,7 +513,19 @@ export function createNotificationRoutes(pgDb) {
     }
 
     try {
-      const result = await sendEmail({
+      const activeDb = pgDb || (await import('../db.js')).db;
+      const settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+      if (!settings?.smtp_config_encrypted) {
+        return res.status(503).json({ error: 'email_not_configured' });
+      }
+
+      const smtpConfig = normalizeSmtpConfig(decryptConfig(settings.smtp_config_encrypted));
+      const missing = validateSmtpConfig(smtpConfig);
+      if (missing.length > 0) {
+        return res.status(503).json({ error: 'email_not_configured', missing });
+      }
+
+      const result = await sendEmailWithConfig(smtpConfig, {
         to: recipient,
         subject: subject || 'Smart Landlord Email Smoke Test',
         text: text || 'Smart Landlord SMTP email delivery is configured.',
@@ -532,10 +561,9 @@ export function createNotificationRoutes(pgDb) {
 
       res.json({ success: true, message_id: result.messageId });
     } catch (error) {
-      if (error instanceof EmailNotConfiguredError || error.code === 'email_not_configured') {
+      if (error.code === 'email_not_configured') {
         return res.status(503).json({
-          error: 'email_not_configured',
-          missing: error.missingVars || getMailerStatus().missing || []
+          error: 'email_not_configured'
         });
       }
 
