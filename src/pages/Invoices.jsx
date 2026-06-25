@@ -6,6 +6,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
   const [invoices, setInvoices] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [units, setUnits] = useState([]);
+  const [landlordMpesaShortcode, setLandlordMpesaShortcode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -91,6 +92,23 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
       setInvoices(await resInvs.json());
       setTenants(await resTenants.json());
       setUnits(await resUnits.json());
+
+      // Source-of-truth for landlord rent collection instructions.
+      // Caretakers may receive 403 on integrations endpoint, so we fail safely.
+      try {
+        const resIntegrations = await fetch('/api/integrations', { headers });
+        if (resIntegrations.ok) {
+          const integrations = await resIntegrations.json();
+          const mpesaIntegration = Array.isArray(integrations)
+            ? integrations.find(item => item?.provider_type === 'mpesa' && item?.is_active !== false)
+            : null;
+          setLandlordMpesaShortcode(String(mpesaIntegration?.shortcode || '').trim());
+        } else {
+          setLandlordMpesaShortcode('');
+        }
+      } catch (_integrationError) {
+        setLandlordMpesaShortcode('');
+      }
     } catch (e) {
       setError('Failed to fetch billing data.');
     } finally {
@@ -636,7 +654,11 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
             <div style={{ background: '#f5f5f5', padding: '10px', borderRadius: '6px', fontSize: '10px', borderLeft: '3px solid #333' }}>
               <strong>Payment Instructions:</strong>
-              <div>Lipa Na M-Pesa Paybill: <strong>174379</strong></div>
+              {landlordMpesaShortcode ? (
+                <div>Lipa Na M-Pesa Paybill: <strong>{landlordMpesaShortcode}</strong></div>
+              ) : (
+                <div style={{ color: '#b45309' }}>M-Pesa Paybill is not configured for this property. Contact management before making payment.</div>
+              )}
               <div>Account Number: <strong>{printInvoice.tenant_account_number || printInvoice.unit_code}</strong></div>
             </div>
 

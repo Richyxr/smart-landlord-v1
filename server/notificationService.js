@@ -3,19 +3,26 @@ import { db } from './db.js';
 import { sendEmailWithConfig } from './mailerService.js';
 import { resolveEmailDeliveryConfig } from './emailConfigService.js';
 
+function paybillInstruction(data) {
+  if (data.paybill) {
+    return `M-Pesa Paybill ${data.paybill} Acc ${data.account_number}`;
+  }
+  return `your landlord's configured payment channel (M-Pesa Paybill not yet configured) Acc ${data.account_number}`;
+}
+
 // Predefined templates for various notification types
 const TEMPLATES = {
   rent_reminder: (data) => 
-    `Dear ${data.tenant_name}, this is a friendly reminder that your rent of KES ${data.amount} for unit ${data.unit_code} is due on ${data.due_date}. Please pay via M-Pesa Paybill ${data.paybill || '174379'} Acc ${data.account_number}. Thank you.`,
+    `Dear ${data.tenant_name}, this is a friendly reminder that your rent of KES ${data.amount} for unit ${data.unit_code} is due on ${data.due_date}. Please pay via ${paybillInstruction(data)}. Thank you.`,
   
   invoice_issued: (data) => 
-    `Dear ${data.tenant_name}, your rent invoice ${data.invoice_number} of KES ${data.amount} has been issued. Due date: ${data.due_date}. Pay via Paybill ${data.paybill || '174379'} Account: ${data.account_number}.`,
+    `Dear ${data.tenant_name}, your rent invoice ${data.invoice_number} of KES ${data.amount} has been issued. Due date: ${data.due_date}. Pay via ${paybillInstruction(data)}.`,
   
   payment_confirmed: (data) => 
     `Payment Confirmed: KES ${data.amount} received for account ${data.account_number}. Reference: ${data.reference}. Thank you.`,
   
   overdue_reminder: (data) => 
-    `URGENT NOTICE: Your rent invoice ${data.invoice_number} is overdue. Balance: KES ${data.balance}. Please pay via Paybill ${data.paybill || '174379'} Acc ${data.account_number} immediately.`,
+    `URGENT NOTICE: Your rent invoice ${data.invoice_number} is overdue. Balance: KES ${data.balance}. Please pay via ${paybillInstruction(data)} immediately.`,
   
   unmatched_payment_alert: (data) => 
     `ALERT: Unmatched payment of KES ${data.amount} from ${data.payer_name || 'unknown'} (${data.phone_number || 'N/A'}) with reference ${data.reference}. Please reconcile manually.`,
@@ -95,6 +102,7 @@ export class NotificationService {
         recipient_name: recipientName,
         phone_number: phoneNumber,
         email: email,
+        paybill: data?.paybill || await this._getLandlordMpesaShortcode(orgId, executor),
         ...data
       };
       const message = templateFn(templateData);
@@ -415,6 +423,35 @@ export class NotificationService {
       return result.rows[0] || null;
     }
     return db.findOne(table, filter);
+  }
+
+  /**
+   * Resolve the active landlord M-Pesa shortcode for rent payment instructions.
+   */
+  async _getLandlordMpesaShortcode(orgId, executor = null) {
+    const activeExecutor = executor || this.pgDb;
+    if (activeExecutor) {
+      const result = await activeExecutor.query(
+        `
+          SELECT shortcode
+          FROM organization_integrations
+          WHERE organization_id = $1
+            AND provider_type = 'mpesa'
+            AND is_active = true
+          ORDER BY updated_at DESC, id DESC
+          LIMIT 1
+        `,
+        [orgId]
+      );
+      return String(result.rows[0]?.shortcode || '').trim();
+    }
+
+    const integration = db.findOne('organization_integrations', {
+      organization_id: orgId,
+      provider_type: 'mpesa',
+      is_active: true
+    });
+    return String(integration?.shortcode || '').trim();
   }
 
   /**

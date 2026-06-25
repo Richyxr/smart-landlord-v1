@@ -133,6 +133,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
   const [consumerKey, setConsumerKey] = useState('');
   const [consumerSecret, setConsumerSecret] = useState('');
   const [shortcode, setShortcode] = useState('');
+  const [accountReference, setAccountReference] = useState('');
   const [passkey, setPasskey] = useState('');
   const [env, setEnv] = useState('sandbox');
   const [acknowledgeLiveGate, setAcknowledgeLiveGate] = useState(false);
@@ -339,7 +340,10 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
     } else if (selectedInt.provider_type === 'mpesa') {
       config.consumer_key = consumerKey;
       config.consumer_secret = consumerSecret;
-      config.shortcode = shortcode;
+      config.shortcode = shortcode.trim();
+      if (accountReference.trim()) {
+        config.account_reference = accountReference.trim();
+      }
       config.passkey = passkey;
     } else if (selectedInt.provider_type === 'email') {
       config.host = smtpHost.trim();
@@ -1123,6 +1127,19 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                   </span>
                 </div>
                 <div className="form-group">
+                  <label className="form-label">Tenant Account Reference Prefix (Optional)</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="e.g. ACC-"
+                    value={accountReference}
+                    onChange={e => setAccountReference(e.target.value)}
+                  />
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Helps webhook matching by validating expected account reference patterns.
+                  </span>
+                </div>
+                <div className="form-group">
                   <label className="form-label">Consumer Key</label>
                   <input type="text" required className="form-control" placeholder="Consumer Key from Safaricom Developer Portal" value={consumerKey} onChange={e => setConsumerKey(e.target.value)} />
                 </div>
@@ -1417,17 +1434,26 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
           {/* M-Pesa Integration */}
             <div className="card">
               <div className="flex-row">
-                <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> Safaricom M-Pesa C2B / STK</h4>
+                <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}><Smartphone size={16} /> Landlord Rent Collection (Safaricom M-Pesa C2B / STK)</h4>
                 <span className={`badge ${mpesaInt ? 'badge-success' : 'badge-warning'}`}>
                   {mpesaInt ? 'connected' : 'draft'}
                 </span>
               </div>
-              <p style={{ fontSize: '12px', marginTop: '6px' }}>Automates payments matching and reconciliation via webhook callbacks.</p>
+              <p style={{ fontSize: '12px', marginTop: '6px' }}>Use these credentials for this landlord organization rent/payment collection only. This does not change Super Admin platform SaaS billing paybill settings.</p>
+              {mpesaInt && (
+                <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  <div>Configured PayBill/Till: <strong>{mpesaInt.shortcode || 'Not set'}</strong></div>
+                  <div>Environment: <strong>{mpesaInt.environment || 'sandbox'}</strong></div>
+                  <div>Webhook Callback: <strong>{mpesaInt.callback_url || '/api/webhooks/mpesa/c2b'}</strong></div>
+                  {mpesaInt.account_reference && <div>Account Reference Prefix: <strong>{mpesaInt.account_reference}</strong></div>}
+                </div>
+              )}
               <div className="flex-gap" style={{ marginTop: '12px' }}>
                 <button className="btn btn-secondary btn-sm" onClick={() => {
                   setConsumerKey('');
                   setConsumerSecret('');
-                  setShortcode('');
+                  setShortcode(mpesaInt?.shortcode || '');
+                  setAccountReference(mpesaInt?.account_reference || '');
                   setPasskey('');
                   setEnv(mpesaInt?.environment || 'sandbox');
                   setAcknowledgeLiveGate(false);

@@ -2254,15 +2254,25 @@ app.post('/api/invoices/:id/send-reminder', async (req, res) => {
   const daysOverdue = Math.max(0, Math.floor((Date.now() - new Date(invoice.due_date)) / (1000 * 60 * 60 * 24)));
   const overdueNote = daysOverdue > 0 ? ` — ${daysOverdue} day${daysOverdue > 1 ? 's' : ''} overdue` : '';
   const org = db.findOne('organizations', { id: orgId });
+  const mpesaIntegration = db.findOne('organization_integrations', {
+    organization_id: orgId,
+    provider_type: 'mpesa',
+    is_active: true
+  });
+  const landlordPaybill = String(mpesaIntegration?.shortcode || '').trim();
 
   // Build channel-appropriate message
   let message;
   if (channel === 'sms') {
-    message = `Dear ${tenant.full_name}, this is a payment reminder for invoice ${invoice.invoice_number}. Balance: KES ${invoice.balance.toLocaleString()}${overdueNote}. Due: ${invoice.due_date}. Pay via Paybill 174379, Acct: ${tenant.tenant_account_number}. Thank you.`;
+    message = landlordPaybill
+      ? `Dear ${tenant.full_name}, this is a payment reminder for invoice ${invoice.invoice_number}. Balance: KES ${invoice.balance.toLocaleString()}${overdueNote}. Due: ${invoice.due_date}. Pay via Paybill ${landlordPaybill}, Acct: ${tenant.tenant_account_number}. Thank you.`
+      : `Dear ${tenant.full_name}, this is a payment reminder for invoice ${invoice.invoice_number}. Balance: KES ${invoice.balance.toLocaleString()}${overdueNote}. Due: ${invoice.due_date}. M-Pesa Paybill is not configured for this property. Please contact management before making payment. Acct: ${tenant.tenant_account_number}. Thank you.`;
   } else if (channel === 'email') {
-    message = `Dear ${tenant.full_name},\n\nThis is a friendly reminder that your invoice ${invoice.invoice_number} has an outstanding balance of KES ${invoice.balance.toLocaleString()}${overdueNote}.\n\nDue Date: ${invoice.due_date}\nInvoice Total: KES ${invoice.total.toLocaleString()}\nAmount Paid: KES ${invoice.amount_paid.toLocaleString()}\nBalance Due: KES ${invoice.balance.toLocaleString()}\n\nPlease make payment via:\nM-Pesa Paybill: 174379\nAccount Number: ${tenant.tenant_account_number}\n\nIf you have already made payment, please disregard this notice.\n\nWarm regards,\n${org ? org.name : 'Property Management'}`;
+    message = `Dear ${tenant.full_name},\n\nThis is a friendly reminder that your invoice ${invoice.invoice_number} has an outstanding balance of KES ${invoice.balance.toLocaleString()}${overdueNote}.\n\nDue Date: ${invoice.due_date}\nInvoice Total: KES ${invoice.total.toLocaleString()}\nAmount Paid: KES ${invoice.amount_paid.toLocaleString()}\nBalance Due: KES ${invoice.balance.toLocaleString()}\n\nPlease make payment via:\n${landlordPaybill ? `M-Pesa Paybill: ${landlordPaybill}` : 'M-Pesa Paybill: Not configured (contact management)'}\nAccount Number: ${tenant.tenant_account_number}\n\nIf you have already made payment, please disregard this notice.\n\nWarm regards,\n${org ? org.name : 'Property Management'}`;
   } else if (channel === 'whatsapp') {
-    message = `👋 Hi *${tenant.full_name}*!\n\nThis is a reminder for invoice *${invoice.invoice_number}*${overdueNote}.\n\n💰 *Balance Due:* KES ${invoice.balance.toLocaleString()}\n📅 *Due Date:* ${invoice.due_date}\n\nPay easily via M-Pesa:\n📲 *Paybill:* 174379\n🔑 *Account:* ${tenant.tenant_account_number}\n\nThank you! 🙏`;
+    message = landlordPaybill
+      ? `👋 Hi *${tenant.full_name}*!\n\nThis is a reminder for invoice *${invoice.invoice_number}*${overdueNote}.\n\n💰 *Balance Due:* KES ${invoice.balance.toLocaleString()}\n📅 *Due Date:* ${invoice.due_date}\n\nPay easily via M-Pesa:\n📲 *Paybill:* ${landlordPaybill}\n🔑 *Account:* ${tenant.tenant_account_number}\n\nThank you! 🙏`
+      : `👋 Hi *${tenant.full_name}*!\n\nThis is a reminder for invoice *${invoice.invoice_number}*${overdueNote}.\n\n💰 *Balance Due:* KES ${invoice.balance.toLocaleString()}\n📅 *Due Date:* ${invoice.due_date}\n\nM-Pesa Paybill is not configured for this property. Please contact management before making payment.\n🔑 *Account:* ${tenant.tenant_account_number}\n\nThank you! 🙏`;
   }
 
   const destination = channel === 'email' ? (tenant.email || tenant.phone_number) : tenant.phone_number;
