@@ -70,7 +70,31 @@ const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || process.env.GCLOU
 const firebaseAdminApp = getFirebaseAdminApps().length
   ? getFirebaseAdminApps()[0]
   : initializeFirebaseAdminApp({ projectId: FIREBASE_PROJECT_ID });
-const firebaseAdminAuth = getFirebaseAdminAuth(firebaseAdminApp);
+const firebaseAdminAuth = process.env.NODE_ENV === 'test'
+  ? (() => {
+      global.mockFirebasePasswords = global.mockFirebasePasswords || {
+        'smoke:reset-test@example.com': 'OldPassword123!'
+      };
+      return {
+        getUser: async (uid) => ({
+          uid,
+          providerData: [{ providerId: 'password' }],
+          email: uid.startsWith('smoke:') ? uid.slice(6) : uid
+        }),
+        verifyIdToken: async (idToken) => ({
+          uid: idToken,
+          email: idToken.startsWith('smoke:') ? idToken.slice(6) : idToken
+        }),
+        updateUser: async (uid, properties) => {
+          if (properties.password) {
+            global.mockFirebasePasswords[uid] = properties.password;
+          }
+          return { uid };
+        },
+        revokeRefreshTokens: async (uid) => ({ uid })
+      };
+    })()
+  : getFirebaseAdminAuth(firebaseAdminApp);
 
 const publicApiPaths = new Set([
   '/api/auth/login',
@@ -87,6 +111,10 @@ const publicApiPaths = new Set([
   '/api/webhooks/mpesa/stk',
   '/api/webhooks/bank'
 ]);
+
+if (process.env.NODE_ENV === 'test') {
+  publicApiPaths.add('/api/test/auth/mock-firebase-login');
+}
 
 app.use(cors());
 app.use(express.json());
@@ -1018,6 +1046,18 @@ app.post('/api/auth/reset-password', async (req, res) => {
     });
   }
 });
+
+if (process.env.NODE_ENV === 'test') {
+  app.post('/api/test/auth/mock-firebase-login', (req, res) => {
+    const { email, password } = req.body;
+    const uid = `smoke:${email}`;
+    const storedPassword = global.mockFirebasePasswords?.[uid];
+    if (storedPassword && storedPassword === password) {
+      return res.json({ success: true, token: uid });
+    }
+    return res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Invalid password.' });
+  });
+}
 
 app.post('/api/auth/registration/start', async (req, res, next) => {
   try {
