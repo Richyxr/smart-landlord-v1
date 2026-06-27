@@ -513,8 +513,40 @@ export default function Auth({ onAuthSuccess }) {
       {/* LOGIN SCREEN */}
       {screen === 'login' && (
         <div>
-          <h2 style={{ fontSize: '24px', marginBottom: '8px' }}>Welcome Back</h2>
-          <p style={{ marginBottom: '24px' }}>Sign in to access your properties and payments.</p>
+          {/* Brand Header */}
+          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <img
+              src="/icons/maskable-192.png"
+              alt="Smart Landlord"
+              style={{
+                width: '60px',
+                height: '60px',
+                margin: '0 auto 8px auto',
+                display: 'block',
+                borderRadius: '12px',
+                boxShadow: 'var(--shadow-sm)'
+              }}
+            />
+            <h1 style={{
+              fontFamily: 'var(--font-title)',
+              fontSize: '20px',
+              fontWeight: '600',
+              margin: '0 0 2px 0',
+              color: 'var(--text-primary)'
+            }}>
+              Smart <span style={{ color: 'var(--primary)' }}>Landlord</span>
+            </h1>
+            <p style={{
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              margin: 0
+            }}>
+              Property management made simple.
+            </p>
+          </div>
+
+          <h2 style={{ fontSize: '20px', marginBottom: '4px', textAlign: 'center' }}>Welcome Back</h2>
+          <p style={{ marginBottom: '20px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center' }}>Sign in to access your properties and payments.</p>
 
           <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-surface-elevated)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '20px' }}>
             <button
@@ -661,8 +693,40 @@ export default function Auth({ onAuthSuccess }) {
       {/* FORGOT PASSWORD SCREEN */}
       {screen === 'forgot_password' && (
         <div>
-          <h2 style={{ fontSize: '24px', marginBottom: '8px' }}>Reset Password</h2>
-          <p style={{ marginBottom: '24px', fontSize: '13px' }}>Enter your email address and we will send password reset instructions.</p>
+          {/* Brand Header */}
+          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <img
+              src="/icons/maskable-192.png"
+              alt="Smart Landlord"
+              style={{
+                width: '60px',
+                height: '60px',
+                margin: '0 auto 8px auto',
+                display: 'block',
+                borderRadius: '12px',
+                boxShadow: 'var(--shadow-sm)'
+              }}
+            />
+            <h1 style={{
+              fontFamily: 'var(--font-title)',
+              fontSize: '20px',
+              fontWeight: '600',
+              margin: '0 0 2px 0',
+              color: 'var(--text-primary)'
+            }}>
+              Smart <span style={{ color: 'var(--primary)' }}>Landlord</span>
+            </h1>
+            <p style={{
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              margin: 0
+            }}>
+              Property management made simple.
+            </p>
+          </div>
+
+          <h2 style={{ fontSize: '20px', marginBottom: '4px', textAlign: 'center' }}>Reset Password</h2>
+          <p style={{ marginBottom: '20px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center' }}>Enter your email address and we will send password reset instructions.</p>
 
           {forgotSent ? (
             <>
@@ -720,8 +784,40 @@ export default function Auth({ onAuthSuccess }) {
       {/* RESET PASSWORD SCREEN */}
       {screen === 'reset_password' && (
         <div>
-          <h2 style={{ fontSize: '24px', marginBottom: '8px' }}>Create New Password</h2>
-          <p style={{ marginBottom: '24px', fontSize: '13px' }}>Choose a new password for your Smart Landlord account.</p>
+          {/* Brand Header */}
+          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <img
+              src="/icons/maskable-192.png"
+              alt="Smart Landlord"
+              style={{
+                width: '60px',
+                height: '60px',
+                margin: '0 auto 8px auto',
+                display: 'block',
+                borderRadius: '12px',
+                boxShadow: 'var(--shadow-sm)'
+              }}
+            />
+            <h1 style={{
+              fontFamily: 'var(--font-title)',
+              fontSize: '20px',
+              fontWeight: '600',
+              margin: '0 0 2px 0',
+              color: 'var(--text-primary)'
+            }}>
+              Smart <span style={{ color: 'var(--primary)' }}>Landlord</span>
+            </h1>
+            <p style={{
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              margin: 0
+            }}>
+              Property management made simple.
+            </p>
+          </div>
+
+          <h2 style={{ fontSize: '20px', marginBottom: '4px', textAlign: 'center' }}>Create New Password</h2>
+          <p style={{ marginBottom: '20px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center' }}>Choose a new password for your Smart Landlord account.</p>
 
           {resetComplete ? (
             <>
@@ -795,8 +891,40 @@ export default function Auth({ onAuthSuccess }) {
       {/* REGISTER SCREEN */}
       {screen === 'register' && (
         <div>
-          <h2 style={{ fontSize: '24px', marginBottom: '4px' }}>Get Started</h2>
-          <p style={{ marginBottom: '20px', fontSize: '13px' }}>Set up your landlord profile.</p>
+          {/* Brand Header */}
+          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <img
+              src="/icons/maskable-192.png"
+              alt="Smart Landlord"
+              style={{
+                width: '60px',
+                height: '60px',
+                margin: '0 auto 8px auto',
+                display: 'block',
+                borderRadius: '12px',
+                boxShadow: 'var(--shadow-sm)'
+              }}
+            />
+            <h1 style={{
+              fontFamily: 'var(--font-title)',
+              fontSize: '20px',
+              fontWeight: '600',
+              margin: '0 0 2px 0',
+              color: 'var(--text-primary)'
+            }}>
+              Smart <span style={{ color: 'var(--primary)' }}>Landlord</span>
+            </h1>
+            <p style={{
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              margin: 0
+            }}>
+              Property management made simple.
+            </p>
+          </div>
+
+          <h2 style={{ fontSize: '20px', marginBottom: '4px', textAlign: 'center' }}>Get Started</h2>
+          <p style={{ marginBottom: '20px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center' }}>Set up your landlord profile.</p>
 
           <form onSubmit={handleRegister}>
             <div className="form-group">
