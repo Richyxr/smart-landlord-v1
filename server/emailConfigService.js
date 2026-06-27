@@ -10,9 +10,9 @@ function cleanOptionalText(value) {
   return String(value).trim();
 }
 
-function isMaskedPassword(value) {
+function isMaskedValue(value) {
   const normalized = cleanOptionalText(value);
-  return normalized === '********' || normalized === '••••••••' || /^•{4,}$/.test(normalized);
+  return normalized === '********' || normalized === '••••••••' || /^•{4,}$/.test(normalized) || normalized.includes('***');
 }
 
 export function normalizeSmtpConfig(configJson = {}) {
@@ -44,9 +44,12 @@ export function maskSmtpConfig(config) {
   if (!config || typeof config !== 'object') return {};
 
   const masked = { ...config };
-  if (masked.password) {
-    const password = String(masked.password);
-    masked.password = password.length > 4 ? `${password.substring(0, 2)}********` : '********';
+  const sensitiveFields = ['password', 'username', 'from_email', 'reply_to', 'host'];
+  for (const field of sensitiveFields) {
+    if (masked[field]) {
+      const val = String(masked[field]);
+      masked[field] = val.length > 4 ? `${val.substring(0, 2)}********` : '********';
+    }
   }
 
   return masked;
@@ -54,22 +57,27 @@ export function maskSmtpConfig(config) {
 
 export function prepareSmtpConfigForStorage({ incomingConfig = {}, existingEncryptedConfig = null } = {}) {
   const normalized = normalizeSmtpConfig(incomingConfig);
-  const preserveExistingPassword = !cleanOptionalText(incomingConfig.password) || isMaskedPassword(incomingConfig.password);
 
-  if (preserveExistingPassword && existingEncryptedConfig) {
+  if (existingEncryptedConfig) {
     try {
       const existingConfig = decryptConfig(existingEncryptedConfig);
-      if (existingConfig?.password) {
-        normalized.password = cleanOptionalText(existingConfig.password);
+      const sensitiveFields = ['password', 'username', 'from_email', 'reply_to', 'host'];
+      
+      for (const field of sensitiveFields) {
+        const incomingVal = incomingConfig[field];
+        const preserveExisting = !cleanOptionalText(incomingVal) || isMaskedValue(incomingVal);
+        if (preserveExisting && existingConfig?.[field]) {
+          normalized[field] = cleanOptionalText(existingConfig[field]);
+        }
       }
     } catch (_error) {
-      // If the old ciphertext cannot be decrypted, fall back to the submitted value.
+      // If decryption fails, fall back to whatever was submitted.
     }
   }
 
   return {
     configForStorage: normalized,
-    passwordPreserved: Boolean(normalized.password) && preserveExistingPassword && Boolean(existingEncryptedConfig)
+    passwordPreserved: Boolean(normalized.password) && (!cleanOptionalText(incomingConfig.password) || isMaskedValue(incomingConfig.password)) && Boolean(existingEncryptedConfig)
   };
 }
 

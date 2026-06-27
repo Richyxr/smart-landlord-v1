@@ -732,11 +732,31 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           </p>
 
           <div className="flex-row" style={{ marginBottom: '12px' }}>
-            <span className="badge badge-info">{platformEmail.status}</span>
+            <span className={`badge ${
+              platformEmail.status === 'active' ? 'badge-success' :
+              platformEmail.status === 'test_failed' ? 'badge-danger' :
+              platformEmail.status === 'verified' ? 'badge-info' :
+              platformEmail.status === 'needs_credentials' ? 'badge-warning' :
+              'badge-secondary'
+            }`}>
+              {
+                platformEmail.status === 'active' ? 'Active' :
+                platformEmail.status === 'test_failed' ? 'Failed' :
+                platformEmail.status === 'verified' ? 'Configured (Untested)' :
+                platformEmail.status === 'needs_credentials' ? 'Needs Credentials' :
+                'Not Configured'
+              }
+            </span>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
               Last tested: {platformEmail.last_tested_at ? new Date(platformEmail.last_tested_at).toLocaleString() : 'Never'}
             </span>
           </div>
+
+          {platformEmail.smtp_last_error && (
+            <div style={{ color: 'var(--danger)', fontSize: '12px', marginBottom: '14px', padding: '10px', background: 'var(--bg-surface-elevated)', borderLeft: '3px solid var(--danger)', borderRadius: '4px' }}>
+              <strong>Last Error:</strong> {platformEmail.smtp_last_error}
+            </div>
+          )}
 
           <form onSubmit={handlePlatformEmailSave} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div className="grid-2">

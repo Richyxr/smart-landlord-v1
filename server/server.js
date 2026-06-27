@@ -4262,7 +4262,8 @@ function defaultPlatformBillingSettingsRow() {
     mpesa_shortcode: '174379',
     smtp_config_encrypted: null,
     smtp_status: 'not_configured',
-    smtp_last_tested_at: null
+    smtp_last_tested_at: null,
+    smtp_last_error: null
   };
 }
 
@@ -4283,9 +4284,30 @@ function platformEmailResponseFromSettings(settings) {
   return {
     status: settings.smtp_status || 'not_configured',
     last_tested_at: settings.smtp_last_tested_at || null,
+    smtp_last_error: settings.smtp_last_error || null,
     config_masked: settings.smtp_config_encrypted ? maskSmtpConfig(config) : {},
     has_credentials: Boolean(settings.smtp_config_encrypted)
   };
+}
+
+function sanitizeSmtpErrorMessage(msg, config = {}) {
+  if (!msg) return '';
+  let sanitized = String(msg);
+
+  const sensitiveFields = ['password', 'username', 'from_email', 'host'];
+  for (const field of sensitiveFields) {
+    const val = config[field];
+    if (val && typeof val === 'string' && val.length > 2) {
+      const escapedVal = val.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const reg = new RegExp(escapedVal, 'gi');
+      sanitized = sanitized.replace(reg, '********');
+    }
+  }
+
+  sanitized = sanitized.replace(/(password|pass|token|apikey|api_key|secret|auth)\s*[=:]\s*[^\s&;,\"]+/gi, '$1=********');
+  sanitized = sanitized.replace(/(https?|smtps?):\/\/[^\s:@]+:[^\s:@]+@/gi, '$1://********:********@');
+
+  return sanitized;
 }
 
 async function ensurePlatformBillingSettings(activeDb) {
@@ -4362,7 +4384,8 @@ app.put('/api/admin/platform-email', async (req, res) => {
   const updated = await activeDb.update('platform_billing_settings', settings.id, {
     smtp_config_encrypted: encryptedConfig,
     smtp_status: nextStatus,
-    smtp_last_tested_at: null
+    smtp_last_tested_at: null,
+    smtp_last_error: null
   });
 
   await activeDb.logAudit(
@@ -4380,6 +4403,7 @@ app.put('/api/admin/platform-email', async (req, res) => {
   res.json({
     status: nextStatus,
     last_tested_at: null,
+    smtp_last_error: null,
     config_masked: maskSmtpConfig(configForStorage),
     has_credentials: true,
     updated: updated[0] || null
@@ -4428,21 +4452,24 @@ app.post('/api/admin/platform-email/test', async (req, res) => {
 
     await activeDb.update('platform_billing_settings', settings.id, {
       smtp_status: 'active',
-      smtp_last_tested_at: new Date().toISOString()
+      smtp_last_tested_at: new Date().toISOString(),
+      smtp_last_error: null
     });
 
     await activeDb.logAudit(null, userId, 'super_admin', 'platform_email_test_sent', 'platform_billing_settings', settings.id, { smtp_status: settings.smtp_status || 'verified' }, { smtp_status: 'active', recipient }, 'Platform test email sent successfully.');
 
-    return res.json({ success: true, message_id: result.messageId || null, status: 'active', last_tested_at: new Date().toISOString() });
+    return res.json({ success: true, message_id: result.messageId || null, status: 'active', last_tested_at: new Date().toISOString(), smtp_last_error: null });
   } catch (error) {
+    const safeErrorMsg = sanitizeSmtpErrorMessage(error.message, config);
     await activeDb.update('platform_billing_settings', settings.id, {
       smtp_status: 'test_failed',
-      smtp_last_tested_at: new Date().toISOString()
+      smtp_last_tested_at: new Date().toISOString(),
+      smtp_last_error: safeErrorMsg
     });
 
-    await activeDb.logAudit(null, userId, 'super_admin', 'platform_email_test_failed', 'platform_billing_settings', settings.id, { smtp_status: settings.smtp_status || 'verified' }, { smtp_status: 'test_failed' }, `Platform test email failed: ${error.message}`);
+    await activeDb.logAudit(null, userId, 'super_admin', 'platform_email_test_failed', 'platform_billing_settings', settings.id, { smtp_status: settings.smtp_status || 'verified' }, { smtp_status: 'test_failed' }, `Platform test email failed: ${safeErrorMsg}`);
 
-    return res.status(502).json({ error: error.message, status: 'test_failed' });
+    return res.status(502).json({ error: safeErrorMsg, status: 'test_failed' });
   }
 });
 

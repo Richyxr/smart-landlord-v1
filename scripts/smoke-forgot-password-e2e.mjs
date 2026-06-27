@@ -17,6 +17,32 @@ function hashPasswordResetToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+const SESSION_SECRET = process.env.SESSION_SECRET || 'smart-landlord-dev-session-secret';
+const SESSION_TTL_SECONDS = 86400;
+
+function base64UrlEncode(value) {
+  return Buffer.from(value).toString('base64url');
+}
+
+function signPayload(payload) {
+  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
+  const signature = crypto
+    .createHmac('sha256', SESSION_SECRET)
+    .update(encodedPayload)
+    .digest('base64url');
+  return `${encodedPayload}.${signature}`;
+}
+
+function createSessionToken(userId, role, organizationId = null) {
+  return signPayload({
+    user_id: userId,
+    role,
+    organization_id: organizationId,
+    issued_at: Date.now(),
+    expires_at: Date.now() + SESSION_TTL_SECONDS * 1000
+  });
+}
+
 // ---------------------------------------------------------------------------
 // SMTP Mock Server
 // ---------------------------------------------------------------------------
@@ -183,6 +209,191 @@ async function main() {
     appProcess = startAppServer();
     await waitForServer();
     console.log(`[E2E-TEST] Backend server is running and ready at ${BASE_URL}`);
+
+    // --- SUPER ADMIN SMTP DASHBOARD & SECURITY CHECKS ---
+    console.log('\n--- Super Admin SMTP Dashboard & Security Checks ---');
+    const superAdminToken = createSessionToken(testUserId, 'super_admin');
+    const landlordToken = createSessionToken(testUserId, 'landlord');
+
+    // 1. Unauthorized Access Blocked
+    console.log(' - Verify unauthorized access is blocked...');
+    const unauthGetRes = await fetch(`${BASE_URL}/api/admin/platform-email`, {
+      headers: { 'Authorization': `Bearer ${landlordToken}` }
+    });
+    assert.strictEqual(unauthGetRes.status, 403, 'Landlord role should not access admin SMTP settings');
+
+    const unauthPutRes = await fetch(`${BASE_URL}/api/admin/platform-email`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${landlordToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ config_json: {} })
+    });
+    assert.strictEqual(unauthPutRes.status, 403, 'Landlord role should not save admin SMTP settings');
+
+    const unauthTestRes = await fetch(`${BASE_URL}/api/admin/platform-email/test`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${landlordToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ to: 'test@example.com' })
+    });
+    assert.strictEqual(unauthTestRes.status, 403, 'Landlord role should not trigger admin SMTP test');
+    console.log('   ✅ Unauthorized access check passed');
+
+    // 2. Super Admin GET Access & Display Masked Password
+    console.log(' - Verify super admin access & password masking...');
+    const authGetRes = await fetch(`${BASE_URL}/api/admin/platform-email`, {
+      headers: { 'Authorization': `Bearer ${superAdminToken}` }
+    });
+    assert.strictEqual(authGetRes.status, 200);
+    const authGetData = await authGetRes.json();
+    assert.ok(authGetData.status);
+    assert.ok(authGetData.config_masked);
+    assert.strictEqual(authGetData.has_credentials, true);
+    
+    // Assert all sensitive fields in GET are masked
+    const getMasked = authGetData.config_masked;
+    assert.ok(!getMasked.password || getMasked.password.includes('***'));
+    assert.ok(!getMasked.username || getMasked.username.includes('***'));
+    assert.ok(!getMasked.host || getMasked.host.includes('***'));
+    assert.ok(!getMasked.from_email || getMasked.from_email.includes('***'));
+    assert.ok(!getMasked.reply_to || getMasked.reply_to.includes('***'));
+    console.log('   ✅ Super admin GET access check passed');
+
+    // 3. SMTP Config Save & Encryption
+    console.log(' - Verify SMTP configuration save & encryption...');
+    const testSecretPassword = 'my-super-secret-password-123';
+    const newSmtpConfig = {
+      host: '127.0.0.1',
+      port: Number(SMTP_PORT),
+      secure: false,
+      username: 'super-admin@example.com',
+      password: testSecretPassword,
+      from_email: 'no-reply-admin@example.com',
+      from_name: 'Smart Admin Test',
+      reply_to: 'no-reply-admin@example.com'
+    };
+
+    const saveRes = await fetch(`${BASE_URL}/api/admin/platform-email`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${superAdminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ config_json: newSmtpConfig })
+    });
+    assert.strictEqual(saveRes.status, 200);
+    const saveResponseData = await saveRes.json();
+    assert.strictEqual(saveResponseData.status, 'verified');
+    
+    const putMasked = saveResponseData.config_masked;
+    // Assert all sensitive fields in PUT are masked
+    assert.ok(putMasked.password.includes('***'));
+    assert.notStrictEqual(putMasked.password, testSecretPassword);
+    assert.ok(putMasked.username.includes('***'));
+    assert.notStrictEqual(putMasked.username, newSmtpConfig.username);
+    assert.ok(putMasked.host.includes('***'));
+    assert.notStrictEqual(putMasked.host, newSmtpConfig.host);
+    assert.ok(putMasked.from_email.includes('***'));
+    assert.notStrictEqual(putMasked.from_email, newSmtpConfig.from_email);
+    assert.ok(putMasked.reply_to.includes('***'));
+    assert.notStrictEqual(putMasked.reply_to, newSmtpConfig.reply_to);
+    
+    // Check DB directly to ensure encryption is stored
+    const dbSettingsRes = await client.query('SELECT smtp_config_encrypted, smtp_last_error FROM platform_billing_settings WHERE id = 1');
+    const dbRow = dbSettingsRes.rows[0];
+    assert.ok(dbRow.smtp_config_encrypted !== null);
+    assert.strictEqual(dbRow.smtp_last_error, null, 'smtp_last_error must be null after save');
+    const { decryptConfig } = await import('../server/crypto.js');
+    const decrypted = decryptConfig(dbRow.smtp_config_encrypted);
+    assert.strictEqual(decrypted.password, testSecretPassword, 'Decrypted password must match original');
+    console.log('   ✅ SMTP config save & encryption check passed');
+
+    // 4. Test Email Success updates status to active
+    console.log(' - Verify test email success status transition...');
+    const testEmailSuccessRes = await fetch(`${BASE_URL}/api/admin/platform-email/test`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${superAdminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ to: 'admin-recipient@example.com' })
+    });
+    assert.strictEqual(testEmailSuccessRes.status, 200);
+    const successData = await testEmailSuccessRes.json();
+    assert.strictEqual(successData.status, 'active');
+    
+    const dbSuccessSettings = await client.query('SELECT smtp_status, smtp_last_error FROM platform_billing_settings WHERE id = 1');
+    assert.strictEqual(dbSuccessSettings.rows[0].smtp_status, 'active');
+    assert.strictEqual(dbSuccessSettings.rows[0].smtp_last_error, null);
+    console.log('   ✅ Test email success check passed');
+
+    // 5. Test Email Failure updates status and stores safe error msg without leaking secrets
+    console.log(' - Verify test email failure status transition & error sanitization...');
+    const badSmtpConfig = {
+      ...newSmtpConfig,
+      port: 9999, // Bad port
+      password: 'another-super-secret-password-xyz'
+    };
+
+    const saveBadRes = await fetch(`${BASE_URL}/api/admin/platform-email`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${superAdminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ config_json: badSmtpConfig })
+    });
+    assert.strictEqual(saveBadRes.status, 200);
+
+    const testEmailFailureRes = await fetch(`${BASE_URL}/api/admin/platform-email/test`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${superAdminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ to: 'admin-recipient@example.com' })
+    });
+    // Expected to fail due to bad port
+    assert.strictEqual(testEmailFailureRes.status, 502);
+    const failureData = await testEmailFailureRes.json();
+    assert.strictEqual(failureData.status, 'test_failed');
+    assert.ok(!failureData.error.includes('another-super-secret-password-xyz'), 'Error message must not leak password');
+    assert.ok(!failureData.error.includes('127.0.0.1'), 'Error message must not leak SMTP host');
+
+    const dbFailureSettings = await client.query('SELECT smtp_status, smtp_last_error FROM platform_billing_settings WHERE id = 1');
+    assert.strictEqual(dbFailureSettings.rows[0].smtp_status, 'test_failed');
+    assert.ok(dbFailureSettings.rows[0].smtp_last_error !== null);
+    assert.ok(!dbFailureSettings.rows[0].smtp_last_error.includes('another-super-secret-password-xyz'), 'DB error message must not leak password');
+    assert.ok(!dbFailureSettings.rows[0].smtp_last_error.includes('127.0.0.1'), 'DB error message must not leak SMTP host');
+    console.log('   ✅ Test email failure & error sanitization check passed');
+
+    // 6. Forgot Password Generic Response when SMTP Fails
+    console.log(' - Verify forgot password behavior when SMTP is failing...');
+    const forgotFailSmtpRes = await fetch(`${BASE_URL}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'reset-test@example.com' })
+    });
+    assert.strictEqual(forgotFailSmtpRes.status, 200);
+    const forgotFailSmtpData = await forgotFailSmtpRes.json();
+    assert.deepStrictEqual(forgotFailSmtpData, {
+      success: true,
+      message: 'If this email exists, we have sent password reset instructions.'
+    }, 'Must still return generic response when SMTP fails');
+    console.log('   ✅ Forgot password generic failure response check passed');
+
+    // Restore valid config for subsequent forgot password tests
+    await client.query(`
+      UPDATE platform_billing_settings
+      SET smtp_config_encrypted = $1, smtp_status = 'active', smtp_last_tested_at = now(), smtp_last_error = null
+      WHERE id = 1
+    `, [encryptedSmtpConfig]);
+    console.log(' - Restored E2E SMTP mock settings');
+    smtpMessages.length = 0; // Clear the mail queue for subsequent forgot password assertions
 
     // --- CHECK 1: Trigger forgot-password for the safe test email ---
     console.log('\n--- Check 1: Trigger forgot-password for known test email ---');
@@ -360,32 +571,58 @@ async function main() {
     console.log('\n[E2E-TEST] Starting database cleanup...');
     
     if (appProcess) {
-      appProcess.kill();
-      console.log('[E2E-TEST] Terminated backend server process');
+      try {
+        appProcess.kill();
+        console.log('[E2E-TEST] Terminated backend server process');
+      } catch (err) {
+        console.error('Failed to kill backend server process:', err.message);
+      }
     }
     
     // Delete test user and tokens
     if (testUserId) {
-      await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [testUserId]);
-      await client.query('DELETE FROM users WHERE id = $1', [testUserId]);
-      console.log('[E2E-TEST] Removed test user and tokens');
+      try {
+        await client.query('DELETE FROM audit_logs WHERE actor_user_id = $1', [testUserId]);
+        await client.query('DELETE FROM password_reset_tokens WHERE user_id = $1', [testUserId]);
+        await client.query('DELETE FROM users WHERE id = $1', [testUserId]);
+        console.log('[E2E-TEST] Removed test user, tokens, and audit logs');
+      } catch (err) {
+        console.error('Failed to clean up test user/tokens/audits:', err.message);
+      }
     }
 
     // Restore platform_billing_settings
     if (originalSettings) {
-      await client.query(`
-        UPDATE platform_billing_settings
-        SET smtp_config_encrypted = $1, smtp_status = $2, smtp_last_tested_at = $3
-        WHERE id = 1
-      `, [originalSettings.smtp_config_encrypted, originalSettings.smtp_status, originalSettings.smtp_last_tested_at]);
-      console.log('[E2E-TEST] Restored original platform billing settings');
+      try {
+        await client.query(`
+          UPDATE platform_billing_settings
+          SET smtp_config_encrypted = $1, smtp_status = $2, smtp_last_tested_at = $3, smtp_last_error = $4
+          WHERE id = 1
+        `, [
+          originalSettings.smtp_config_encrypted,
+          originalSettings.smtp_status,
+          originalSettings.smtp_last_tested_at,
+          originalSettings.smtp_last_error || null
+        ]);
+        console.log('[E2E-TEST] Restored original platform billing settings');
+      } catch (err) {
+        console.error('Failed to restore original platform billing settings:', err.message);
+      }
     }
 
-    client.release();
-    await pool.end();
+    try {
+      client.release();
+      await pool.end();
+    } catch (err) {
+      console.error('Failed to release DB client/pool:', err.message);
+    }
 
-    smtpServer.close();
-    console.log('[E2E-TEST] Mock SMTP server closed');
+    try {
+      smtpServer.close();
+      console.log('[E2E-TEST] Mock SMTP server closed');
+    } catch (err) {
+      console.error('Failed to close mock SMTP server:', err.message);
+    }
   }
 }
 

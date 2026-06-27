@@ -905,6 +905,7 @@ function seedDb() {
       smtp_config_encrypted: null,
       smtp_status: 'not_configured',
       smtp_last_tested_at: null,
+      smtp_last_error: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }
