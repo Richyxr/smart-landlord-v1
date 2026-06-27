@@ -140,13 +140,26 @@ export default function CompleteProfile({ user, organization, onComplete }) {
   };
 
   return (
-    <div className="auth-page" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="auth-panel">
-        {/* Brand Header */}
-        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+    <div className={`auth-page profile-auth-page ${isCompany ? 'company-auth-page' : ''}`} style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div className={`auth-panel auth-onboarding-panel profile-panel ${isCompany ? 'company-panel' : ''}`}>
+        <div className="auth-brand-rail">
+          <img src="/icons/maskable-192.png" alt="Smart Landlord" className="auth-brand-rail-logo" />
+          <div>
+            <h1 className="auth-brand-rail-title">
+              Smart <span>Landlord</span>
+            </h1>
+            <p className="auth-brand-rail-copy">Property management made simple.</p>
+            <p className="auth-brand-rail-kicker">Secure property management portal</p>
+          </div>
+        </div>
+
+        <div className="auth-form-section">
+          {/* Brand Header */}
+          <div className="profile-brand" style={{ textAlign: 'center', marginBottom: '20px' }}>
           <img
             src="/icons/maskable-192.png"
             alt="Smart Landlord"
+            className="profile-brand-logo"
             style={{
               width: '64px',
               height: '64px',
@@ -156,7 +169,7 @@ export default function CompleteProfile({ user, organization, onComplete }) {
               boxShadow: '0 8px 20px rgba(99, 102, 241, 0.22)'
             }}
           />
-          <h1 style={{
+          <h1 className="profile-brand-title" style={{
             fontFamily: 'var(--font-title)',
             fontSize: '22px',
             fontWeight: '700',
@@ -166,7 +179,7 @@ export default function CompleteProfile({ user, organization, onComplete }) {
           }}>
             Smart <span style={{ color: 'var(--primary)' }}>Landlord</span>
           </h1>
-          <p style={{
+          <p className="profile-brand-copy" style={{
             fontSize: '12px',
             color: 'var(--text-secondary)',
             margin: '0 0 4px 0',
@@ -174,7 +187,7 @@ export default function CompleteProfile({ user, organization, onComplete }) {
           }}>
             Property management made simple.
           </p>
-          <p style={{
+          <p className="profile-brand-kicker" style={{
             fontSize: '10px',
             color: 'var(--primary)',
             opacity: 0.85,
@@ -187,10 +200,10 @@ export default function CompleteProfile({ user, organization, onComplete }) {
           </p>
         </div>
 
-        <h2 style={{ fontSize: '18px', marginBottom: '4px', textAlign: 'center', fontWeight: '600' }}>
+        <h2 className="profile-heading" style={{ fontSize: '18px', marginBottom: '4px', textAlign: 'center', fontWeight: '600' }}>
           {step === 1 ? 'Complete Your Profile' : 'Confirm Your Details'}
         </h2>
-        <p style={{ marginBottom: '20px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center' }}>
+        <p className="profile-intro" style={{ marginBottom: '20px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center' }}>
           {step === 1 ? 'Please fill out your identity and representative details.' : 'Please review and confirm your profile details.'}
         </p>
 
@@ -220,8 +233,8 @@ export default function CompleteProfile({ user, organization, onComplete }) {
               </div>
 
               {isCompany ? (
-                <>
-                  <div className="form-group">
+                <div className="auth-form-grid">
+                  <div className="form-group auth-field-full">
                     <label className="form-label">Company Name</label>
                     <input
                       type="text"
@@ -232,61 +245,57 @@ export default function CompleteProfile({ user, organization, onComplete }) {
                       onChange={e => setCompanyName(e.target.value)}
                     />
                   </div>
-                  <div className="grid-2">
-                    <div className="form-group">
-                      <label className="form-label">Reg. Number</label>
-                      <input
-                        type="text"
-                        required
-                        className="form-control"
-                        placeholder="CPR/2022/123"
-                        value={regNum}
-                        onChange={e => setRegNum(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">KRA PIN</label>
-                      <input
-                        type="text"
-                        required
-                        className="form-control"
-                        placeholder="P051234567A"
-                        value={taxId}
-                        onChange={e => setTaxId(e.target.value)}
-                      />
-                    </div>
+                  <div className="form-group auth-field-half">
+                    <label className="form-label">Reg. Number</label>
+                    <input
+                      type="text"
+                      required
+                      className="form-control"
+                      placeholder="CPR/2022/123"
+                      value={regNum}
+                      onChange={e => setRegNum(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group auth-field-half">
+                    <label className="form-label">KRA PIN</label>
+                    <input
+                      type="text"
+                      required
+                      className="form-control"
+                      placeholder="P051234567A"
+                      value={taxId}
+                      onChange={e => setTaxId(e.target.value)}
+                    />
                   </div>
 
-                  <div style={{ margin: '20px 0 10px 0', borderTop: '1px solid var(--border)', paddingTop: '15px' }}>
+                  <div className="profile-section-divider auth-field-full" style={{ margin: '20px 0 10px 0', borderTop: '1px solid var(--border)', paddingTop: '15px' }}>
                     <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '10px' }}>Representative Details</h3>
                   </div>
 
-                  <div className="grid-2">
-                    <div className="form-group">
-                      <label className="form-label">Rep. First Name</label>
-                      <input
-                        type="text"
-                        required
-                        className="form-control"
-                        placeholder="Maina"
-                        value={representativeFirstName}
-                        onChange={e => setRepresentativeFirstName(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Rep. Last Name</label>
-                      <input
-                        type="text"
-                        required
-                        className="form-control"
-                        placeholder="Kamau"
-                        value={representativeLastName}
-                        onChange={e => setRepresentativeLastName(e.target.value)}
-                      />
-                    </div>
+                  <div className="form-group auth-field-half">
+                    <label className="form-label">Rep. First Name</label>
+                    <input
+                      type="text"
+                      required
+                      className="form-control"
+                      placeholder="Maina"
+                      value={representativeFirstName}
+                      onChange={e => setRepresentativeFirstName(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group auth-field-half">
+                    <label className="form-label">Rep. Last Name</label>
+                    <input
+                      type="text"
+                      required
+                      className="form-control"
+                      placeholder="Kamau"
+                      value={representativeLastName}
+                      onChange={e => setRepresentativeLastName(e.target.value)}
+                    />
                   </div>
 
-                  <div className="form-group">
+                  <div className="form-group auth-field-full">
                     <label className="form-label">Rep. Role / Title</label>
                     <input
                       type="text"
@@ -298,7 +307,7 @@ export default function CompleteProfile({ user, organization, onComplete }) {
                     />
                   </div>
 
-                  <div className="form-group">
+                  <div className="form-group auth-field-half">
                     <label className="form-label">Rep. Email</label>
                     <input
                       type="email"
@@ -310,10 +319,10 @@ export default function CompleteProfile({ user, organization, onComplete }) {
                     />
                   </div>
 
-                  <div className="form-group">
+                  <div className="form-group auth-field-half">
                     <label className="form-label">Rep. Phone Number</label>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                      <span style={{
+                      <span className="profile-phone-prefix" style={{
                         padding: '8px 12px',
                         background: 'var(--bg-surface-elevated)',
                         border: '1px solid var(--border)',
@@ -336,7 +345,7 @@ export default function CompleteProfile({ user, organization, onComplete }) {
                       />
                     </div>
                   </div>
-                </>
+                </div>
               ) : (
                 <>
                   <div className="grid-2">
@@ -376,51 +385,53 @@ export default function CompleteProfile({ user, organization, onComplete }) {
                 </>
               )}
 
-              <div style={{ margin: '20px 0 10px 0', borderTop: '1px solid var(--border)', paddingTop: '15px' }}>
+              <div className="profile-section-divider" style={{ margin: '20px 0 10px 0', borderTop: '1px solid var(--border)', paddingTop: '15px' }}>
                 <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '10px' }}>Contact Settings</h3>
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Email Address</label>
-                <input
-                  type="email"
-                  required
-                  className="form-control"
-                  placeholder="landlord@demo.com"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Phone Number</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <span style={{
-                    padding: '8px 12px',
-                    background: 'var(--bg-surface-elevated)',
-                    border: '1px solid var(--border)',
-                    borderRadius: '8px',
-                    fontSize: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    color: 'var(--text-secondary)'
-                  }}>
-                    {country === 'Kenya' ? '+254' : country === 'Uganda' ? '+256' : country === 'Tanzania' ? '+255' : '+'}
-                  </span>
+              <div className={isCompany ? 'auth-form-grid' : ''}>
+                <div className={isCompany ? 'form-group auth-field-half' : 'form-group'}>
+                  <label className="form-label">Email Address</label>
                   <input
-                    type="tel"
+                    type="email"
                     required
                     className="form-control"
-                    placeholder="7XXXXXXXX"
-                    value={phone}
-                    onChange={e => setPhone(e.target.value.replace(/[^0-9]/g, ''))}
-                    style={{ flex: 1 }}
+                    placeholder="landlord@demo.com"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
                   />
+                </div>
+
+                <div className={isCompany ? 'form-group auth-field-half' : 'form-group'}>
+                  <label className="form-label">Phone Number</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <span className="profile-phone-prefix" style={{
+                      padding: '8px 12px',
+                      background: 'var(--bg-surface-elevated)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      color: 'var(--text-secondary)'
+                    }}>
+                      {country === 'Kenya' ? '+254' : country === 'Uganda' ? '+256' : country === 'Tanzania' ? '+255' : '+'}
+                    </span>
+                    <input
+                      type="tel"
+                      required
+                      className="form-control"
+                      placeholder="7XXXXXXXX"
+                      value={phone}
+                      onChange={e => setPhone(e.target.value.replace(/[^0-9]/g, ''))}
+                      style={{ flex: 1 }}
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div className="grid-2">
-                <div className="form-group">
+              <div className={isCompany ? 'auth-form-grid' : 'grid-2'}>
+                <div className="form-group auth-field-half">
                   <label className="form-label">Country</label>
                   <select className="form-control" value={country} onChange={e => {
                     setCountry(e.target.value);
@@ -433,7 +444,7 @@ export default function CompleteProfile({ user, organization, onComplete }) {
                     <option value="Tanzania">Tanzania</option>
                   </select>
                 </div>
-                <div className="form-group">
+                <div className="form-group auth-field-half">
                   <label className="form-label">Currency</label>
                   <select className="form-control" value={currency} onChange={e => setCurrency(e.target.value)}>
                     <option value="KES">KES</option>
@@ -446,7 +457,7 @@ export default function CompleteProfile({ user, organization, onComplete }) {
             </>
           ) : (
             <>
-              <div style={{ background: 'var(--bg-surface-elevated)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border)', marginBottom: '20px', fontSize: '13px', lineHeight: '1.6' }}>
+              <div className="profile-review-card" style={{ background: 'var(--bg-surface-elevated)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border)', marginBottom: '20px', fontSize: '13px', lineHeight: '1.6' }}>
                 {isCompany ? (
                   <>
                     <div style={{ marginBottom: '8px' }}><strong>Company Name:</strong> {companyName}</div>
@@ -496,17 +507,18 @@ export default function CompleteProfile({ user, organization, onComplete }) {
 
           {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
 
-          <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+          <div className="profile-actions" style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
             {step === 2 && (
               <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setStep(1)}>
                 Edit Details
               </button>
             )}
-            <button type="submit" className="btn btn-primary" disabled={loading} style={{ flex: 1 }}>
+          <button type="submit" className="btn btn-primary" disabled={loading} style={{ flex: 1 }}>
               {loading ? 'Saving Profile...' : step === 1 ? 'Continue' : 'Confirm & Complete'}
             </button>
           </div>
         </form>
+        </div>
       </div>
     </div>
   );
