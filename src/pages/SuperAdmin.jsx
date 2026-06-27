@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Building2, Mail, ShieldCheck, TestTube2, Pencil } from 'lucide-react';
+import { Settings, Building2, Mail, ShieldCheck, TestTube2, Pencil, MessageSquare } from 'lucide-react';
 
 const DEFAULT_STATS = {
   total_organizations: 0,
@@ -70,6 +70,32 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     reply_to: ''
   });
   const [platformEmailPasswordMasked, setPlatformEmailPasswordMasked] = useState(false);
+
+  // Platform SMS state
+  const [platformSms, setPlatformSms] = useState({
+    provider: '',
+    api_url: '',
+    sender_id: 'SMARTLANDY',
+    sender_id_type: 'transactional',
+    sender_approval_status: 'pending',
+    default_country_code: '+254',
+    status: 'not_configured',
+    last_tested_at: null,
+    sms_last_error: null,
+    config_masked: {},
+    has_credentials: false
+  });
+  const [platformSmsForm, setPlatformSmsForm] = useState({
+    provider: '',
+    api_url: '',
+    sender_id: 'SMARTLANDY',
+    sender_id_type: 'transactional',
+    sender_approval_status: 'pending',
+    default_country_code: '+254',
+    api_key: '',
+    client_id: ''
+  });
+  const [platformSmsCredentialsMasked, setPlatformSmsCredentialsMasked] = useState(false);
 
   // Pricing Form
   const [pricePerTenant, setPricePerTenant] = useState('200');
@@ -157,6 +183,22 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           reply_to: data.config_masked?.reply_to || ''
         });
         setPlatformEmailPasswordMasked(Boolean(data.has_credentials));
+      } else if (activeTab === 'sms') {
+        const res = await fetch('/api/admin/platform-sms', { headers });
+        if (!res.ok) throw new Error('Failed to fetch platform SMS settings.');
+        const data = await res.json();
+        setPlatformSms(data);
+        setPlatformSmsForm({
+          provider: data.provider || '',
+          api_url: data.api_url || '',
+          sender_id: data.sender_id || 'SMARTLANDY',
+          sender_id_type: data.sender_id_type || 'transactional',
+          sender_approval_status: data.sender_approval_status || 'pending',
+          default_country_code: data.default_country_code || '+254',
+          api_key: '',
+          client_id: data.config_masked?.client_id || ''
+        });
+        setPlatformSmsCredentialsMasked(Boolean(data.has_credentials));
       } else if (activeTab === 'errors') {
         const res = await fetch('/api/admin/system-errors', { headers });
         const data = await res.json().catch(() => null);
@@ -351,6 +393,81 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     }
   };
 
+  const handlePlatformSmsSave = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const payload = {
+        api_key: platformSmsForm.api_key.trim(),
+        client_id: platformSmsForm.client_id.trim()
+      };
+
+      const body = {
+        provider: platformSmsForm.provider.trim(),
+        api_url: platformSmsForm.api_url.trim(),
+        sender_id: platformSmsForm.sender_id.trim() || 'SMARTLANDY',
+        sender_id_type: platformSmsForm.sender_id_type,
+        sender_approval_status: platformSmsForm.sender_approval_status,
+        default_country_code: platformSmsForm.default_country_code.trim() || '+254',
+        config_json: payload
+      };
+
+      if (platformSmsCredentialsMasked) {
+        body.config_json = {
+          api_key: '********',
+          client_id: '********'
+        };
+      }
+
+      const res = await fetch('/api/admin/platform-sms', {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || 'Failed to save platform SMS settings.');
+
+      setPlatformSms(data);
+      setPlatformSmsCredentialsMasked(true);
+      setPlatformSmsForm(prev => ({ ...prev, api_key: '' }));
+      onRefresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePlatformSmsTest = async () => {
+    const recipient = window.prompt('Enter a test recipient mobile phone number (e.g. +254700000000):');
+    if (recipient === null || !recipient.trim()) return;
+
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/admin/platform-sms/test', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: recipient.trim() })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || 'Failed to send platform SMS test.');
+      setPlatformSms(prev => ({
+        ...prev,
+        status: data.status || 'active',
+        last_tested_at: data.last_tested_at || new Date().toISOString(),
+        sms_last_error: null
+      }));
+      onRefresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleProcessDeletion = async (requestId, action) => {
     let reason = '';
     if (action === 'reject') {
@@ -534,6 +651,12 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           onClick={() => setActiveTab('email')}
         >
           Email
+        </button>
+        <button
+          style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'sms' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'sms' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
+          onClick={() => setActiveTab('sms')}
+        >
+          SMS Gateway
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'errors' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'errors' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
@@ -819,6 +942,148 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           </form>
         </div>
       )}
+
+      {/* PLATFORM SMS GATEWAY */}
+      {activeTab === 'sms' && (
+        <div className="card">
+          <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <MessageSquare size={18} /> Platform SMS Gateway
+          </h3>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '14px' }}>
+            Used for system alerts, notifications, and tenant messaging.
+          </p>
+
+          <div className="flex-row" style={{ marginBottom: '12px' }}>
+            <span className={`badge ${
+              platformSms.status === 'active' ? 'badge-success' :
+              platformSms.status === 'test_failed' ? 'badge-danger' :
+              platformSms.status === 'verified' ? 'badge-info' :
+              platformSms.status === 'disabled' ? 'badge-secondary' :
+              'badge-secondary'
+            }`}>
+              {
+                platformSms.status === 'active' ? 'Active' :
+                platformSms.status === 'test_failed' ? 'Failed' :
+                platformSms.status === 'verified' ? 'Configured (Untested)' :
+                platformSms.status === 'disabled' ? 'Disabled' :
+                'Not Configured'
+              }
+            </span>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              Last tested: {platformSms.last_tested_at ? new Date(platformSms.last_tested_at).toLocaleString() : 'Never'}
+            </span>
+          </div>
+
+          {platformSms.sms_last_error && (
+            <div style={{ color: 'var(--danger)', fontSize: '12px', marginBottom: '14px', padding: '10px', background: 'var(--bg-surface-elevated)', borderLeft: '3px solid var(--danger)', borderRadius: '4px' }}>
+              <strong>Last Error:</strong> {platformSms.sms_last_error}
+            </div>
+          )}
+
+          <form onSubmit={handlePlatformSmsSave} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">SMS Provider Name</label>
+                <input className="form-control" value={platformSmsForm.provider} placeholder="e.g. mock, mobitech, africas_talking" onChange={e => setPlatformSmsForm(prev => ({ ...prev, provider: e.target.value }))} required />
+              </div>
+              <div className="form-group">
+                <label className="form-label">API Base URL</label>
+                <input className="form-control" value={platformSmsForm.api_url} placeholder="e.g. https://api.mobitech.co.ke" onChange={e => setPlatformSmsForm(prev => ({ ...prev, api_url: e.target.value }))} required />
+              </div>
+            </div>
+
+            <div className="grid-3">
+              <div className="form-group">
+                <label className="form-label">Sender ID</label>
+                <input className="form-control" value={platformSmsForm.sender_id} onChange={e => setPlatformSmsForm(prev => ({ ...prev, sender_id: e.target.value }))} required />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Sender ID Type</label>
+                <select className="form-control" value={platformSmsForm.sender_id_type} onChange={e => setPlatformSmsForm(prev => ({ ...prev, sender_id_type: e.target.value }))}>
+                  <option value="transactional">Transactional</option>
+                  <option value="promotional">Promotional</option>
+                  <option value="both">Both</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Default Country Code</label>
+                <input className="form-control" value={platformSmsForm.default_country_code} onChange={e => setPlatformSmsForm(prev => ({ ...prev, default_country_code: e.target.value }))} required />
+              </div>
+            </div>
+
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Sender Approval Status</label>
+                <select className="form-control" value={platformSmsForm.sender_approval_status} onChange={e => setPlatformSmsForm(prev => ({ ...prev, sender_approval_status: e.target.value }))}>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Status Override</label>
+                <select className="form-control" value={platformSms.status} onChange={async (e) => {
+                  const nextStatus = e.target.value;
+                  try {
+                    const res = await fetch('/api/admin/platform-sms', {
+                      method: 'PUT',
+                      headers: { ...headers, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        provider: platformSmsForm.provider,
+                        api_url: platformSmsForm.api_url,
+                        sender_id: platformSmsForm.sender_id,
+                        sender_id_type: platformSmsForm.sender_id_type,
+                        sender_approval_status: platformSmsForm.sender_approval_status,
+                        default_country_code: platformSmsForm.default_country_code,
+                        config_json: { api_key: '********', client_id: '********' }
+                      })
+                    });
+                    if (res.ok) {
+                      const data = await res.json();
+                      setPlatformSms(data);
+                    }
+                  } catch (err) {
+                    console.error(err);
+                  }
+                }}>
+                  <option value="not_configured">Not Configured</option>
+                  <option value="verified">Verified</option>
+                  <option value="active">Active</option>
+                  <option value="test_failed">Failed</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Gateway Credentials</label>
+              {platformSmsCredentialsMasked ? (
+                <div className="flex-row" style={{ gap: '8px' }}>
+                  <input className="form-control" value="••••••••" readOnly />
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setPlatformSmsCredentialsMasked(false)}>Update Credentials</button>
+                </div>
+              ) : (
+                <div className="grid-2">
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '11px' }}>API Key / Token</label>
+                    <input type="password" className="form-control" value={platformSmsForm.api_key} onChange={e => setPlatformSmsForm(prev => ({ ...prev, api_key: e.target.value }))} required />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '11px' }}>Client ID / Username (Optional)</label>
+                    <input className="form-control" value={platformSmsForm.client_id} onChange={e => setPlatformSmsForm(prev => ({ ...prev, client_id: e.target.value }))} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex-gap" style={{ marginTop: '8px' }}>
+              <button type="submit" className="btn btn-primary btn-sm" disabled={loading}>Save Platform SMS Settings</button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={handlePlatformSmsTest} disabled={loading || !platformSms.has_credentials}>Send Test SMS</button>
+            </div>
+          </form>
+        </div>
+      )
+    }
 
       {/* SYSTEM ERRORS */}
       {activeTab === 'errors' && (

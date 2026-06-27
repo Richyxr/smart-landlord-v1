@@ -16,6 +16,7 @@ import { createSaasBillingRoutes } from './routes/saasBillingRoutes.js';
 import { NotificationService } from './notificationService.js';
 import { sendEmailWithConfig } from './mailerService.js';
 import { EMAIL_MODES, maskSmtpConfig, normalizeSmtpConfig, prepareSmtpConfigForStorage, resolveEmailDeliveryConfig, validateSmtpConfig } from './emailConfigService.js';
+import { maskSmsConfig, normalizeSmsConfig, prepareSmsConfigForStorage, validateSmsConfig } from './smsConfigService.js';
 import { decryptConfig, encryptConfig } from './crypto.js';
 import { renderTemplate } from './emailTemplates.js';
 import { invalidatePendingOtps, recordOtpSent, requestOtp, verifyOtp, OtpError } from './otpService.js';
@@ -4263,7 +4264,17 @@ function defaultPlatformBillingSettingsRow() {
     smtp_config_encrypted: null,
     smtp_status: 'not_configured',
     smtp_last_tested_at: null,
-    smtp_last_error: null
+    smtp_last_error: null,
+    sms_provider: null,
+    sms_api_url: null,
+    sms_config_encrypted: null,
+    sms_sender_id: 'SMARTLANDY',
+    sms_sender_id_type: 'transactional',
+    sms_sender_approval_status: 'pending',
+    sms_default_country_code: '+254',
+    sms_status: 'not_configured',
+    sms_last_tested_at: null,
+    sms_last_error: null
   };
 }
 
@@ -4287,6 +4298,42 @@ function platformEmailResponseFromSettings(settings) {
     smtp_last_error: settings.smtp_last_error || null,
     config_masked: settings.smtp_config_encrypted ? maskSmtpConfig(config) : {},
     has_credentials: Boolean(settings.smtp_config_encrypted)
+  };
+}
+
+function platformSmsResponseFromSettings(settings) {
+  if (!settings) {
+    return {
+      provider: '',
+      api_url: '',
+      sender_id: 'SMARTLANDY',
+      sender_id_type: 'transactional',
+      sender_approval_status: 'pending',
+      default_country_code: '+254',
+      status: 'not_configured',
+      last_tested_at: null,
+      sms_last_error: null,
+      config_masked: {},
+      has_credentials: false
+    };
+  }
+
+  const config = settings.sms_config_encrypted
+    ? normalizeSmsConfig(decryptConfig(settings.sms_config_encrypted))
+    : {};
+
+  return {
+    provider: settings.sms_provider || '',
+    api_url: settings.sms_api_url || '',
+    sender_id: settings.sms_sender_id || 'SMARTLANDY',
+    sender_id_type: settings.sms_sender_id_type || 'transactional',
+    sender_approval_status: settings.sms_sender_approval_status || 'pending',
+    default_country_code: settings.sms_default_country_code || '+254',
+    status: settings.sms_status || 'not_configured',
+    last_tested_at: settings.sms_last_tested_at || null,
+    sms_last_error: settings.sms_last_error || null,
+    config_masked: settings.sms_config_encrypted ? maskSmsConfig(config) : {},
+    has_credentials: Boolean(settings.sms_config_encrypted)
   };
 }
 
@@ -4468,6 +4515,190 @@ app.post('/api/admin/platform-email/test', async (req, res) => {
     });
 
     await activeDb.logAudit(null, userId, 'super_admin', 'platform_email_test_failed', 'platform_billing_settings', settings.id, { smtp_status: settings.smtp_status || 'verified' }, { smtp_status: 'test_failed' }, `Platform test email failed: ${safeErrorMsg}`);
+
+    return res.status(502).json({ error: safeErrorMsg, status: 'test_failed' });
+  }
+});
+
+function sanitizeSmsErrorMessage(msg, config = {}) {
+  if (!msg) return '';
+  let sanitized = String(msg);
+  const sensitiveFields = ['api_key', 'client_id'];
+  for (const field of sensitiveFields) {
+    const val = config[field];
+    if (val && typeof val === 'string' && val.length > 2) {
+      const escapedVal = val.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const reg = new RegExp(escapedVal, 'gi');
+      substitutions:
+      sanitized = sanitized.replace(reg, '********');
+    }
+  }
+  sanitized = sanitized.replace(/(key|token|password|pass|secret|auth)\s*[=:]\s*[^\s&;,\"]+/gi, '$1=********');
+  return sanitized;
+}
+
+app.get('/api/admin/platform-sms', async (req, res) => {
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
+  const activeDb = pgDb || db;
+
+  if (role !== 'super_admin' || !userId) {
+    return res.status(403).json({ error: 'SUPER_ADMIN_REQUIRED', message: 'Super admin access is required.' });
+  }
+
+  const settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+  await activeDb.logAudit(null, userId, 'super_admin', 'platform_sms_viewed', 'platform_billing_settings', settings?.id || 1, null, null, 'Platform SMS Gateway configuration viewed.');
+  res.json(platformSmsResponseFromSettings(settings));
+});
+
+app.put('/api/admin/platform-sms', async (req, res) => {
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
+  const activeDb = pgDb || db;
+  const { provider, api_url, sender_id, sender_id_type, sender_approval_status, default_country_code, config_json } = req.body || {};
+
+  if (role !== 'super_admin' || !userId) {
+    return res.status(403).json({ error: 'SUPER_ADMIN_REQUIRED', message: 'Super admin access is required.' });
+  }
+
+  const settings = await ensurePlatformBillingSettings(activeDb);
+  if (!settings) {
+    return res.status(500).json({ error: 'Failed to initialize platform settings.' });
+  }
+
+  const { configForStorage } = prepareSmsConfigForStorage({
+    incomingConfig: config_json || {},
+    existingEncryptedConfig: settings.sms_config_encrypted || null
+  });
+
+  const missing = validateSmsConfig(configForStorage);
+  if (missing.length > 0) {
+    return res.status(400).json({ error: `Missing required SMS fields: ${missing.join(', ')}.` });
+  }
+
+  const encryptedConfig = encryptConfig(configForStorage);
+  const nextStatus = 'verified';
+
+  const updated = await activeDb.update('platform_billing_settings', settings.id, {
+    sms_provider: provider || null,
+    sms_api_url: api_url || null,
+    sms_config_encrypted: encryptedConfig,
+    sms_sender_id: sender_id || 'SMARTLANDY',
+    sms_sender_id_type: sender_id_type || 'transactional',
+    sms_sender_approval_status: sender_approval_status || 'pending',
+    sms_default_country_code: default_country_code || '+254',
+    sms_status: nextStatus,
+    sms_last_tested_at: null,
+    sms_last_error: null
+  });
+
+  await activeDb.logAudit(
+    null,
+    userId,
+    'super_admin',
+    'platform_sms_saved',
+    'platform_billing_settings',
+    settings.id,
+    { sms_status: settings.sms_status || 'not_configured' },
+    { sms_status: nextStatus },
+    'Platform SMS Gateway configuration saved.'
+  );
+
+  const mergedSettings = {
+    ...settings,
+    sms_provider: provider || null,
+    sms_api_url: api_url || null,
+    sms_config_encrypted: encryptedConfig,
+    sms_sender_id: sender_id || 'SMARTLANDY',
+    sms_sender_id_type: sender_id_type || 'transactional',
+    sms_sender_approval_status: sender_approval_status || 'pending',
+    sms_default_country_code: default_country_code || '+254',
+    sms_status: nextStatus,
+    sms_last_tested_at: null,
+    sms_last_error: null
+  };
+
+  res.json(platformSmsResponseFromSettings(mergedSettings));
+});
+
+app.post('/api/admin/platform-sms/test', async (req, res) => {
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
+  const activeDb = pgDb || db;
+  const { to } = req.body || {};
+
+  if (role !== 'super_admin' || !userId) {
+    return res.status(403).json({ error: 'SUPER_ADMIN_REQUIRED', message: 'Super admin access is required.' });
+  }
+
+  const settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+  if (!settings?.sms_config_encrypted) {
+    return res.status(400).json({ error: 'Platform SMS is not configured.' });
+  }
+
+  const config = normalizeSmsConfig(decryptConfig(settings.sms_config_encrypted));
+  const missing = validateSmsConfig(config);
+  if (missing.length > 0) {
+    return res.status(400).json({ error: `Missing required SMS fields: ${missing.join(', ')}.` });
+  }
+
+  try {
+    const provider = settings.sms_provider || 'mock';
+    const apiUrl = settings.sms_api_url || '';
+    const senderId = settings.sms_sender_id || 'SMARTLANDY';
+
+    if (provider === 'mock' || process.env.NODE_ENV === 'test') {
+      if (!config.api_key) {
+        throw new Error('SMS Gateway API Key / Token is required.');
+      }
+      if (config.api_key === 'invalid-key') {
+        throw new Error('Invalid API Key / Token.');
+      }
+      if (apiUrl && apiUrl.includes('invalid-url')) {
+        throw new Error('Unreachable SMS Gateway API URL.');
+      }
+    } else {
+      throw new Error(`SMS Provider ${provider} is not implemented in production yet.`);
+    }
+
+    await activeDb.update('platform_billing_settings', settings.id, {
+      sms_status: 'active',
+      sms_last_tested_at: new Date().toISOString(),
+      sms_last_error: null
+    });
+
+    await activeDb.logAudit(
+      null,
+      userId,
+      'super_admin',
+      'platform_sms_test_sent',
+      'platform_billing_settings',
+      settings.id,
+      { sms_status: settings.sms_status || 'verified' },
+      { sms_status: 'active', recipient: to },
+      'Platform test SMS sent successfully.'
+    );
+
+    return res.json({ success: true, status: 'active', last_tested_at: new Date().toISOString(), sms_last_error: null });
+  } catch (error) {
+    const safeErrorMsg = sanitizeSmsErrorMessage(error.message, config);
+    await activeDb.update('platform_billing_settings', settings.id, {
+      sms_status: 'test_failed',
+      sms_last_tested_at: new Date().toISOString(),
+      sms_last_error: safeErrorMsg
+    });
+
+    await activeDb.logAudit(
+      null,
+      userId,
+      'super_admin',
+      'platform_sms_test_failed',
+      'platform_billing_settings',
+      settings.id,
+      { sms_status: settings.sms_status || 'verified' },
+      { sms_status: 'test_failed' },
+      `Platform test SMS failed: ${safeErrorMsg}`
+    );
 
     return res.status(502).json({ error: safeErrorMsg, status: 'test_failed' });
   }

@@ -16,6 +16,7 @@
     "smoke:postgres-webhook": "node scripts/smoke-postgres-webhook.mjs",
     "smoke:smtp-otp": "node scripts/smoke-smtp-otp.mjs",
     "smoke:forgot-password-e2e": "node scripts/smoke-forgot-password-e2e.mjs",
+    "smoke:platform-sms": "node scripts/smoke-platform-sms.mjs",
     "admin:promote-super-admin": "node scripts/admin-promote-super-admin.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:seed:from-json": "node scripts/db-seed-from-json.mjs",

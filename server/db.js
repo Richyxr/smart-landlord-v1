@@ -906,6 +906,16 @@ function seedDb() {
       smtp_status: 'not_configured',
       smtp_last_tested_at: null,
       smtp_last_error: null,
+      sms_provider: null,
+      sms_api_url: null,
+      sms_config_encrypted: null,
+      sms_sender_id: 'SMARTLANDY',
+      sms_sender_id_type: 'transactional',
+      sms_sender_approval_status: 'pending',
+      sms_default_country_code: '+254',
+      sms_status: 'not_configured',
+      sms_last_tested_at: null,
+      sms_last_error: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }
