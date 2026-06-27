@@ -240,7 +240,7 @@ function getRequestIp(req) {
 }
 
 function getFrontendBaseUrl(req) {
-  const configured = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL;
+  const configured = process.env.FRONTEND_URL || process.env.APP_PUBLIC_URL || process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL;
   if (configured) return configured.replace(/\/+$/, '');
 
   const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
