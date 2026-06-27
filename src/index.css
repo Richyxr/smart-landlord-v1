@@ -2740,7 +2740,7 @@ html[data-theme="light"] button {
 @media (min-width: 700px) {
   .auth-page {
     position: relative;
-    overflow: hidden;
+    overflow-y: auto;
     background:
       radial-gradient(circle at 50% 26%, rgba(124, 58, 237, 0.14), transparent 24%),
       radial-gradient(circle at 38% 62%, rgba(14, 165, 233, 0.06), transparent 26%),
@@ -2763,6 +2763,7 @@ html[data-theme="light"] button {
     position: relative;
     z-index: 1;
     width: min(100%, 440px);
+    margin: auto;
     padding: 38px 34px 34px;
     border-radius: 34px;
     background:
@@ -2863,6 +2864,29 @@ html[data-theme="light"] button {
   html[data-theme="light"] .auth-panel .btn-secondary:hover {
     background: #eef2ff;
     border-color: rgba(99, 102, 241, 0.42);
+  }
+}
+
+/* Handle short viewport heights on desktop to prevent overflow */
+@media (min-width: 700px) and (max-height: 760px) {
+  .auth-page {
+    padding: 24px 16px;
+  }
+  .auth-panel {
+    padding: 26px 28px 24px;
+    border-radius: 24px;
+  }
+  .auth-panel .auth-logo {
+    width: 80px;
+    height: 80px;
+    margin-bottom: 12px;
+  }
+  .auth-panel .auth-title {
+    font-size: 28px;
+    margin-bottom: 4px;
+  }
+  .auth-panel .auth-subtitle {
+    margin-bottom: 20px;
   }
 }
 

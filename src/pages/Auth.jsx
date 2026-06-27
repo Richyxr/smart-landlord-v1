@@ -705,7 +705,7 @@ export default function Auth({ onAuthSuccess }) {
 
       {/* FORGOT PASSWORD SCREEN */}
       {screen === 'forgot_password' && (
-        <div>
+        <div className="auth-panel">
           {/* Brand Header */}
           <div style={{ textAlign: 'center', marginBottom: '20px' }}>
             <img
@@ -796,7 +796,7 @@ export default function Auth({ onAuthSuccess }) {
 
       {/* RESET PASSWORD SCREEN */}
       {screen === 'reset_password' && (
-        <div>
+        <div className="auth-panel">
           {/* Brand Header */}
           <div style={{ textAlign: 'center', marginBottom: '20px' }}>
             <img
@@ -903,7 +903,7 @@ export default function Auth({ onAuthSuccess }) {
 
       {/* REGISTER SCREEN */}
       {screen === 'register' && (
-        <div>
+        <div className="auth-panel">
           {/* Brand Header */}
           <div style={{ textAlign: 'center', marginBottom: '20px' }}>
             <img
@@ -1090,7 +1090,7 @@ export default function Auth({ onAuthSuccess }) {
 
       {/* VERIFY EMAIL */}
       {screen === 'verify_email' && (
-        <div style={{ textAlign: 'center' }}>
+        <div className="auth-panel" style={{ textAlign: 'center' }}>
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px', color: 'var(--primary)' }}>
             <Mail size={48} />
           </div>
@@ -1131,7 +1131,7 @@ export default function Auth({ onAuthSuccess }) {
 
       {/* VERIFY PHONE */}
       {screen === 'verify_phone' && (
-        <div style={{ textAlign: 'center' }}>
+        <div className="auth-panel" style={{ textAlign: 'center' }}>
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '12px', color: 'var(--primary)' }}>
             <Smartphone size={48} />
           </div>
@@ -1157,7 +1157,7 @@ export default function Auth({ onAuthSuccess }) {
 
       {/* PIN SETUP */}
       {screen === 'pin_setup' && (
-        <div>
+        <div className="auth-panel">
           <h2 style={{ fontSize: '24px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Lock size={24} /> Create Security PIN
           </h2>
