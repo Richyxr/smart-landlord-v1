@@ -51,7 +51,7 @@ async function main() {
 
   const child = spawn('pg_dump', args, {
     stdio: 'inherit',
-    shell: process.platform === 'win32'
+    shell: false
   });
 
   const exitCode = await new Promise((resolve) => {
