@@ -61,6 +61,11 @@ const CARETAKER_LOCKOUT_MS = 15 * 60 * 1000;
 const CARETAKER_LOGIN_ERROR = 'Invalid phone number or PIN.';
 const REGISTRATION_OTP_CONTEXT = 'registration_email_verify';
 const REGISTRATION_SMOKE_HEADER = 'x-smart-landlord-registration-smoke';
+const PASSWORD_RESET_EXPIRY_MINUTES = 60;
+const PASSWORD_RESET_RATE_LIMIT_WINDOW_MINUTES = 60;
+const PASSWORD_RESET_RATE_LIMIT_MAX = 5;
+const PASSWORD_RESET_GENERIC_MESSAGE = 'If this email exists, we have sent password reset instructions.';
+const PASSWORD_RESET_INVALID_MESSAGE = 'Password reset link is invalid or expired. Please request a new one.';
 const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'smart-landlord-1e526';
 const firebaseAdminApp = getFirebaseAdminApps().length
   ? getFirebaseAdminApps()[0]
@@ -74,6 +79,8 @@ const publicApiPaths = new Set([
   '/api/auth/registration/start',
   '/api/auth/registration/resend-otp',
   '/api/auth/registration/verify-email',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password',
   '/api/auth/caretaker/login',
   '/api/webhooks/payment',
   '/api/webhooks/mpesa/c2b',
@@ -205,6 +212,150 @@ function nextJsonOrganizationAccountNumber() {
 
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+}
+
+function validatePasswordStrength(password) {
+  if (!password || String(password).length < 6) {
+    return 'Password must be at least 6 characters.';
+  }
+
+  return null;
+}
+
+function hashPasswordResetToken(token) {
+  return crypto.createHash('sha256').update(String(token || ''), 'utf8').digest('hex');
+}
+
+function generatePasswordResetToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+function getRequestIp(req) {
+  const forwardedFor = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwardedFor || req.ip || req.socket?.remoteAddress || null;
+}
+
+function getFrontendBaseUrl(req) {
+  const configured = process.env.FRONTEND_URL || process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL;
+  if (configured) return configured.replace(/\/+$/, '');
+
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const protocol = forwardedProto || req.protocol || 'https';
+  const host = req.get('host');
+  return host ? `${protocol}://${host}` : 'https://smart-landlord-1e526.web.app';
+}
+
+function buildPasswordResetUrl(req, token) {
+  const url = new URL('/reset-password', getFrontendBaseUrl(req));
+  url.searchParams.set('token', token);
+  return url.toString();
+}
+
+async function resolvePlatformEmailCredentials(activeDb) {
+  const platformSettings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+  if (!platformSettings?.smtp_config_encrypted) {
+    const error = new Error('Email delivery is not configured.');
+    error.code = 'EMAIL_CONFIGURATION_NOT_READY';
+    throw error;
+  }
+
+  const credentials = normalizeSmtpConfig(decryptConfig(platformSettings.smtp_config_encrypted));
+  const missing = validateSmtpConfig(credentials);
+  if (missing.length > 0 || !['verified', 'active'].includes(platformSettings.smtp_status || '')) {
+    const error = new Error('Email delivery is not configured.');
+    error.code = 'EMAIL_CONFIGURATION_NOT_READY';
+    throw error;
+  }
+
+  return credentials;
+}
+
+async function getFirebasePasswordUser(user) {
+  if (!user?.auth_provider_uid) return null;
+
+  try {
+    const firebaseUser = await firebaseAdminAuth.getUser(user.auth_provider_uid);
+    const hasPasswordProvider = firebaseUser.providerData?.some(provider => provider.providerId === 'password');
+    return hasPasswordProvider ? firebaseUser : null;
+  } catch (error) {
+    if (error?.code !== 'auth/user-not-found') {
+      console.warn(`[password-reset] Firebase lookup skipped for user ${user.id}: ${error.message}`);
+    }
+    return null;
+  }
+}
+
+async function countRecentPasswordResetRequests(userId) {
+  const windowStart = new Date(Date.now() - PASSWORD_RESET_RATE_LIMIT_WINDOW_MINUTES * 60 * 1000);
+
+  if (pgDb) {
+    const result = await pgDb.query(
+      `SELECT COUNT(*) AS cnt
+         FROM password_reset_tokens
+        WHERE user_id = $1
+          AND created_at > $2`,
+      [userId, windowStart.toISOString()]
+    );
+    return Number.parseInt(result.rows[0]?.cnt || '0', 10);
+  }
+
+  return db.get('password_reset_tokens').filter(row =>
+    Number(row.user_id) === Number(userId) &&
+    new Date(row.created_at).getTime() > windowStart.getTime()
+  ).length;
+}
+
+async function invalidateActivePasswordResetTokens(userId) {
+  if (pgDb) {
+    await pgDb.query(
+      `UPDATE password_reset_tokens
+          SET used_at = now()
+        WHERE user_id = $1
+          AND used_at IS NULL
+          AND expires_at > now()`,
+      [userId]
+    );
+    return;
+  }
+
+  const nowIso = new Date().toISOString();
+  const activeRows = db.get('password_reset_tokens').filter(row =>
+    Number(row.user_id) === Number(userId) &&
+    !row.used_at &&
+    new Date(row.expires_at).getTime() > Date.now()
+  );
+
+  for (const row of activeRows) {
+    db.update('password_reset_tokens', row.id, { used_at: nowIso });
+  }
+}
+
+async function findPasswordResetToken(tokenHash) {
+  return pgDb
+    ? pgDb.findOne('password_reset_tokens', { token_hash: tokenHash })
+    : db.findOne('password_reset_tokens', { token_hash: tokenHash });
+}
+
+async function markPasswordResetTokenUsed(tokenId) {
+  if (pgDb) {
+    const result = await pgDb.query(
+      `UPDATE password_reset_tokens
+          SET used_at = now()
+        WHERE id = $1
+          AND used_at IS NULL
+        RETURNING *`,
+      [tokenId]
+    );
+    return result.rows[0] || null;
+  }
+
+  const token = db.findOne('password_reset_tokens', { id: Number(tokenId) });
+  if (!token || token.used_at) return null;
+  return db.update('password_reset_tokens', Number(tokenId), { used_at: new Date().toISOString() })[0] || null;
 }
 
 function createJsonOtpDb() {
@@ -728,6 +879,146 @@ app.use(attachSessionContext);
 app.use(checkOrganizationLock);
 
 // --- REGISTRATION EMAIL OTP API ---
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const responseBody = { success: true, message: PASSWORD_RESET_GENERIC_MESSAGE };
+
+  try {
+    const email = normalizeEmail(req.body?.email);
+    if (!isValidEmail(email)) {
+      return res.json(responseBody);
+    }
+
+    const activeDb = pgDb || db;
+    const user = await activeFindOne('users', { email });
+    if (!user || user.status === 'disabled') {
+      return res.json(responseBody);
+    }
+
+    const firebaseUser = await getFirebasePasswordUser(user);
+    if (!firebaseUser) {
+      return res.json(responseBody);
+    }
+
+    const recentCount = await countRecentPasswordResetRequests(user.id);
+    if (recentCount >= PASSWORD_RESET_RATE_LIMIT_MAX) {
+      return res.json(responseBody);
+    }
+
+    await invalidateActivePasswordResetTokens(user.id);
+
+    const token = generatePasswordResetToken();
+    const tokenHash = hashPasswordResetToken(token);
+    const expiresAt = new Date(Date.now() + PASSWORD_RESET_EXPIRY_MINUTES * 60 * 1000);
+    const resetTokenRow = await activeInsert('password_reset_tokens', {
+      user_id: user.id,
+      token_hash: tokenHash,
+      expires_at: expiresAt.toISOString(),
+      used_at: null,
+      requested_ip: getRequestIp(req),
+      requested_user_agent: String(req.headers['user-agent'] || '').slice(0, 500)
+    });
+
+    try {
+      const credentials = await resolvePlatformEmailCredentials(activeDb);
+      const { subject, html, text } = renderTemplate('password_reset', {
+        recipientName: user.name,
+        resetUrl: buildPasswordResetUrl(req, token),
+        expiryMinutes: PASSWORD_RESET_EXPIRY_MINUTES
+      });
+
+      await sendEmailWithConfig(credentials, {
+        to: email,
+        subject,
+        html,
+        text
+      });
+    } catch (error) {
+      await markPasswordResetTokenUsed(resetTokenRow.id);
+      console.warn(`[password-reset] Reset email was not sent for user ${user.id}: ${error.message}`);
+    }
+
+    return res.json(responseBody);
+  } catch (error) {
+    console.warn(`[password-reset] Forgot-password request handled generically after error: ${error.message}`);
+    return res.json(responseBody);
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const token = String(req.body?.token || '').trim();
+    const newPassword = String(req.body?.new_password || req.body?.password || '');
+    const confirmPassword = req.body?.confirm_password !== undefined
+      ? String(req.body.confirm_password || '')
+      : newPassword;
+
+    if (!token) {
+      return res.status(400).json({
+        error: 'PASSWORD_RESET_INVALID',
+        message: PASSWORD_RESET_INVALID_MESSAGE
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        error: 'PASSWORD_RESET_PASSWORD_MISMATCH',
+        message: 'Passwords do not match.'
+      });
+    }
+
+    const passwordError = validatePasswordStrength(newPassword);
+    if (passwordError) {
+      return res.status(400).json({
+        error: 'PASSWORD_RESET_WEAK_PASSWORD',
+        message: passwordError
+      });
+    }
+
+    const tokenHash = hashPasswordResetToken(token);
+    const tokenRow = await findPasswordResetToken(tokenHash);
+    const isExpired = !tokenRow?.expires_at || new Date(tokenRow.expires_at).getTime() <= Date.now();
+
+    if (!tokenRow || tokenRow.used_at || isExpired) {
+      return res.status(400).json({
+        error: 'PASSWORD_RESET_INVALID',
+        message: PASSWORD_RESET_INVALID_MESSAGE
+      });
+    }
+
+    const user = await activeFindOne('users', { id: Number(tokenRow.user_id) });
+    const firebaseUser = await getFirebasePasswordUser(user);
+    if (!user || user.status === 'disabled' || !firebaseUser) {
+      await markPasswordResetTokenUsed(tokenRow.id);
+      return res.status(400).json({
+        error: 'PASSWORD_RESET_INVALID',
+        message: PASSWORD_RESET_INVALID_MESSAGE
+      });
+    }
+
+    const consumedToken = await markPasswordResetTokenUsed(tokenRow.id);
+    if (!consumedToken) {
+      return res.status(400).json({
+        error: 'PASSWORD_RESET_INVALID',
+        message: PASSWORD_RESET_INVALID_MESSAGE
+      });
+    }
+
+    await firebaseAdminAuth.updateUser(user.auth_provider_uid, { password: newPassword });
+    await firebaseAdminAuth.revokeRefreshTokens(user.auth_provider_uid);
+
+    return res.json({
+      success: true,
+      message: 'Your password has been reset. You can now sign in with your new password.'
+    });
+  } catch (error) {
+    console.warn(`[password-reset] Reset-password request failed safely: ${error.message}`);
+    return res.status(400).json({
+      error: 'PASSWORD_RESET_FAILED',
+      message: PASSWORD_RESET_INVALID_MESSAGE
+    });
+  }
+});
+
 app.post('/api/auth/registration/start', async (req, res, next) => {
   try {
     const decodedToken = await verifyFirebaseOrSmokeRegistrationToken(req);

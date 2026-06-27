@@ -34,7 +34,10 @@ function getFriendlyAuthError(error) {
 }
 
 export default function Auth({ onAuthSuccess }) {
-  const [screen, setScreen] = useState('welcome'); // welcome, login, register, verify_email, verify_phone, pin_setup
+  const initialResetToken = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('token') || ''
+    : '';
+  const [screen, setScreen] = useState(initialResetToken ? 'reset_password' : 'welcome'); // welcome, login, register, forgot_password, reset_password, verify_email, verify_phone, pin_setup
   
   // Registration State
   const [isCompany, setIsCompany] = useState(false);
@@ -53,6 +56,12 @@ export default function Auth({ onAuthSuccess }) {
   const [error, setError] = useState('');
   const [emailOtp, setEmailOtp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSent, setForgotSent] = useState(false);
+  const [resetToken, setResetToken] = useState(initialResetToken);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resetComplete, setResetComplete] = useState(false);
 
   // Login State
   const [loginEmail, setLoginEmail] = useState('');
@@ -262,6 +271,77 @@ export default function Auth({ onAuthSuccess }) {
         return;
       }
       setError(getFriendlyAuthError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setError('');
+    setForgotSent(false);
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(forgotEmail)) {
+      setError('Invalid email address format.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail })
+      });
+
+      setForgotSent(true);
+    } catch (_err) {
+      setForgotSent(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!resetPassword || resetPassword.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+
+    if (resetPassword !== resetConfirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: resetToken,
+          new_password: resetPassword,
+          confirm_password: resetConfirmPassword
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || 'Password reset link is invalid or expired. Please request a new one.');
+      }
+
+      setResetComplete(true);
+      setResetPassword('');
+      setResetConfirmPassword('');
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    } catch (err) {
+      setError(err.message || 'Password reset link is invalid or expired. Please request a new one.');
     } finally {
       setLoading(false);
     }
@@ -500,6 +580,18 @@ export default function Auth({ onAuthSuccess }) {
                     value={loginPassword}
                     onChange={e => setLoginPassword(e.target.value)}
                   />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotEmail(loginEmail);
+                      setForgotSent(false);
+                      setError('');
+                      setScreen('forgot_password');
+                    }}
+                    style={{ alignSelf: 'flex-end', marginTop: '6px', background: 'none', border: 'none', color: 'var(--primary)', fontSize: '12px', fontWeight: '600', cursor: 'pointer', padding: 0 }}
+                  >
+                    Forgot Password?
+                  </button>
                 </div>
 
                 {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
@@ -562,6 +654,140 @@ export default function Auth({ onAuthSuccess }) {
 
           <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => setScreen('welcome')}>
             Go Back
+          </button>
+        </div>
+      )}
+
+      {/* FORGOT PASSWORD SCREEN */}
+      {screen === 'forgot_password' && (
+        <div>
+          <h2 style={{ fontSize: '24px', marginBottom: '8px' }}>Reset Password</h2>
+          <p style={{ marginBottom: '24px', fontSize: '13px' }}>Enter your email address and we will send password reset instructions.</p>
+
+          {forgotSent ? (
+            <>
+              <div role="status" style={{ color: 'var(--success)', fontSize: '13px', marginBottom: '16px', lineHeight: 1.5 }}>
+                If this email exists, we have sent password reset instructions.
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setError('');
+                  setScreen('login');
+                }}
+              >
+                Back to Sign In
+              </button>
+            </>
+          ) : (
+            <form onSubmit={handleForgotPassword}>
+              <div className="form-group">
+                <label className="form-label">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  className="form-control"
+                  placeholder="landlord@demo.com"
+                  value={forgotEmail}
+                  onChange={e => setForgotEmail(e.target.value)}
+                />
+              </div>
+
+              {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
+
+              <button type="submit" className="btn btn-primary" disabled={loading} style={{ marginTop: '10px' }}>
+                {loading ? 'Sending...' : 'Send Reset Instructions'}
+              </button>
+            </form>
+          )}
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ marginTop: '12px' }}
+            onClick={() => {
+              setForgotSent(false);
+              setError('');
+              setScreen('login');
+            }}
+          >
+            Go Back
+          </button>
+        </div>
+      )}
+
+      {/* RESET PASSWORD SCREEN */}
+      {screen === 'reset_password' && (
+        <div>
+          <h2 style={{ fontSize: '24px', marginBottom: '8px' }}>Create New Password</h2>
+          <p style={{ marginBottom: '24px', fontSize: '13px' }}>Choose a new password for your Smart Landlord account.</p>
+
+          {resetComplete ? (
+            <>
+              <div role="status" style={{ color: 'var(--success)', fontSize: '13px', marginBottom: '16px', lineHeight: 1.5 }}>
+                Your password has been reset. You can now sign in with your new password.
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setResetComplete(false);
+                  setError('');
+                  setScreen('login');
+                }}
+              >
+                Back to Sign In
+              </button>
+            </>
+          ) : (
+            <form onSubmit={handleResetPassword}>
+              <div className="form-group">
+                <label className="form-label">New Password</label>
+                <input
+                  type="password"
+                  required
+                  className="form-control"
+                  placeholder="••••••••"
+                  value={resetPassword}
+                  onChange={e => setResetPassword(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Confirm Password</label>
+                <input
+                  type="password"
+                  required
+                  className="form-control"
+                  placeholder="••••••••"
+                  value={resetConfirmPassword}
+                  onChange={e => setResetConfirmPassword(e.target.value)}
+                />
+              </div>
+
+              {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
+
+              <button type="submit" className="btn btn-primary" disabled={loading} style={{ marginTop: '10px' }}>
+                {loading ? 'Resetting...' : 'Reset Password'}
+              </button>
+            </form>
+          )}
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ marginTop: '12px' }}
+            onClick={() => {
+              setResetComplete(false);
+              setError('');
+              setScreen('login');
+              if (typeof window !== 'undefined') {
+                window.history.replaceState({}, '', window.location.pathname);
+              }
+            }}
+          >
+            Back to Sign In
           </button>
         </div>
       )}

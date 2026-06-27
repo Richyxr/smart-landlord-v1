@@ -48,7 +48,8 @@ const defaultDb = {
   platform_billing_payments: [],
   deletion_requests: [],
   maintenance_requests: [],
-  otp_codes: []
+  otp_codes: [],
+  password_reset_tokens: []
 };
 
 // Reading the DB

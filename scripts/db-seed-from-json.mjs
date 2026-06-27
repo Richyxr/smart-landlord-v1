@@ -12,6 +12,7 @@ const defaultJsonPath = path.join(projectRoot, 'server', 'data', 'db.json');
 
 const TABLE_ORDER = [
   'users',
+  'password_reset_tokens',
   'organizations',
   'organization_members',
   'properties',

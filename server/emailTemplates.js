@@ -229,12 +229,59 @@ function welcome(data) {
   return { subject, html, text };
 }
 
+/**
+ * Password reset email.
+ *
+ * Data: { recipientName, resetUrl, expiryMinutes }
+ */
+function passwordReset(data) {
+  const name = esc(data.recipientName || 'there');
+  const resetUrl = esc(data.resetUrl || 'https://smart-landlord-1e526.web.app/reset-password');
+  const expiry = parseInt(data.expiryMinutes || 60, 10);
+
+  const subject = 'Reset your Smart Landlord password';
+
+  const html = layout(`
+    <h1 style="margin:0 0 8px;font-family:Inter,Arial,sans-serif;font-size:24px;font-weight:700;color:#1C1C1E;">Reset your password</h1>
+    <p style="margin:0 0 24px;font-family:Inter,Arial,sans-serif;font-size:15px;color:#4B5563;line-height:1.6;">
+      Hi ${name}, use the secure link below to choose a new Smart Landlord password.
+    </p>
+    <a href="${resetUrl}" style="display:inline-block;padding:14px 24px;background-color:#6B46C1;color:#FFFFFF;font-family:Inter,Arial,sans-serif;font-size:15px;font-weight:600;text-decoration:none;border-radius:8px;">
+      Reset Password
+    </a>
+    <p style="margin:24px 0 8px;font-family:Inter,Arial,sans-serif;font-size:14px;color:#6B7280;line-height:1.6;">
+      This link expires in <strong>${expiry} minutes</strong> and can be used only once.
+    </p>
+    <p style="margin:0;font-family:Inter,Arial,sans-serif;font-size:13px;color:#9CA3AF;line-height:1.6;">
+      If you did not request a password reset, you can safely ignore this email.
+    </p>
+  `);
+
+  const text = [
+    'Smart Landlord — Password Reset',
+    '',
+    `Hi ${data.recipientName || 'there'},`,
+    '',
+    'Use this secure link to choose a new Smart Landlord password:',
+    data.resetUrl || 'https://smart-landlord-1e526.web.app/reset-password',
+    '',
+    `This link expires in ${expiry} minutes and can be used only once.`,
+    '',
+    'If you did not request a password reset, you can safely ignore this email.',
+    '',
+    '— The Smart Landlord Team'
+  ].join('\n');
+
+  return { subject, html, text };
+}
+
 // ---------------------------------------------------------------------------
 // Template registry
 // ---------------------------------------------------------------------------
 
 const TEMPLATES = {
   otp_verification: otpVerification,
+  password_reset: passwordReset,
   smtp_test: smtpTest,
   welcome
 };

@@ -78,6 +78,18 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      const hasPasswordResetToken = typeof window !== 'undefined'
+        && new URLSearchParams(window.location.search).has('token');
+      if (hasPasswordResetToken) {
+        clearSessionToken();
+        setUser(null);
+        setRole('landlord');
+        setOrganization(null);
+        setIsLocked(false);
+        setAuthRestoring(false);
+        return;
+      }
+
       if (!firebaseUser) {
         clearSessionToken();
         setUser(null);
@@ -108,7 +120,9 @@ export default function App() {
 
   // Load a demo session only for local/demo builds.
   useEffect(() => {
-    if (demoMode && !auth.currentUser) {
+    const hasPasswordResetToken = typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).has('token');
+    if (demoMode && !auth.currentUser && !hasPasswordResetToken) {
       autoLoginDemo();
     }
   }, []);
