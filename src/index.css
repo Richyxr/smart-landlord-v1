@@ -2717,14 +2717,22 @@ html[data-theme="light"] button {
 /* Keep mobile/auth app feel unchanged */
 @media (max-width: 699px) {
   .auth-page {
-    padding: 24px;
+    padding: 24px 16px;
   }
 
   .auth-panel {
-    padding: 0;
-    background: transparent;
-    border: 0;
-    box-shadow: none;
+    padding: 28px 22px 24px;
+    border-radius: 24px;
+    background: rgba(18, 20, 32, 0.65);
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(12px);
+  }
+
+  html[data-theme="light"] .auth-panel {
+    background: rgba(255, 255, 255, 0.85);
+    border-color: rgba(148, 163, 184, 0.22);
+    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
   }
 }
 

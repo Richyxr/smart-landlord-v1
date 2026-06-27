@@ -512,40 +512,53 @@ export default function Auth({ onAuthSuccess }) {
 
       {/* LOGIN SCREEN */}
       {screen === 'login' && (
-        <div>
+        <div className="auth-panel">
           {/* Brand Header */}
-          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+          <div style={{ textAlign: 'center', marginBottom: '24px' }}>
             <img
               src="/icons/maskable-192.png"
               alt="Smart Landlord"
               style={{
-                width: '60px',
-                height: '60px',
-                margin: '0 auto 8px auto',
+                width: '64px',
+                height: '64px',
+                margin: '0 auto 10px auto',
                 display: 'block',
-                borderRadius: '12px',
-                boxShadow: 'var(--shadow-sm)'
+                borderRadius: '14px',
+                boxShadow: '0 8px 20px rgba(99, 102, 241, 0.22)'
               }}
             />
             <h1 style={{
               fontFamily: 'var(--font-title)',
-              fontSize: '20px',
-              fontWeight: '600',
+              fontSize: '22px',
+              fontWeight: '700',
               margin: '0 0 2px 0',
-              color: 'var(--text-primary)'
+              color: 'var(--text-primary)',
+              letterSpacing: '-0.02em'
             }}>
               Smart <span style={{ color: 'var(--primary)' }}>Landlord</span>
             </h1>
             <p style={{
               fontSize: '12px',
               color: 'var(--text-secondary)',
-              margin: 0
+              margin: '0 0 4px 0',
+              fontWeight: '500'
             }}>
               Property management made simple.
             </p>
+            <p style={{
+              fontSize: '10px',
+              color: 'var(--primary)',
+              opacity: 0.85,
+              margin: 0,
+              fontWeight: '600',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase'
+            }}>
+              Secure property management portal
+            </p>
           </div>
 
-          <h2 style={{ fontSize: '20px', marginBottom: '4px', textAlign: 'center' }}>Welcome Back</h2>
+          <h2 style={{ fontSize: '18px', marginBottom: '4px', textAlign: 'center', fontWeight: '600' }}>Welcome Back</h2>
           <p style={{ marginBottom: '20px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center' }}>Sign in to access your properties and payments.</p>
 
           <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-surface-elevated)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '20px' }}>
