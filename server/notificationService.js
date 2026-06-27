@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { db } from './db.js';
 import { sendEmailWithConfig } from './mailerService.js';
 import { resolveEmailDeliveryConfig } from './emailConfigService.js';
+import { logSmsSystemError, recordSmsUsageLedger } from './smsUsageLedgerService.js';
 
 function paybillInstruction(data) {
   if (data.paybill) {
@@ -294,12 +295,20 @@ export class NotificationService {
           const isMock = String(credentials.api_key).startsWith('mock') || String(credentials.api_key).startsWith('test') || credentials.api_key === 'dummy';
 
           if (isMock) {
+            const providerReference = `mobitech-mock-${crypto.randomBytes(4).toString('hex')}`;
             console.log(`[NotificationService MOCK MOBITECH SUCCESS] SMS sent to ${recipientNum}: "${log.message}"`);
             await this._updateLog(log.id, {
               ...attemptData,
               status: 'sent',
               sent_at: nowStr,
-              provider_reference: `mobitech-mock-${crypto.randomBytes(4).toString('hex')}`
+              provider_reference: providerReference
+            });
+            await this._recordSmsLedger(log, {
+              status: 'sent',
+              provider: 'Mobitech',
+              senderId: credentials.sender_id || 'SMARTLAND',
+              providerMessageId: providerReference,
+              recipient: recipientNum
             });
           } else {
             const payload = {
@@ -338,11 +347,19 @@ export class NotificationService {
             }
 
             console.log(`[NotificationService MOBITECH SUCCESS] SMS delivered for log ${log.id}`);
+            const providerReference = firstResponse?.messageid ? String(firstResponse.messageid) : `mobitech-${log.id}`;
             await this._updateLog(log.id, {
               ...attemptData,
               status: 'sent',
               sent_at: nowStr,
-              provider_reference: firstResponse?.messageid ? String(firstResponse.messageid) : `mobitech-${log.id}`
+              provider_reference: providerReference
+            });
+            await this._recordSmsLedger(log, {
+              status: 'sent',
+              provider: 'Mobitech',
+              senderId: credentials.sender_id || 'SMARTLAND',
+              providerMessageId: providerReference,
+              recipient: recipientNum
             });
           }
         } else {
@@ -358,13 +375,23 @@ export class NotificationService {
 
           // Simulated Success
           console.log(`[NotificationService SUCCESS] ${log.channel.toUpperCase()} sent to ${log.phone_number}: "${log.message}"`);
+          const providerReference = `${log.channel}-${crypto.randomBytes(4).toString('hex')}`;
           
           await this._updateLog(log.id, {
             ...attemptData,
             status: 'sent',
             sent_at: nowStr,
-            provider_reference: `${log.channel}-${crypto.randomBytes(4).toString('hex')}`
+            provider_reference: providerReference
           });
+
+          if (log.channel === 'sms') {
+            await this._recordSmsLedger(log, {
+              status: 'sent',
+              provider: settings?.sms_provider || 'simulated',
+              providerMessageId: providerReference,
+              recipient: log.phone_number
+            });
+          }
         }
       }
     } catch (error) {
@@ -391,6 +418,25 @@ export class NotificationService {
           null,
           { log_id: log.id }
         );
+      }
+
+      if (log.channel === 'sms') {
+        const ledger = await this._recordSmsLedger(log, {
+          status: 'failed',
+          provider: null,
+          error: publicError,
+          recipient: log.phone_number
+        });
+
+        if (this.pgDb || db) {
+          await logSmsSystemError(this.pgDb || db, {
+            organization_id: log.organization_id,
+            user_id: log.recipient_user_id || null,
+            status: 'failed',
+            message: publicError,
+            ledger_id: ledger?.id || null
+          });
+        }
       }
     }
   }
@@ -452,6 +498,32 @@ export class NotificationService {
       is_active: true
     });
     return String(integration?.shortcode || '').trim();
+  }
+
+  async _recordSmsLedger(log, outcome = {}) {
+    const activeDb = this.pgDb || db;
+    if (!activeDb || log.channel !== 'sms') return null;
+
+    const provider = outcome.provider || await this._resolveSmsProviderName(log.organization_id);
+
+    return recordSmsUsageLedger(activeDb, {
+      organization_id: log.organization_id,
+      message_type: ['rent_reminder', 'overdue_reminder'].includes(log.type) ? 'reminder' : 'transactional',
+      recipient_phone_e164: outcome.recipient || log.phone_number,
+      sender_id: outcome.senderId || null,
+      provider,
+      provider_message_id: outcome.providerMessageId || null,
+      status: outcome.status || 'failed',
+      failure_reason: outcome.error || outcome.failure_reason || null,
+      source: log.type || 'notification',
+      related_entity_type: 'notification_logs',
+      related_entity_id: log.id
+    });
+  }
+
+  async _resolveSmsProviderName(orgId) {
+    const settings = await this._getNotificationSettings(orgId).catch(() => null);
+    return settings?.sms_provider || 'simulated';
   }
 
   /**

@@ -33,6 +33,7 @@ const TABLES_WITH_UPDATED_AT = new Set([
   'platform_billing_settings',
   'platform_billing_invoices',
   'platform_billing_payments',
+  'sms_usage_ledger',
   'deletion_requests',
   'maintenance_requests'
 ]);

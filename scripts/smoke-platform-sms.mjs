@@ -222,6 +222,8 @@ async function main() {
     testUserId = userRes.rows[0].id;
     console.log(`[E2E-TEST] Created test user with ID ${testUserId}`);
 
+    await client.query("DELETE FROM sms_usage_ledger WHERE recipient_phone_e164 IN ($1, $2)", ['+254700111222', '254700111222']);
+
     // 3. Start app server
     appProcess = startAppServer();
     await waitForServer();
@@ -256,6 +258,21 @@ async function main() {
       body: JSON.stringify({ to: '+254700111222' })
     });
     assert.strictEqual(unauthTest.status, 403, 'Landlord role should not test SMS settings');
+
+    const unauthUsage = await fetch(`${BASE_URL}/api/admin/platform-sms/usage`, {
+      headers: { 'Authorization': `Bearer ${landlordToken}` }
+    });
+    assert.strictEqual(unauthUsage.status, 403, 'Landlord role should not read platform-wide SMS usage');
+
+    const unauthPricing = await fetch(`${BASE_URL}/api/admin/platform-sms/pricing`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${landlordToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ default_sms_provider_cost: '1', default_sms_sell_price: '2', sms_currency: 'KES' })
+    });
+    assert.strictEqual(unauthPricing.status, 403, 'Landlord role should not save SMS pricing');
     console.log('   ✅ Unauthorized access block passed');
 
     // 5. Super admin access allowed
@@ -267,7 +284,46 @@ async function main() {
     const getData = await getRes.json();
     assert.ok(getData.hasOwnProperty('status'));
     assert.ok(getData.hasOwnProperty('config_masked'));
+    assert.ok(getData.hasOwnProperty('default_sms_sell_price'));
     console.log('   ✅ Super admin access allowed passed');
+
+    // 5b. Pricing controls validation and save
+    console.log(' - Verify SMS pricing controls...');
+    const invalidPricingRes = await fetch(`${BASE_URL}/api/admin/platform-sms/pricing`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${superAdminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        sms_billing_enabled: true,
+        default_sms_provider_cost: '-1',
+        default_sms_sell_price: '2.00',
+        sms_currency: 'KES'
+      })
+    });
+    assert.strictEqual(invalidPricingRes.status, 400, 'Invalid SMS pricing settings should be rejected');
+
+    const pricingRes = await fetch(`${BASE_URL}/api/admin/platform-sms/pricing`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${superAdminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        sms_billing_enabled: true,
+        default_sms_provider_cost: '1.25',
+        default_sms_sell_price: '2.50',
+        sms_currency: 'KES'
+      })
+    });
+    assert.strictEqual(pricingRes.status, 200);
+    const pricingData = await pricingRes.json();
+    assert.strictEqual(Number(pricingData.default_sms_provider_cost), 1.25);
+    assert.strictEqual(Number(pricingData.default_sms_sell_price), 2.5);
+    assert.strictEqual(pricingData.sms_currency, 'KES');
+    assert.strictEqual(pricingData.sms_billing_enabled, true);
+    console.log('   ✅ SMS pricing controls passed');
 
     // 6. Config Save (PUT)
     console.log(' - Verify config save (PUT)...');
@@ -337,6 +393,22 @@ async function main() {
     assert.strictEqual(dbStatusRes.rows[0].sms_status, 'active');
     assert.strictEqual(dbStatusRes.rows[0].sms_last_error, null);
     assert.ok(dbStatusRes.rows[0].sms_last_tested_at);
+
+    const successLedgerRes = await client.query(`
+      SELECT *
+      FROM sms_usage_ledger
+      WHERE recipient_phone_e164 = '+254700111222'
+      ORDER BY id DESC
+      LIMIT 1
+    `);
+    assert.strictEqual(successLedgerRes.rows.length, 1, 'Successful test SMS should create a ledger row');
+    assert.strictEqual(successLedgerRes.rows[0].status, 'sent');
+    assert.strictEqual(successLedgerRes.rows[0].source, 'test_sms');
+    assert.strictEqual(Number(successLedgerRes.rows[0].provider_unit_cost), 1.25);
+    assert.strictEqual(Number(successLedgerRes.rows[0].billed_unit_price), 2.5);
+    assert.strictEqual(Number(successLedgerRes.rows[0].provider_total_cost), 1.25);
+    assert.strictEqual(Number(successLedgerRes.rows[0].billed_total_amount), 2.5);
+    assert.strictEqual(Number(successLedgerRes.rows[0].margin_amount), 1.25);
     console.log('   ✅ Test SMS success passed');
 
     // 10. Test SMS failure with sanitized error
@@ -374,7 +446,76 @@ async function main() {
     assert.ok(dbStatusFailureRes.rows[0].sms_last_error);
     assert.ok(!dbStatusFailureRes.rows[0].sms_last_error.includes('invalid-key'));
     assert.ok(!dbStatusFailureRes.rows[0].sms_last_error.includes('test-client-id-987654321'));
+
+    const failureLedgerRes = await client.query(`
+      SELECT *
+      FROM sms_usage_ledger
+      WHERE recipient_phone_e164 = '+254700111222'
+      ORDER BY id DESC
+      LIMIT 1
+    `);
+    assert.strictEqual(failureLedgerRes.rows[0].status, 'failed');
+    assert.ok(failureLedgerRes.rows[0].failure_reason);
+    assert.ok(!failureLedgerRes.rows[0].failure_reason.includes('invalid-key'));
     console.log('   ✅ Test SMS failure with sanitized error passed');
+
+    // 11. Sender ID pending blocks live SMS and records blocked ledger row
+    console.log(' - Verify Sender ID pending block ledger...');
+    await fetch(`${BASE_URL}/api/admin/platform-sms`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${superAdminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        provider: 'mobitech',
+        api_url: 'http://localhost/test-sms-gateway',
+        sender_id: 'SMARTLANDY',
+        sender_id_type: 'transactional',
+        sender_approval_status: 'pending',
+        default_country_code: '+254',
+        config_json: {
+          api_key: 'test-api-key-123456789',
+          client_id: 'test-client-id-987654321'
+        }
+      })
+    });
+
+    const blockedRes = await fetch(`${BASE_URL}/api/admin/platform-sms/test`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${superAdminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ to: '+254700111222' })
+    });
+    assert.strictEqual(blockedRes.status, 502);
+    const blockedLedgerRes = await client.query(`
+      SELECT *
+      FROM sms_usage_ledger
+      WHERE recipient_phone_e164 = '+254700111222'
+      ORDER BY id DESC
+      LIMIT 1
+    `);
+    assert.strictEqual(blockedLedgerRes.rows[0].status, 'blocked');
+    assert.ok(blockedLedgerRes.rows[0].failure_reason.includes('Live SMS sending is blocked'));
+    console.log('   ✅ Sender ID pending block ledger passed');
+
+    // 12. Super Admin usage summary
+    console.log(' - Verify Super Admin SMS usage summary...');
+    const usageRes = await fetch(`${BASE_URL}/api/admin/platform-sms/usage`, {
+      headers: { 'Authorization': `Bearer ${superAdminToken}` }
+    });
+    assert.strictEqual(usageRes.status, 200);
+    const usageData = await usageRes.json();
+    assert.ok(Number(usageData.summary.sent_month) >= 1);
+    assert.ok(Number(usageData.summary.failed_month) >= 1);
+    assert.ok(Number(usageData.summary.blocked_month) >= 1);
+    assert.ok(Number(usageData.summary.provider_cost_month) >= 3.75);
+    assert.ok(Number(usageData.summary.billed_revenue_month) >= 7.5);
+    assert.ok(Number(usageData.summary.margin_month) >= 3.75);
+    assert.ok(Array.isArray(usageData.landlords));
+    console.log('   ✅ Super Admin SMS usage summary passed');
 
     console.log('\n[E2E-TEST] All E2E smoke tests completed successfully! 🎉');
 
@@ -389,6 +530,7 @@ async function main() {
     if (testUserId) {
       try {
         await client.query('DELETE FROM audit_logs WHERE actor_user_id = $1', [testUserId]);
+        await client.query("DELETE FROM sms_usage_ledger WHERE recipient_phone_e164 IN ($1, $2)", ['+254700111222', '254700111222']);
         await client.query('DELETE FROM users WHERE id = $1', [testUserId]);
         console.log('[E2E-TEST] Cleaned up test user and related audits');
       } catch (err) {
@@ -403,7 +545,13 @@ async function main() {
           SET sms_provider = $1, sms_api_url = $2, sms_config_encrypted = $3,
               sms_sender_id = $4, sms_sender_id_type = $5, sms_sender_approval_status = $6,
               sms_default_country_code = $7, sms_status = $8, sms_last_tested_at = $9,
-              sms_last_error = $10
+              sms_last_error = $10,
+              sms_billing_enabled = $11,
+              default_sms_sell_price = $12,
+              default_sms_provider_cost = $13,
+              sms_currency = $14,
+              sms_free_monthly_allowance = $15,
+              sms_markup_strategy = $16
           WHERE id = 1
         `, [
           originalSettings.sms_provider,
@@ -415,7 +563,13 @@ async function main() {
           originalSettings.sms_default_country_code,
           originalSettings.sms_status,
           originalSettings.sms_last_tested_at,
-          originalSettings.sms_last_error
+          originalSettings.sms_last_error,
+          originalSettings.sms_billing_enabled,
+          originalSettings.default_sms_sell_price,
+          originalSettings.default_sms_provider_cost,
+          originalSettings.sms_currency,
+          originalSettings.sms_free_monthly_allowance,
+          originalSettings.sms_markup_strategy
         ]);
         console.log('[E2E-TEST] Restored original platform billing settings');
       } catch (err) {

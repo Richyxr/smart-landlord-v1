@@ -46,6 +46,7 @@ const defaultDb = {
   platform_billing_settings: [],
   platform_billing_invoices: [],
   platform_billing_payments: [],
+  sms_usage_ledger: [],
   deletion_requests: [],
   maintenance_requests: [],
   otp_codes: [],
@@ -925,6 +926,12 @@ function seedDb() {
       sms_status: 'not_configured',
       sms_last_tested_at: null,
       sms_last_error: null,
+      sms_billing_enabled: false,
+      default_sms_sell_price: 0,
+      default_sms_provider_cost: 0,
+      sms_currency: 'KES',
+      sms_free_monthly_allowance: 0,
+      sms_markup_strategy: 'fixed',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     }

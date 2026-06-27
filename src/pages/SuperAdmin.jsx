@@ -25,6 +25,12 @@ function normalizeAccountNumber(value) {
   return String(value || '').trim().toUpperCase();
 }
 
+function formatMoney(value, currency = 'KES') {
+  const numeric = Number(value || 0);
+  const safe = Number.isFinite(numeric) ? numeric : 0;
+  return `${currency} ${safe.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function safeArrayPayload(payload) {
   return Array.isArray(payload) ? payload : [];
 }
@@ -85,6 +91,19 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     config_masked: {},
     has_credentials: false
   });
+  const [smsUsage, setSmsUsage] = useState({
+    summary: {
+      sent_today: 0,
+      sent_month: 0,
+      failed_month: 0,
+      blocked_month: 0,
+      provider_cost_month: '0.00',
+      billed_revenue_month: '0.00',
+      margin_month: '0.00',
+      active_landlords_month: 0
+    },
+    landlords: []
+  });
   const [platformSmsForm, setPlatformSmsForm] = useState({
     provider: '',
     api_url: '',
@@ -94,6 +113,12 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     default_country_code: '+254',
     api_key: '',
     client_id: ''
+  });
+  const [smsPricingForm, setSmsPricingForm] = useState({
+    sms_billing_enabled: false,
+    default_sms_provider_cost: '0.0000',
+    default_sms_sell_price: '0.0000',
+    sms_currency: 'KES'
   });
   const [platformSmsCredentialsMasked, setPlatformSmsCredentialsMasked] = useState(false);
 
@@ -188,6 +213,12 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         if (!res.ok) throw new Error('Failed to fetch platform SMS settings.');
         const data = await res.json();
         setPlatformSms(data);
+        setSmsPricingForm({
+          sms_billing_enabled: Boolean(data.sms_billing_enabled),
+          default_sms_provider_cost: String(data.default_sms_provider_cost ?? '0.0000'),
+          default_sms_sell_price: String(data.default_sms_sell_price ?? '0.0000'),
+          sms_currency: data.sms_currency || 'KES'
+        });
         setPlatformSmsForm({
           provider: data.provider || '',
           api_url: data.api_url || '',
@@ -199,6 +230,14 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           client_id: data.config_masked?.client_id || ''
         });
         setPlatformSmsCredentialsMasked(Boolean(data.has_credentials));
+
+        const usageRes = await fetch('/api/admin/platform-sms/usage', { headers });
+        if (!usageRes.ok) throw new Error('Failed to fetch SMS usage.');
+        const usageData = await usageRes.json();
+        setSmsUsage({
+          summary: usageData.summary || smsUsage.summary,
+          landlords: safeArrayPayload(usageData.landlords)
+        });
       } else if (activeTab === 'errors') {
         const res = await fetch('/api/admin/system-errors', { headers });
         const data = await res.json().catch(() => null);
@@ -440,6 +479,54 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     }
   };
 
+  const handleSmsPricingSave = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const providerCost = Number(smsPricingForm.default_sms_provider_cost);
+      const sellPrice = Number(smsPricingForm.default_sms_sell_price);
+      const currency = String(smsPricingForm.sms_currency || '').trim().toUpperCase();
+
+      if (!Number.isFinite(providerCost) || providerCost < 0) {
+        throw new Error('Provider cost cannot be negative.');
+      }
+      if (!Number.isFinite(sellPrice) || sellPrice < 0) {
+        throw new Error('Billing price cannot be negative.');
+      }
+      if (!currency) {
+        throw new Error('Currency is required.');
+      }
+
+      const res = await fetch('/api/admin/platform-sms/pricing', {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sms_billing_enabled: smsPricingForm.sms_billing_enabled,
+          default_sms_provider_cost: smsPricingForm.default_sms_provider_cost,
+          default_sms_sell_price: smsPricingForm.default_sms_sell_price,
+          sms_currency: currency
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || 'Failed to save SMS pricing settings.');
+
+      setPlatformSms(data);
+      setSmsPricingForm({
+        sms_billing_enabled: Boolean(data.sms_billing_enabled),
+        default_sms_provider_cost: String(data.default_sms_provider_cost ?? '0.0000'),
+        default_sms_sell_price: String(data.default_sms_sell_price ?? '0.0000'),
+        sms_currency: data.sms_currency || 'KES'
+      });
+      await fetchData();
+      onRefresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handlePlatformSmsTest = async () => {
     const recipient = window.prompt('Enter a test recipient mobile phone number (e.g. +254700000000):');
     if (recipient === null || !recipient.trim()) return;
@@ -460,6 +547,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         last_tested_at: data.last_tested_at || new Date().toISOString(),
         sms_last_error: null
       }));
+      await fetchData();
       onRefresh();
     } catch (err) {
       setError(err.message);
@@ -551,6 +639,9 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
   const safeSystemErrors = safeArrayPayload(systemErrors);
   const safeSystemAudits = safeArrayPayload(systemAudits);
   const safeDeletionRequests = safeArrayPayload(deletionRequests);
+  const smsSummary = smsUsage.summary || {};
+  const smsCurrency = smsPricingForm.sms_currency || platformSms.sms_currency || 'KES';
+  const smsLandlordRows = safeArrayPayload(smsUsage.landlords);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -980,6 +1071,94 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
             </div>
           )}
 
+          <div className="grid-4" style={{ marginBottom: '16px' }}>
+            <div className="sl-metric-card">
+              <div className="sl-metric-label">SMS sent today</div>
+              <div className="sl-metric-value">{toFiniteNumber(smsSummary.sent_today)}</div>
+            </div>
+            <div className="sl-metric-card">
+              <div className="sl-metric-label">SMS sent this month</div>
+              <div className="sl-metric-value">{toFiniteNumber(smsSummary.sent_month)}</div>
+            </div>
+            <div className="sl-metric-card">
+              <div className="sl-metric-label">SMS failed this month</div>
+              <div className="sl-metric-value">{toFiniteNumber(smsSummary.failed_month)}</div>
+            </div>
+            <div className="sl-metric-card">
+              <div className="sl-metric-label">SMS blocked this month</div>
+              <div className="sl-metric-value">{toFiniteNumber(smsSummary.blocked_month)}</div>
+            </div>
+            <div className="sl-metric-card">
+              <div className="sl-metric-label">Provider cost this month</div>
+              <div className="sl-metric-value" style={{ fontSize: '18px' }}>{formatMoney(smsSummary.provider_cost_month, smsCurrency)}</div>
+            </div>
+            <div className="sl-metric-card">
+              <div className="sl-metric-label">Billed revenue this month</div>
+              <div className="sl-metric-value" style={{ fontSize: '18px' }}>{formatMoney(smsSummary.billed_revenue_month, smsCurrency)}</div>
+            </div>
+            <div className="sl-metric-card">
+              <div className="sl-metric-label">SMS margin this month</div>
+              <div className="sl-metric-value" style={{ fontSize: '18px' }}>{formatMoney(smsSummary.margin_month, smsCurrency)}</div>
+            </div>
+            <div className="sl-metric-card">
+              <div className="sl-metric-label">Landlords active this month</div>
+              <div className="sl-metric-value">{toFiniteNumber(smsSummary.active_landlords_month)}</div>
+            </div>
+          </div>
+
+          <form onSubmit={handleSmsPricingSave} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px', padding: '14px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border)', borderRadius: '8px' }}>
+            <h4 style={{ margin: 0, fontSize: '14px' }}>SMS Pricing Controls</h4>
+            <div className="grid-4">
+              <div className="form-group">
+                <label className="form-label">Provider Cost / SMS</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  className="form-control"
+                  value={smsPricingForm.default_sms_provider_cost}
+                  onChange={e => setSmsPricingForm(prev => ({ ...prev, default_sms_provider_cost: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Billing Price / SMS</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  className="form-control"
+                  value={smsPricingForm.default_sms_sell_price}
+                  onChange={e => setSmsPricingForm(prev => ({ ...prev, default_sms_sell_price: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Currency</label>
+                <input
+                  className="form-control"
+                  value={smsPricingForm.sms_currency}
+                  onChange={e => setSmsPricingForm(prev => ({ ...prev, sms_currency: e.target.value.toUpperCase() }))}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Billing Enabled</label>
+                <select
+                  className="form-control"
+                  value={smsPricingForm.sms_billing_enabled ? 'enabled' : 'disabled'}
+                  onChange={e => setSmsPricingForm(prev => ({ ...prev, sms_billing_enabled: e.target.value === 'enabled' }))}
+                >
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <button type="submit" className="btn btn-primary btn-sm" disabled={loading}>Save SMS Pricing</button>
+            </div>
+          </form>
+
           <form onSubmit={handlePlatformSmsSave} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div className="grid-2">
               <div className="form-group">
@@ -1081,6 +1260,52 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
               <button type="button" className="btn btn-secondary btn-sm" onClick={handlePlatformSmsTest} disabled={loading || !platformSms.has_credentials}>Send Test SMS</button>
             </div>
           </form>
+
+          <div style={{ marginTop: '18px' }}>
+            <h4 style={{ margin: '0 0 10px', fontSize: '14px' }}>Landlord SMS Usage This Month</h4>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                <thead>
+                  <tr style={{ color: 'var(--text-secondary)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '8px' }}>Landlord / organization</th>
+                    <th style={{ padding: '8px' }}>Sent</th>
+                    <th style={{ padding: '8px' }}>Failed</th>
+                    <th style={{ padding: '8px' }}>Blocked</th>
+                    <th style={{ padding: '8px' }}>Provider cost</th>
+                    <th style={{ padding: '8px' }}>Billed revenue</th>
+                    <th style={{ padding: '8px' }}>Margin</th>
+                    <th style={{ padding: '8px' }}>Sender ID</th>
+                    <th style={{ padding: '8px' }}>Approval</th>
+                    <th style={{ padding: '8px' }}>Last status</th>
+                    <th style={{ padding: '8px' }}>Last error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {smsLandlordRows.length === 0 ? (
+                    <tr>
+                      <td colSpan="11" style={{ padding: '12px', color: 'var(--text-secondary)', textAlign: 'center' }}>No SMS usage recorded this month.</td>
+                    </tr>
+                  ) : (
+                    smsLandlordRows.map(row => (
+                      <tr key={row.organization_id || 'platform'} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '8px', fontWeight: 700 }}>{row.organization_name || 'Platform / Unassigned'}</td>
+                        <td style={{ padding: '8px' }}>{toFiniteNumber(row.sent_month)}</td>
+                        <td style={{ padding: '8px' }}>{toFiniteNumber(row.failed_month)}</td>
+                        <td style={{ padding: '8px' }}>{toFiniteNumber(row.blocked_month)}</td>
+                        <td style={{ padding: '8px' }}>{formatMoney(row.provider_cost_month, smsCurrency)}</td>
+                        <td style={{ padding: '8px' }}>{formatMoney(row.billed_revenue_month, smsCurrency)}</td>
+                        <td style={{ padding: '8px' }}>{formatMoney(row.margin_month, smsCurrency)}</td>
+                        <td style={{ padding: '8px' }}>{row.sender_id || '-'}</td>
+                        <td style={{ padding: '8px' }}>{row.sender_approval_status || '-'}</td>
+                        <td style={{ padding: '8px' }}>{row.last_sms_status || '-'}</td>
+                        <td style={{ padding: '8px', maxWidth: '220px', whiteSpace: 'normal' }}>{row.last_error || '-'}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )
     }

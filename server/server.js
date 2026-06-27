@@ -18,6 +18,12 @@ import { sendEmailWithConfig } from './mailerService.js';
 import { EMAIL_MODES, maskSmtpConfig, normalizeSmtpConfig, prepareSmtpConfigForStorage, resolveEmailDeliveryConfig, validateSmtpConfig } from './emailConfigService.js';
 import { maskSmsConfig, normalizeSmsConfig, prepareSmsConfigForStorage, validateSmsConfig } from './smsConfigService.js';
 import { sendSmsViaAdapter, normalizeKenyanPhoneNumber } from './smsProviderService.js';
+import {
+  getPlatformSmsPricingSettings,
+  logSmsSystemError,
+  recordSmsUsageLedger,
+  validateSmsPricingInput
+} from './smsUsageLedgerService.js';
 import { decryptConfig, encryptConfig } from './crypto.js';
 import { renderTemplate } from './emailTemplates.js';
 import { invalidatePendingOtps, recordOtpSent, requestOtp, verifyOtp, OtpError } from './otpService.js';
@@ -4697,6 +4703,12 @@ function platformSmsResponseFromSettings(settings) {
       status: 'not_configured',
       last_tested_at: null,
       sms_last_error: null,
+      sms_billing_enabled: false,
+      default_sms_sell_price: '0.0000',
+      default_sms_provider_cost: '0.0000',
+      sms_currency: 'KES',
+      sms_free_monthly_allowance: 0,
+      sms_markup_strategy: 'fixed',
       config_masked: {},
       has_credentials: false
     };
@@ -4716,9 +4728,110 @@ function platformSmsResponseFromSettings(settings) {
     status: settings.sms_status || 'not_configured',
     last_tested_at: settings.sms_last_tested_at || null,
     sms_last_error: settings.sms_last_error || null,
+    sms_billing_enabled: Boolean(settings.sms_billing_enabled),
+    default_sms_sell_price: String(settings.default_sms_sell_price ?? '0.0000'),
+    default_sms_provider_cost: String(settings.default_sms_provider_cost ?? '0.0000'),
+    sms_currency: settings.sms_currency || settings.currency || 'KES',
+    sms_free_monthly_allowance: Number(settings.sms_free_monthly_allowance || 0),
+    sms_markup_strategy: settings.sms_markup_strategy || 'fixed',
     config_masked: settings.sms_config_encrypted ? maskSmsConfig(config) : {},
     has_credentials: Boolean(settings.sms_config_encrypted)
   };
+}
+
+function normalizeSmsUsageSummary(row = {}) {
+  return {
+    sent_today: Number(row.sent_today || 0),
+    sent_month: Number(row.sent_month || 0),
+    failed_month: Number(row.failed_month || 0),
+    blocked_month: Number(row.blocked_month || 0),
+    provider_cost_month: moneyString(row.provider_cost_month),
+    billed_revenue_month: moneyString(row.billed_revenue_month),
+    margin_month: moneyString(row.margin_month),
+    active_landlords_month: Number(row.active_landlords_month || 0)
+  };
+}
+
+function normalizeSmsUsageLandlordRow(row = {}) {
+  return {
+    organization_id: row.organization_id || null,
+    organization_name: row.organization_name || 'Platform / Unassigned',
+    sent_month: Number(row.sent_month || 0),
+    failed_month: Number(row.failed_month || 0),
+    blocked_month: Number(row.blocked_month || 0),
+    provider_cost_month: moneyString(row.provider_cost_month),
+    billed_revenue_month: moneyString(row.billed_revenue_month),
+    margin_month: moneyString(row.margin_month),
+    sender_id: row.sender_id || '',
+    sender_approval_status: row.sender_approval_status || 'pending',
+    last_sms_status: row.last_sms_status || '',
+    last_error: row.last_error || '',
+    last_sms_at: row.last_sms_at || null
+  };
+}
+
+function buildLocalSmsUsageSummary(rows, todayStart, monthStart) {
+  const monthly = rows.filter(row => new Date(row.created_at).getTime() >= monthStart.getTime());
+  const today = rows.filter(row => new Date(row.created_at).getTime() >= todayStart.getTime());
+  const sentStatuses = new Set(['sent', 'delivered']);
+
+  return normalizeSmsUsageSummary({
+    sent_today: today.filter(row => sentStatuses.has(row.status)).length,
+    sent_month: monthly.filter(row => sentStatuses.has(row.status)).length,
+    failed_month: monthly.filter(row => row.status === 'failed').length,
+    blocked_month: monthly.filter(row => row.status === 'blocked').length,
+    provider_cost_month: monthly.reduce((sum, row) => sum + Number(row.provider_total_cost || 0), 0),
+    billed_revenue_month: monthly.reduce((sum, row) => sum + Number(row.billed_total_amount || 0), 0),
+    margin_month: monthly.reduce((sum, row) => sum + Number(row.margin_amount || 0), 0),
+    active_landlords_month: new Set(monthly.map(row => row.organization_id).filter(Boolean)).size
+  });
+}
+
+function buildLocalSmsUsageLandlords(rows, organizations, settings, monthStart) {
+  const monthly = rows.filter(row => new Date(row.created_at).getTime() >= monthStart.getTime());
+  const byOrg = new Map();
+
+  for (const row of monthly) {
+    const key = row.organization_id || 'platform';
+    const current = byOrg.get(key) || {
+      organization_id: row.organization_id || null,
+      organization_name: organizations.find(org => Number(org.id) === Number(row.organization_id))?.name || 'Platform / Unassigned',
+      sent_month: 0,
+      failed_month: 0,
+      blocked_month: 0,
+      provider_cost_month: 0,
+      billed_revenue_month: 0,
+      margin_month: 0,
+      sender_id: row.sender_id || '',
+      sender_approval_status: settings.sms_sender_approval_status || 'pending',
+      last_sms_status: '',
+      last_error: '',
+      last_sms_at: null
+    };
+
+    if (row.status === 'sent' || row.status === 'delivered') current.sent_month += 1;
+    if (row.status === 'failed') current.failed_month += 1;
+    if (row.status === 'blocked') current.blocked_month += 1;
+    current.provider_cost_month += Number(row.provider_total_cost || 0);
+    current.billed_revenue_month += Number(row.billed_total_amount || 0);
+    current.margin_month += Number(row.margin_amount || 0);
+
+    if (!current.last_sms_at || new Date(row.created_at).getTime() > new Date(current.last_sms_at).getTime()) {
+      current.sender_id = row.sender_id || current.sender_id;
+      current.last_sms_status = row.status || '';
+      current.last_error = row.failure_reason || '';
+      current.last_sms_at = row.created_at || null;
+    }
+
+    byOrg.set(key, current);
+  }
+
+  return Array.from(byOrg.values()).map(normalizeSmsUsageLandlordRow);
+}
+
+function moneyString(value) {
+  const numeric = Number(value || 0);
+  return (Number.isFinite(numeric) ? numeric : 0).toFixed(2);
 }
 
 function sanitizeSmtpErrorMessage(msg, config = {}) {
@@ -4935,6 +5048,138 @@ app.get('/api/admin/platform-sms', async (req, res) => {
   res.json(platformSmsResponseFromSettings(settings));
 });
 
+app.get('/api/admin/platform-sms/usage', async (req, res) => {
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
+  const activeDb = pgDb || db;
+
+  if (role !== 'super_admin' || !userId) {
+    return res.status(403).json({ error: 'SUPER_ADMIN_REQUIRED', message: 'Super admin access is required.' });
+  }
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+
+  if (pgDb) {
+    const summaryRes = await pgDb.query(
+      `
+        SELECT
+          COUNT(*) FILTER (WHERE status IN ('sent', 'delivered') AND created_at >= $1) AS sent_today,
+          COUNT(*) FILTER (WHERE status IN ('sent', 'delivered') AND created_at >= $2) AS sent_month,
+          COUNT(*) FILTER (WHERE status = 'failed' AND created_at >= $2) AS failed_month,
+          COUNT(*) FILTER (WHERE status = 'blocked' AND created_at >= $2) AS blocked_month,
+          COALESCE(SUM(provider_total_cost) FILTER (WHERE created_at >= $2), 0) AS provider_cost_month,
+          COALESCE(SUM(billed_total_amount) FILTER (WHERE created_at >= $2), 0) AS billed_revenue_month,
+          COALESCE(SUM(margin_amount) FILTER (WHERE created_at >= $2), 0) AS margin_month,
+          COUNT(DISTINCT organization_id) FILTER (WHERE organization_id IS NOT NULL AND created_at >= $2) AS active_landlords_month
+        FROM sms_usage_ledger
+      `,
+      [todayStart.toISOString(), monthStart.toISOString()]
+    );
+
+    const landlordRes = await pgDb.query(
+      `
+        WITH monthly AS (
+          SELECT
+            organization_id,
+            COUNT(*) FILTER (WHERE status IN ('sent', 'delivered')) AS sent_month,
+            COUNT(*) FILTER (WHERE status = 'failed') AS failed_month,
+            COUNT(*) FILTER (WHERE status = 'blocked') AS blocked_month,
+            COALESCE(SUM(provider_total_cost), 0) AS provider_cost_month,
+            COALESCE(SUM(billed_total_amount), 0) AS billed_revenue_month,
+            COALESCE(SUM(margin_amount), 0) AS margin_month
+          FROM sms_usage_ledger
+          WHERE created_at >= $1
+          GROUP BY organization_id
+        ),
+        latest AS (
+          SELECT DISTINCT ON (organization_id)
+            organization_id,
+            status AS last_sms_status,
+            failure_reason AS last_error,
+            sender_id,
+            provider,
+            created_at AS last_sms_at
+          FROM sms_usage_ledger
+          WHERE created_at >= $1
+          ORDER BY organization_id, created_at DESC, id DESC
+        )
+        SELECT
+          o.id AS organization_id,
+          o.name AS organization_name,
+          COALESCE(monthly.sent_month, 0) AS sent_month,
+          COALESCE(monthly.failed_month, 0) AS failed_month,
+          COALESCE(monthly.blocked_month, 0) AS blocked_month,
+          COALESCE(monthly.provider_cost_month, 0) AS provider_cost_month,
+          COALESCE(monthly.billed_revenue_month, 0) AS billed_revenue_month,
+          COALESCE(monthly.margin_month, 0) AS margin_month,
+          latest.sender_id,
+          pbs.sms_sender_approval_status AS sender_approval_status,
+          latest.last_sms_status,
+          latest.last_error,
+          latest.last_sms_at
+        FROM monthly
+        LEFT JOIN organizations o ON o.id = monthly.organization_id
+        LEFT JOIN latest ON latest.organization_id IS NOT DISTINCT FROM monthly.organization_id
+        CROSS JOIN (SELECT sms_sender_approval_status FROM platform_billing_settings WHERE id = 1) pbs
+        ORDER BY monthly.sent_month DESC, monthly.failed_month DESC, organization_name NULLS LAST
+      `,
+      [monthStart.toISOString()]
+    );
+
+    return res.json({
+      summary: normalizeSmsUsageSummary(summaryRes.rows[0]),
+      landlords: landlordRes.rows.map(normalizeSmsUsageLandlordRow)
+    });
+  }
+
+  const rows = activeDb.get('sms_usage_ledger') || [];
+  const orgs = activeDb.get('organizations') || [];
+  const settings = activeDb.findOne('platform_billing_settings', { id: 1 }) || {};
+  const summary = buildLocalSmsUsageSummary(rows, todayStart, monthStart);
+  const landlords = buildLocalSmsUsageLandlords(rows, orgs, settings, monthStart);
+
+  res.json({ summary, landlords });
+});
+
+app.put('/api/admin/platform-sms/pricing', async (req, res) => {
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
+  const activeDb = pgDb || db;
+
+  if (role !== 'super_admin' || !userId) {
+    return res.status(403).json({ error: 'SUPER_ADMIN_REQUIRED', message: 'Super admin access is required.' });
+  }
+
+  const validation = validateSmsPricingInput(req.body || {});
+  if (validation.error) {
+    return res.status(400).json({ error: validation.error });
+  }
+
+  const settings = await ensurePlatformBillingSettings(activeDb);
+  const updatedRows = await activeDb.update('platform_billing_settings', settings.id, validation.value);
+  const updated = Array.isArray(updatedRows) ? updatedRows[0] : updatedRows;
+
+  await activeDb.logAudit(
+    null,
+    userId,
+    'super_admin',
+    'platform_sms_pricing_saved',
+    'platform_billing_settings',
+    settings.id,
+    {
+      default_sms_provider_cost: settings.default_sms_provider_cost,
+      default_sms_sell_price: settings.default_sms_sell_price,
+      sms_billing_enabled: settings.sms_billing_enabled
+    },
+    validation.value,
+    'Platform SMS pricing settings saved.'
+  );
+
+  res.json(platformSmsResponseFromSettings({ ...settings, ...(updated || validation.value) }));
+});
+
 app.put('/api/admin/platform-sms', async (req, res) => {
   const role = req.auth?.role;
   const userId = req.auth?.userId;
@@ -5030,6 +5275,7 @@ app.post('/api/admin/platform-sms/test', async (req, res) => {
     const provider = settings.sms_provider || 'mock';
     const apiUrl = settings.sms_api_url || '';
     const senderId = settings.sms_sender_id || 'SMARTLANDY';
+    const pricingSettings = await getPlatformSmsPricingSettings(activeDb);
 
     const result = await sendSmsViaAdapter({
       provider,
@@ -5043,8 +5289,42 @@ app.post('/api/admin/platform-sms/test', async (req, res) => {
     });
 
     if (!result.success) {
+      const blocked = /blocked/i.test(result.error || '') && /sender id/i.test(result.error || '');
+      const ledger = await recordSmsUsageLedger(activeDb, {
+        organization_id: null,
+        message_type: 'test',
+        recipient_phone_e164: to,
+        sender_id: senderId,
+        provider,
+        status: blocked ? 'blocked' : 'failed',
+        failure_reason: result.error || 'Unknown gateway error.',
+        source: 'test_sms',
+        pricingSettings,
+        sensitiveValues: [config.api_key, config.client_id]
+      });
+
+      await logSmsSystemError(activeDb, {
+        provider,
+        status: blocked ? 'blocked' : 'failed',
+        message: result.error || 'Unknown gateway error.',
+        ledger_id: ledger?.id || null,
+        sensitiveValues: [config.api_key, config.client_id]
+      });
+
       throw new Error(result.error || 'Unknown gateway error.');
     }
+
+    await recordSmsUsageLedger(activeDb, {
+      organization_id: null,
+      message_type: 'test',
+      recipient_phone_e164: to,
+      sender_id: senderId,
+      provider,
+      provider_message_id: result.messageId || null,
+      status: 'sent',
+      source: 'test_sms',
+      pricingSettings
+    });
 
     await activeDb.update('platform_billing_settings', settings.id, {
       sms_status: 'active',
@@ -5067,6 +5347,28 @@ app.post('/api/admin/platform-sms/test', async (req, res) => {
     return res.json({ success: true, status: 'active', last_tested_at: new Date().toISOString(), sms_last_error: null });
   } catch (error) {
     const safeErrorMsg = sanitizeSmsErrorMessage(error.message, config);
+    if (!/Live SMS sending is blocked|Invalid API Key|Unknown gateway error|Unsupported SMS provider|required|Unreachable/i.test(error.message || '')) {
+      const provider = settings.sms_provider || 'mock';
+      const senderId = settings.sms_sender_id || 'SMARTLANDY';
+      const ledger = await recordSmsUsageLedger(activeDb, {
+        organization_id: null,
+        message_type: 'test',
+        recipient_phone_e164: to,
+        sender_id: senderId,
+        provider,
+        status: 'failed',
+        failure_reason: safeErrorMsg,
+        source: 'test_sms',
+        sensitiveValues: [config.api_key, config.client_id]
+      });
+      await logSmsSystemError(activeDb, {
+        provider,
+        status: 'failed',
+        message: safeErrorMsg,
+        ledger_id: ledger?.id || null,
+        sensitiveValues: [config.api_key, config.client_id]
+      });
+    }
     await activeDb.update('platform_billing_settings', settings.id, {
       sms_status: 'test_failed',
       sms_last_tested_at: new Date().toISOString(),
