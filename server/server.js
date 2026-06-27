@@ -17,6 +17,7 @@ import { NotificationService } from './notificationService.js';
 import { sendEmailWithConfig } from './mailerService.js';
 import { EMAIL_MODES, maskSmtpConfig, normalizeSmtpConfig, prepareSmtpConfigForStorage, resolveEmailDeliveryConfig, validateSmtpConfig } from './emailConfigService.js';
 import { maskSmsConfig, normalizeSmsConfig, prepareSmsConfigForStorage, validateSmsConfig } from './smsConfigService.js';
+import { sendSmsViaAdapter, normalizeKenyanPhoneNumber } from './smsProviderService.js';
 import { decryptConfig, encryptConfig } from './crypto.js';
 import { renderTemplate } from './emailTemplates.js';
 import { invalidatePendingOtps, recordOtpSent, requestOtp, verifyOtp, OtpError } from './otpService.js';
@@ -4647,18 +4648,18 @@ app.post('/api/admin/platform-sms/test', async (req, res) => {
     const apiUrl = settings.sms_api_url || '';
     const senderId = settings.sms_sender_id || 'SMARTLANDY';
 
-    if (provider === 'mock' || process.env.NODE_ENV === 'test') {
-      if (!config.api_key) {
-        throw new Error('SMS Gateway API Key / Token is required.');
-      }
-      if (config.api_key === 'invalid-key') {
-        throw new Error('Invalid API Key / Token.');
-      }
-      if (apiUrl && apiUrl.includes('invalid-url')) {
-        throw new Error('Unreachable SMS Gateway API URL.');
-      }
-    } else {
-      throw new Error(`SMS Provider ${provider} is not implemented in production yet.`);
+    const result = await sendSmsViaAdapter({
+      provider,
+      api_url: apiUrl,
+      api_key: config.api_key,
+      client_id: config.client_id,
+      sender_id: senderId,
+      to,
+      message: 'Smart Landlord SMS Gateway Verification Test.'
+    });
+
+    if (!result.success) {
+      throw new Error(result.error || 'Unknown gateway error.');
     }
 
     await activeDb.update('platform_billing_settings', settings.id, {

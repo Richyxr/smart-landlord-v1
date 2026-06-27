@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import assert from 'node:assert';
 import pg from 'pg';
 import crypto from 'node:crypto';
+import { normalizeKenyanPhoneNumber, sendSmsViaAdapter } from '../server/smsProviderService.js';
 
 const APP_PORT = '5064';
 const BASE_URL = `http://localhost:${APP_PORT}`;
@@ -79,6 +80,108 @@ async function waitForServer() {
 
 async function main() {
   console.log('[E2E-TEST] Starting Platform SMS Gateway smoke test...');
+
+  console.log('\n--- Running SMS Provider Adapter Unit Tests ---');
+  // 1. Phone number normalization
+  console.log(' - Verify phone number normalization...');
+  assert.strictEqual(normalizeKenyanPhoneNumber('0712345678'), '254712345678');
+  assert.strictEqual(normalizeKenyanPhoneNumber('+254712345678'), '254712345678');
+  assert.strictEqual(normalizeKenyanPhoneNumber('254712345678'), '254712345678');
+  assert.strictEqual(normalizeKenyanPhoneNumber('0112345678'), '254112345678');
+  assert.strictEqual(normalizeKenyanPhoneNumber('+254112345678'), '254112345678');
+  assert.strictEqual(normalizeKenyanPhoneNumber('254112345678'), '254112345678');
+
+  // 2. Invalid phone rejection
+  console.log(' - Verify invalid phone rejection...');
+  assert.throws(() => normalizeKenyanPhoneNumber('12345'), /Invalid Kenyan phone number/);
+  assert.throws(() => normalizeKenyanPhoneNumber('071234567'), /Invalid Kenyan phone number/);
+  assert.throws(() => normalizeKenyanPhoneNumber('+2547123456789'), /Invalid Kenyan phone number/);
+  assert.throws(() => normalizeKenyanPhoneNumber('abc'), /Invalid Kenyan phone number/);
+
+  // 3. Mock provider success
+  console.log(' - Verify mock provider success...');
+  const mockSuccess = await sendSmsViaAdapter({
+    provider: 'mock',
+    api_url: 'http://localhost/test',
+    api_key: 'valid-key',
+    client_id: 'client-id',
+    sender_id: 'SMARTLANDY',
+    to: '0712345678',
+    message: 'Hello'
+  });
+  assert.strictEqual(mockSuccess.success, true);
+  assert.strictEqual(mockSuccess.status, 'sent');
+  assert.ok(mockSuccess.messageId.startsWith('mock-sms-'));
+
+  // 4. Mock provider failure
+  console.log(' - Verify mock provider failure...');
+  const mockFailure = await sendSmsViaAdapter({
+    provider: 'mock',
+    api_url: 'http://localhost/test',
+    api_key: 'invalid-key',
+    client_id: 'client-id',
+    sender_id: 'SMARTLANDY',
+    to: '0712345678',
+    message: 'Hello'
+  });
+  assert.strictEqual(mockFailure.success, false);
+  assert.strictEqual(mockFailure.status, 'failed');
+  assert.strictEqual(mockFailure.error, 'Invalid API Key / Token.');
+
+  // 5. Unsupported provider rejection
+  console.log(' - Verify unsupported provider rejection...');
+  const unsupported = await sendSmsViaAdapter({
+    provider: 'unsupported-provider',
+    api_url: 'http://localhost/test',
+    api_key: 'key',
+    client_id: 'client',
+    sender_id: 'SMARTLANDY',
+    to: '0712345678',
+    message: 'Hello'
+  });
+  assert.strictEqual(unsupported.success, false);
+  assert.strictEqual(unsupported.status, 'failed');
+  assert.ok(unsupported.error.includes('Unsupported SMS provider'));
+
+  // 6. Real provider adapter does not run unless required config exists
+  console.log(' - Verify real provider adapter requires configuration...');
+  const realNoKey = await sendSmsViaAdapter({
+    provider: 'mobitech',
+    api_url: 'http://localhost/test',
+    api_key: '',
+    client_id: 'client',
+    sender_id: 'SMARTLANDY',
+    to: '0712345678',
+    message: 'Hello'
+  });
+  assert.strictEqual(realNoKey.success, false);
+  assert.strictEqual(realNoKey.error, 'Mobitech API key is required.');
+
+  const realNoClientId = await sendSmsViaAdapter({
+    provider: 'mobitech',
+    api_url: 'http://localhost/test',
+    api_key: 'key',
+    client_id: '',
+    sender_id: 'SMARTLANDY',
+    to: '0712345678',
+    message: 'Hello'
+  });
+  assert.strictEqual(realNoClientId.success, false);
+  assert.strictEqual(realNoClientId.error, 'Mobitech Partner ID (Client ID) is required.');
+
+  const realNoUrl = await sendSmsViaAdapter({
+    provider: 'mobitech',
+    api_url: '',
+    api_key: 'key',
+    client_id: 'client',
+    sender_id: 'SMARTLANDY',
+    to: '0712345678',
+    message: 'Hello'
+  });
+  assert.strictEqual(realNoUrl.success, false);
+  assert.strictEqual(realNoUrl.error, 'Mobitech API base URL is required.');
+
+  console.log('   ✅ All adapter unit tests passed!\n');
 
   const pool = new pg.Pool({ connectionString: DATABASE_URL });
   const client = await pool.connect();
