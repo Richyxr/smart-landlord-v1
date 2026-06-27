@@ -36,7 +36,8 @@ async function main() {
     client_id,
     sender_id: 'SMARTLANDY',
     to: phone,
-    message: 'Smart Landlord LIVE Gateway Connection Verification.'
+    message: 'Smart Landlord LIVE Gateway Connection Verification.',
+    sender_approval_status: process.env.LIVE_SMS_SENDER_APPROVAL_STATUS || 'approved'
   });
 
   console.log('[LIVE-SMS-TEST] Result:', JSON.stringify(result, null, 2));

@@ -4655,7 +4655,8 @@ app.post('/api/admin/platform-sms/test', async (req, res) => {
       client_id: config.client_id,
       sender_id: senderId,
       to,
-      message: 'Smart Landlord SMS Gateway Verification Test.'
+      message: 'Smart Landlord SMS Gateway Verification Test.',
+      sender_approval_status: settings.sms_sender_approval_status
     });
 
     if (!result.success) {

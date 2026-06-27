@@ -28,7 +28,8 @@ export async function sendSmsViaAdapter({
   client_id,
   sender_id,
   to,
-  message
+  message,
+  sender_approval_status
 }) {
   const normalizedTo = normalizeKenyanPhoneNumber(to);
   const providerName = String(provider || '').trim().toLowerCase();
@@ -51,6 +52,13 @@ export async function sendSmsViaAdapter({
   }
 
   if (providerName === 'mobitech' || providerName === 'mobifour') {
+    if (String(sender_approval_status || '').trim().toLowerCase() !== 'approved') {
+      return {
+        success: false,
+        status: 'failed',
+        error: `Live SMS sending is blocked: Sender ID "${sender_id || 'SMARTLANDY'}" status is "${sender_approval_status || 'pending'}". It must be "approved" to send real SMS.`
+      };
+    }
     if (!api_key) {
       return { success: false, status: 'failed', error: 'Mobitech API key is required.' };
     }

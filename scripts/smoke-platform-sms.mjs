@@ -152,7 +152,8 @@ async function main() {
     client_id: 'client',
     sender_id: 'SMARTLANDY',
     to: '0712345678',
-    message: 'Hello'
+    message: 'Hello',
+    sender_approval_status: 'approved'
   });
   assert.strictEqual(realNoKey.success, false);
   assert.strictEqual(realNoKey.error, 'Mobitech API key is required.');
@@ -164,7 +165,8 @@ async function main() {
     client_id: '',
     sender_id: 'SMARTLANDY',
     to: '0712345678',
-    message: 'Hello'
+    message: 'Hello',
+    sender_approval_status: 'approved'
   });
   assert.strictEqual(realNoClientId.success, false);
   assert.strictEqual(realNoClientId.error, 'Mobitech Partner ID (Client ID) is required.');
@@ -176,10 +178,25 @@ async function main() {
     client_id: 'client',
     sender_id: 'SMARTLANDY',
     to: '0712345678',
-    message: 'Hello'
+    message: 'Hello',
+    sender_approval_status: 'approved'
   });
   assert.strictEqual(realNoUrl.success, false);
   assert.strictEqual(realNoUrl.error, 'Mobitech API base URL is required.');
+  // 7. Live SMS block when Sender ID is not approved
+  console.log(' - Verify live SMS block when Sender ID is not approved...');
+  const realBlocked = await sendSmsViaAdapter({
+    provider: 'mobitech',
+    api_url: 'http://localhost/test',
+    api_key: 'key',
+    client_id: 'client',
+    sender_id: 'SMARTLANDY',
+    to: '0712345678',
+    message: 'Hello',
+    sender_approval_status: 'pending'
+  });
+  assert.strictEqual(realBlocked.success, false);
+  assert.ok(realBlocked.error.includes('Live SMS sending is blocked'));
 
   console.log('   ✅ All adapter unit tests passed!\n');
 
