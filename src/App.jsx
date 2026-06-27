@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Auth from './pages/Auth.jsx';
+import CompleteProfile from './pages/CompleteProfile.jsx';
 import LandlordDashboard from './pages/LandlordDashboard.jsx';
 import Properties from './pages/Properties.jsx';
 import Invoices from './pages/Invoices.jsx';
@@ -349,6 +350,12 @@ export default function App() {
       {/* Welcome & Authentication */}
       {!user ? (
         <Auth onAuthSuccess={handleAuthSuccess} />
+      ) : role === 'landlord' && organization && !organization.profile_completed ? (
+        <CompleteProfile
+          user={user}
+          organization={organization}
+          onComplete={handleAuthSuccess}
+        />
       ) : (
         <div className="responsive-app-shell">
           {(!isLocked || role !== 'landlord') && (

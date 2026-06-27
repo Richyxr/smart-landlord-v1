@@ -258,9 +258,9 @@ function seedDb() {
 
   // Create Users
   // Password hash isn't used strictly since we mock authentication, but we keep structure
-  const adminUser = { id: 1, email: 'admin@smartlandlord.com', is_super_admin: true, email_verified: true, phone_number: '+254700000000', phone_verified: true, name: 'Super Admin', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-  const landlordUser = { id: 2, email: 'landlord@demo.com', is_super_admin: false, email_verified: true, phone_number: '+254712345678', phone_verified: true, name: 'Maina Kamau', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-  const caretakerUser = { id: 3, email: 'caretaker@demo.com', is_super_admin: false, email_verified: true, phone_number: '+254722111222', phone_verified: true, name: 'Juma Omondi', caretaker_pin_hash: '$2a$10$LhgFLAFrl6frTX9../AgreYmI1T5/oJPLGrNznXu5H0JuW7L0iblm', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const adminUser = { id: 1, email: 'admin@smartlandlord.com', is_super_admin: true, email_verified: true, phone_number: '+254700000000', phone_verified: true, name: 'Super Admin', first_name: 'Super', last_name: 'Admin', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const landlordUser = { id: 2, email: 'landlord@demo.com', is_super_admin: false, email_verified: true, phone_number: '+254712345678', phone_verified: true, name: 'Maina Kamau', first_name: 'Maina', last_name: 'Kamau', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const caretakerUser = { id: 3, email: 'caretaker@demo.com', is_super_admin: false, email_verified: true, phone_number: '+254722111222', phone_verified: true, name: 'Juma Omondi', first_name: 'Juma', last_name: 'Omondi', caretaker_pin_hash: '$2a$10$LhgFLAFrl6frTX9../AgreYmI1T5/oJPLGrNznXu5H0JuW7L0iblm', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   
   data.users = [adminUser, landlordUser, caretakerUser];
 
@@ -287,6 +287,15 @@ function seedDb() {
     is_locked: false,
     security_pin_hash: pinHash,
     status: 'active',
+    representative_first_name: 'Maina',
+    representative_last_name: 'Kamau',
+    representative_role: 'Director',
+    representative_phone_e164: '+254712345678',
+    representative_email: 'info@kamauproperties.co.ke',
+    representative_authorized: true,
+    profile_completed: true,
+    profile_confirmed_at: new Date().toISOString(),
+    kyc_status: 'completed',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   };

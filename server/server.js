@@ -240,6 +240,80 @@ function nextJsonOrganizationAccountNumber() {
   return pgDb ? undefined : generateOrganizationAccountNumber(db.get('organizations'));
 }
 
+function cleanAndNormalizePhoneNumber(phone, country = 'Kenya') {
+  if (!phone) {
+    throw new Error('Phone number is required.');
+  }
+  let cleaned = String(phone).replace(/\s+/g, '').replace(/[^0-9+]/g, '');
+  if (country === 'Kenya') {
+    if (cleaned.startsWith('+254')) {
+      if (/^\+254[71]\d{8}$/.test(cleaned)) return cleaned;
+      throw new Error('Invalid Kenyan phone number format. Expected +2547XXXXXXXX or +2541XXXXXXXX.');
+    }
+    if (cleaned.startsWith('254')) {
+      const formatted = '+' + cleaned;
+      if (/^\+254[71]\d{8}$/.test(formatted)) return formatted;
+      throw new Error('Invalid Kenyan phone number format. Expected 2547XXXXXXXX or 2541XXXXXXXX.');
+    }
+    if ((cleaned.startsWith('07') || cleaned.startsWith('01')) && cleaned.length === 10) {
+      return '+254' + cleaned.slice(1);
+    }
+    if ((cleaned.startsWith('7') || cleaned.startsWith('1')) && cleaned.length === 9) {
+      return '+254' + cleaned;
+    }
+    throw new Error('Invalid Kenyan phone number format. Expected 07XXXXXXXX, 01XXXXXXXX, or +2547XXXXXXXX.');
+  } else if (country === 'Uganda') {
+    if (cleaned.startsWith('+256')) {
+      if (/^\+256\d{9}$/.test(cleaned)) return cleaned;
+      throw new Error('Invalid Uganda phone number format.');
+    }
+    if (cleaned.startsWith('256')) {
+      const formatted = '+' + cleaned;
+      if (/^\+256\d{9}$/.test(formatted)) return formatted;
+      throw new Error('Invalid Uganda phone number format.');
+    }
+    if (cleaned.startsWith('0') && cleaned.length === 10) {
+      return '+256' + cleaned.slice(1);
+    }
+    if (cleaned.length === 9) {
+      return '+256' + cleaned;
+    }
+    throw new Error('Invalid Uganda phone number format.');
+  } else if (country === 'Tanzania') {
+    if (cleaned.startsWith('+255')) {
+      if (/^\+255\d{9}$/.test(cleaned)) return cleaned;
+      throw new Error('Invalid Tanzania phone number format.');
+    }
+    if (cleaned.startsWith('255')) {
+      const formatted = '+' + cleaned;
+      if (/^\+255\d{9}$/.test(formatted)) return formatted;
+      throw new Error('Invalid Tanzania phone number format.');
+    }
+    if (cleaned.startsWith('0') && cleaned.length === 10) {
+      return '+255' + cleaned.slice(1);
+    }
+    if (cleaned.length === 9) {
+      return '+255' + cleaned;
+    }
+    throw new Error('Invalid Tanzania phone number format.');
+  }
+  if (/^\+\d{10,15}$/.test(cleaned)) {
+    return cleaned;
+  }
+  throw new Error('Invalid phone number format.');
+}
+
+function splitFirstName(name) {
+  if (!name) return '';
+  return name.split(' ')[0] || '';
+}
+
+function splitLastName(name) {
+  if (!name) return '';
+  const parts = name.split(' ');
+  return parts.slice(1).join(' ') || '';
+}
+
 function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -513,7 +587,7 @@ async function verifyFirebaseOrSmokeRegistrationToken(req) {
     return {
       uid: body.firebase_uid || `smoke:${email}`,
       email,
-      email_verified: false,
+      email_verified: body.email_verified !== undefined ? Boolean(body.email_verified) : false,
       name: body.name || email.split('@')[0],
       phone_number: body.phone_number || ''
     };
@@ -561,14 +635,28 @@ async function ensureRegistrationProfile(decodedToken, profile = {}) {
     throw error;
   }
 
+  let normalizedPhone;
+  try {
+    normalizedPhone = cleanAndNormalizePhoneNumber(phoneNumber || profile.phone_number, profile.country || 'Kenya');
+  } catch (err) {
+    normalizedPhone = phoneNumber || profile.phone_number;
+  }
+
+  const isCompany = profile.type === 'company';
+  const first_name = isCompany ? profile.representative_first_name : profile.first_name;
+  const last_name = isCompany ? profile.representative_last_name : profile.last_name;
+  const resolvedName = (first_name && last_name) ? `${first_name} ${last_name}` : displayName;
+
   if (!user) {
     user = await activeInsert('users', {
       auth_provider_uid: firebaseUid,
       email,
       email_verified: false,
-      phone_number: phoneNumber,
+      phone_number: normalizedPhone,
       phone_verified: Boolean(decodedToken.phone_number),
-      name: displayName,
+      name: resolvedName,
+      first_name: first_name || splitFirstName(displayName),
+      last_name: last_name || splitLastName(displayName),
       status: 'pending_verification'
     });
   } else {
@@ -576,8 +664,10 @@ async function ensureRegistrationProfile(decodedToken, profile = {}) {
       auth_provider_uid: user.auth_provider_uid || firebaseUid,
       email,
       email_verified: false,
-      phone_number: phoneNumber || user.phone_number,
-      name: displayName || user.name,
+      phone_number: normalizedPhone || user.phone_number,
+      name: resolvedName || user.name,
+      first_name: first_name || user.first_name || splitFirstName(user.name),
+      last_name: last_name || user.last_name || splitLastName(user.name),
       status: 'pending_verification'
     });
     user = await activeFindOne('users', { id: user.id });
@@ -593,15 +683,24 @@ async function ensureRegistrationProfile(decodedToken, profile = {}) {
     : null;
 
   if (!organization) {
+    let normRepPhone;
+    if (isCompany && profile.representative_phone_e164) {
+      try {
+        normRepPhone = cleanAndNormalizePhoneNumber(profile.representative_phone_e164, profile.country || 'Kenya');
+      } catch (err) {
+        normRepPhone = profile.representative_phone_e164;
+      }
+    }
+
     organization = await activeInsert('organizations', {
       owner_user_id: user.id,
       account_number: nextJsonOrganizationAccountNumber(),
-      name: displayName,
+      name: isCompany ? (profile.company_name || resolvedName) : resolvedName,
       type: profile.type || 'individual',
       registration_number: profile.registration_number || '',
       tax_identifier: profile.tax_identifier || '',
       email,
-      phone_number: phoneNumber,
+      phone_number: normalizedPhone,
       country: profile.country || 'Kenya',
       billing_currency: profile.billing_currency || 'KES',
       email_delivery_mode: EMAIL_MODES.PLATFORM,
@@ -612,7 +711,16 @@ async function ensureRegistrationProfile(decodedToken, profile = {}) {
       subscription_expires_at: null,
       is_locked: false,
       security_pin_hash: '',
-      status: 'active'
+      status: 'active',
+      representative_first_name: profile.representative_first_name || '',
+      representative_last_name: profile.representative_last_name || '',
+      representative_role: profile.representative_role || '',
+      representative_phone_e164: normRepPhone || '',
+      representative_email: profile.representative_email || '',
+      representative_authorized: Boolean(profile.representative_authorized),
+      profile_completed: Boolean(profile.profile_confirmed),
+      profile_confirmed_at: profile.profile_confirmed ? new Date().toISOString() : null,
+      kyc_status: profile.profile_confirmed ? 'completed' : 'incomplete'
     });
 
     membership = await activeInsert('organization_members', {
@@ -1288,6 +1396,8 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
         phone_number: phoneNumber,
         phone_verified: Boolean(decodedToken.phone_number),
         name: displayName,
+        first_name: splitFirstName(displayName),
+        last_name: splitLastName(displayName),
         status: isEmailVerified ? 'active' : 'pending_verification'
       });
     } else if (!user.auth_provider_uid) {
@@ -1333,7 +1443,10 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
         subscription_expires_at: null,
         is_locked: false,
         security_pin_hash: '',
-        status: 'active'
+        status: 'active',
+        profile_completed: false,
+        profile_confirmed_at: null,
+        kyc_status: 'incomplete'
       });
 
       membership = await activeInsert('organization_members', {
@@ -1468,7 +1581,7 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 // Register Landlord (Individual/Company)
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   if (!DEMO_MODE) {
     return res.status(503).json({
       error: 'MOCK_REGISTRATION_DISABLED',
@@ -1476,35 +1589,72 @@ app.post('/api/auth/register', (req, res) => {
     });
   }
 
-  const { name, email, phone_number, country, billing_currency, type, registration_number, tax_identifier } = req.body;
+  const { 
+    type,
+    // Individual
+    first_name,
+    last_name,
+    email,
+    phone_number,
+    country,
+    billing_currency,
+    // Company details
+    company_name,
+    registration_number,
+    tax_identifier,
+    company_phone_e164,
+    company_email,
+    // Representative details
+    representative_first_name,
+    representative_last_name,
+    representative_role,
+    representative_phone_e164,
+    representative_email,
+    representative_authorized,
+    // Confirmation
+    profile_confirmed
+  } = req.body;
 
-  // Verify email/phone duplicates
-  const existingUser = db.findOne('users', { email });
+  if (!email || !email.includes('@')) {
+    return res.status(400).json({ error: 'A valid email address is required.' });
+  }
+
+  // Verify email duplicates
+  const existingUser = await activeFindOne('users', { email });
   if (existingUser) {
     return res.status(400).json({ error: 'Email already exists' });
   }
 
-  // 1. Create user
-  const user = db.insert('users', {
+  let normalizedPhone;
+  try {
+    normalizedPhone = cleanAndNormalizePhoneNumber(phone_number, country || 'Kenya');
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  // Check if phone number is already registered to another user
+  const existingPhone = await activeFindOne('users', { phone_number: normalizedPhone });
+  if (existingPhone) {
+    return res.status(400).json({ error: 'This phone number is already registered to another user.' });
+  }
+
+  if (!profile_confirmed) {
+    return res.status(400).json({ error: 'You must confirm the profile details are accurate.' });
+  }
+
+  let userFields = {
     email,
     email_verified: true, // Auto-verified in demo
-    phone_number,
+    phone_number: normalizedPhone,
     phone_verified: true, // Auto-verified in demo
-    name,
     status: 'active'
-  });
+  };
 
-  // 2. Create organization
-  const orgName = name;
-  const org = db.insert('organizations', {
-    owner_user_id: user.id,
-    account_number: generateOrganizationAccountNumber(db.get('organizations')),
-    name: orgName,
+  const accountNo = nextJsonOrganizationAccountNumber();
+  let orgFields = {
     type,
-    registration_number: registration_number || '',
-    tax_identifier: tax_identifier || '',
-    email,
-    phone_number,
+    email: company_email || email,
+    phone_number: company_phone_e164 || normalizedPhone,
     country: country || 'Kenya',
     billing_currency: billing_currency || 'KES',
     subscription_tier: 'standard',
@@ -1514,11 +1664,81 @@ app.post('/api/auth/register', (req, res) => {
     subscription_expires_at: null,
     is_locked: false,
     security_pin_hash: '', // Set later
-    status: 'active'
-  });
+    status: 'active',
+    profile_completed: true,
+    profile_confirmed_at: new Date().toISOString(),
+    kyc_status: 'completed'
+  };
+
+  if (accountNo !== undefined) {
+    orgFields.account_number = accountNo;
+  }
+
+  if (type === 'individual') {
+    if (!first_name || !first_name.trim() || !last_name || !last_name.trim()) {
+      return res.status(400).json({ error: 'First name and last name are required for individual landlords.' });
+    }
+    userFields.first_name = first_name.trim();
+    userFields.last_name = last_name.trim();
+    userFields.name = `${first_name.trim()} ${last_name.trim()}`;
+    orgFields.name = `${first_name.trim()} ${last_name.trim()}`;
+    orgFields.tax_identifier = tax_identifier || '';
+  } else if (type === 'company') {
+    if (!company_name || !company_name.trim()) {
+      return res.status(400).json({ error: 'Company name is required.' });
+    }
+    if (!registration_number || !registration_number.trim()) {
+      return res.status(400).json({ error: 'Business registration number is required.' });
+    }
+    if (!tax_identifier || !tax_identifier.trim()) {
+      return res.status(400).json({ error: 'KRA PIN / Tax Identifier is required.' });
+    }
+    if (!representative_first_name || !representative_first_name.trim() || !representative_last_name || !representative_last_name.trim()) {
+      return res.status(400).json({ error: 'Representative first and last names are required.' });
+    }
+    if (!representative_role || !representative_role.trim()) {
+      return res.status(400).json({ error: 'Representative role/title is required.' });
+    }
+    if (!representative_email || !representative_email.includes('@')) {
+      return res.status(400).json({ error: 'A valid representative email is required.' });
+    }
+    if (!representative_authorized) {
+      return res.status(400).json({ error: 'Representative must be authorized to represent the company.' });
+    }
+
+    let normRepPhone;
+    try {
+      normRepPhone = cleanAndNormalizePhoneNumber(representative_phone_e164, country || 'Kenya');
+    } catch (err) {
+      return res.status(400).json({ error: 'Representative phone: ' + err.message });
+    }
+
+    userFields.first_name = representative_first_name.trim();
+    userFields.last_name = representative_last_name.trim();
+    userFields.name = `${representative_first_name.trim()} ${representative_last_name.trim()}`;
+    orgFields.name = company_name.trim();
+    orgFields.registration_number = registration_number.trim();
+    orgFields.tax_identifier = tax_identifier.trim();
+
+    orgFields.representative_first_name = representative_first_name.trim();
+    orgFields.representative_last_name = representative_last_name.trim();
+    orgFields.representative_role = representative_role.trim();
+    orgFields.representative_phone_e164 = normRepPhone;
+    orgFields.representative_email = representative_email.trim();
+    orgFields.representative_authorized = true;
+  } else {
+    return res.status(400).json({ error: 'Invalid profile type. Must be individual or company.' });
+  }
+
+  // 1. Create user
+  const user = await activeInsert('users', userFields);
+  orgFields.owner_user_id = user.id;
+
+  // 2. Create organization
+  const org = await activeInsert('organizations', orgFields);
 
   // 3. Create organization member
-  db.insert('organization_members', {
+  await activeInsert('organization_members', {
     organization_id: org.id,
     user_id: user.id,
     role: 'landlord',
@@ -1526,7 +1746,7 @@ app.post('/api/auth/register', (req, res) => {
   });
 
   // 4. Create default notification settings
-  db.insert('notification_settings', {
+  await activeInsert('notification_settings', {
     organization_id: org.id,
     rent_reminders_enabled: true,
     reminder_days_before_due: 3,
@@ -1537,7 +1757,9 @@ app.post('/api/auth/register', (req, res) => {
     sms_provider: 'None'
   });
 
-  db.logAudit(org.id, user.id, 'landlord', 'register_landlord', 'organization', org.id, null, { org_id: org.id, name: org.name });
+  if (!pgDb && typeof db.logAudit === 'function') {
+    db.logAudit(org.id, user.id, 'landlord', 'register_landlord', 'organization', org.id, null, { org_id: org.id, name: org.name });
+  }
   const authToken = createSessionToken(user, 'landlord', org);
 
   res.status(201).json({
@@ -1545,6 +1767,167 @@ app.post('/api/auth/register', (req, res) => {
     role: 'landlord',
     organization: org,
     auth_token: authToken
+  });
+});
+
+// Complete Profile / KYC verification
+app.post('/api/auth/complete-profile', requireAuthenticated, async (req, res) => {
+  const userId = req.auth.userId;
+  const { 
+    type,
+    // Individual
+    first_name,
+    last_name,
+    // Company details
+    company_name,
+    registration_number,
+    tax_identifier,
+    company_phone_e164,
+    company_email,
+    // Representative details
+    representative_first_name,
+    representative_last_name,
+    representative_role,
+    representative_phone_e164,
+    representative_email,
+    representative_authorized,
+    // Shared
+    phone_number,
+    country,
+    billing_currency,
+    profile_confirmed
+  } = req.body;
+
+  if (!profile_confirmed) {
+    return res.status(400).json({ error: 'You must confirm the profile details are accurate.' });
+  }
+
+  // Get current user and membership
+  let user = await activeFindOne('users', { id: userId });
+  if (!user) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
+
+  let membership = await activeFindOne('organization_members', { user_id: user.id, role: 'landlord' });
+  if (!membership) {
+    return res.status(403).json({ error: 'Landlord profile membership not found.' });
+  }
+
+  let organization = await activeFindOne('organizations', { id: membership.organization_id });
+  if (!organization) {
+    return res.status(404).json({ error: 'Organization not found.' });
+  }
+
+  const resolvedCountry = country || organization.country || 'Kenya';
+  const resolvedCurrency = billing_currency || organization.billing_currency || 'KES';
+
+  let normalizedPhone;
+  try {
+    normalizedPhone = cleanAndNormalizePhoneNumber(phone_number || user.phone_number, resolvedCountry);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  // Check if phone number is already registered to another user (excluding current user)
+  const existingPhone = await activeFindOne('users', { phone_number: normalizedPhone });
+  if (existingPhone && existingPhone.id !== user.id) {
+    return res.status(400).json({ error: 'This phone number is already registered to another user.' });
+  }
+
+  const userUpdates = {
+    phone_number: normalizedPhone
+  };
+  const orgUpdates = {
+    type,
+    phone_number: company_phone_e164 || normalizedPhone,
+    country: resolvedCountry,
+    billing_currency: resolvedCurrency,
+    profile_completed: true,
+    profile_confirmed_at: new Date().toISOString(),
+    kyc_status: 'completed'
+  };
+
+  if (type === 'individual') {
+    if (!first_name || !first_name.trim() || !last_name || !last_name.trim()) {
+      return res.status(400).json({ error: 'First name and last name are required for individual landlords.' });
+    }
+    userUpdates.first_name = first_name.trim();
+    userUpdates.last_name = last_name.trim();
+    userUpdates.name = `${first_name.trim()} ${last_name.trim()}`;
+
+    orgUpdates.name = `${first_name.trim()} ${last_name.trim()}`;
+    orgUpdates.tax_identifier = tax_identifier || '';
+  } else if (type === 'company') {
+    if (!company_name || !company_name.trim()) {
+      return res.status(400).json({ error: 'Company name is required.' });
+    }
+    if (!registration_number || !registration_number.trim()) {
+      return res.status(400).json({ error: 'Business registration number is required.' });
+    }
+    if (!tax_identifier || !tax_identifier.trim()) {
+      return res.status(400).json({ error: 'KRA PIN / Tax Identifier is required.' });
+    }
+    if (!representative_first_name || !representative_first_name.trim() || !representative_last_name || !representative_last_name.trim()) {
+      return res.status(400).json({ error: 'Representative first and last names are required.' });
+    }
+    if (!representative_role || !representative_role.trim()) {
+      return res.status(400).json({ error: 'Representative role/title is required.' });
+    }
+    if (!representative_email || !representative_email.includes('@')) {
+      return res.status(400).json({ error: 'A valid representative email is required.' });
+    }
+    if (!representative_authorized) {
+      return res.status(400).json({ error: 'Representative must be authorized to represent the company.' });
+    }
+
+    let normRepPhone;
+    try {
+      normRepPhone = cleanAndNormalizePhoneNumber(representative_phone_e164, resolvedCountry);
+    } catch (err) {
+      return res.status(400).json({ error: 'Representative phone: ' + err.message });
+    }
+
+    userUpdates.first_name = representative_first_name.trim();
+    userUpdates.last_name = representative_last_name.trim();
+    userUpdates.name = `${representative_first_name.trim()} ${representative_last_name.trim()}`;
+
+    orgUpdates.name = company_name.trim();
+    orgUpdates.registration_number = registration_number.trim();
+    orgUpdates.tax_identifier = tax_identifier.trim();
+    orgUpdates.email = company_email || organization.email;
+    orgUpdates.phone_number = company_phone_e164 || organization.phone_number;
+
+    orgUpdates.representative_first_name = representative_first_name.trim();
+    orgUpdates.representative_last_name = representative_last_name.trim();
+    orgUpdates.representative_role = representative_role.trim();
+    orgUpdates.representative_phone_e164 = normRepPhone;
+    orgUpdates.representative_email = representative_email.trim();
+    orgUpdates.representative_authorized = true;
+  } else {
+    return res.status(400).json({ error: 'Invalid profile type.' });
+  }
+
+  // Update user in DB
+  await activeUpdate('users', user.id, userUpdates);
+  // Update organization in DB
+  await activeUpdate('organizations', organization.id, orgUpdates);
+
+  // Fetch updated records
+  const updatedUser = await activeFindOne('users', { id: user.id });
+  const updatedOrg = await activeFindOne('organizations', { id: organization.id });
+
+  // Update session token with updated info
+  const newAuthToken = createSessionToken(updatedUser, 'landlord', updatedOrg);
+
+  if (!pgDb && typeof db.logAudit === 'function') {
+    db.logAudit(updatedOrg.id, updatedUser.id, 'landlord', 'complete_profile', 'organization', updatedOrg.id, null, { org_id: updatedOrg.id, name: updatedOrg.name });
+  }
+
+  res.json({
+    success: true,
+    user: updatedUser,
+    organization: updatedOrg,
+    auth_token: newAuthToken
   });
 });
 
