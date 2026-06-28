@@ -832,31 +832,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       )}
 
       <div className="super-admin-layout">
-        {/* Left Side Section Rail for Desktop */}
-        <aside className="super-admin-sidebar">
-          <div className="super-admin-sidebar-header">
-            <h3>Command Center</h3>
-            <p>Super Admin Console</p>
-          </div>
-          <nav className="super-admin-sidebar-nav">
-            {SUPER_ADMIN_TABS.map(tab => {
-              const Icon = getTabIcon(tab.id);
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={`super-admin-sidebar-item ${activeTab === tab.id ? 'active' : ''}`}
-                  onClick={() => setActiveTab(tab.id)}
-                >
-                  <Icon size={16} />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </aside>
-
-        {/* Right Workspace Content */}
+        {/* Workspace Content */}
         <main className="super-admin-workspace">
           {/* Mobile manage sections controls */}
           <div className="super-admin-mobile-nav">
@@ -881,6 +857,24 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
             <h1 className="super-admin-workspace-title" style={{ fontSize: '24px', fontWeight: 800, margin: 0 }}>{activeSuperAdminSection.label}</h1>
             <p className="super-admin-workspace-desc" style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>{getSectionDescription(activeTab)}</p>
           </div>
+
+          {/* Desktop segmented section switcher */}
+          <nav className="super-admin-desktop-switcher">
+            {SUPER_ADMIN_TABS.map(tab => {
+              const Icon = getTabIcon(tab.id);
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={`super-admin-switcher-item ${activeTab === tab.id ? 'active' : ''}`}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  <Icon size={14} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
 
           {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px', padding: '10px', background: 'var(--danger-glow)', borderLeft: '3px solid var(--danger)', borderRadius: '4px' }}>{error}</div>}
 
@@ -932,46 +926,48 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
             </div>
           </div>
 
-          <div className="sl-card sl-card-success" style={{ marginBottom: 0 }}>
-            <span className="kpi-lbl">This Month SaaS Revenue</span>
-            <div className="kpi-num" style={{ color: 'var(--success)', fontSize: '28px', marginTop: '8px' }}>
-              {formatCurrency(safeStats.monthly_saas_revenue)}
+          <div className="super-admin-overview-bottom">
+            <div className="sl-card sl-card-success" style={{ marginBottom: 0 }}>
+              <span className="kpi-lbl">This Month SaaS Revenue</span>
+              <div className="kpi-num" style={{ color: 'var(--success)', fontSize: '28px', marginTop: '8px' }}>
+                {formatCurrency(safeStats.monthly_saas_revenue)}
+              </div>
+              <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                Lifetime SaaS Revenue: <strong>{formatCurrency(safeStats.lifetime_saas_revenue)}</strong>
+              </div>
             </div>
-            <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-              Lifetime SaaS Revenue: <strong>{formatCurrency(safeStats.lifetime_saas_revenue)}</strong>
-            </div>
-          </div>
 
-          {/* PRICING SETTINGS FORM */}
-          <div className="card">
-            <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Settings size={18} /> Global Platform Pricing
-            </h3>
-            <form onSubmit={handlePricingSubmit}>
-              <div className="form-group">
-                <label className="form-label">Price per Active Tenant (Monthly KES)</label>
-                <input
-                  type="number"
-                  required
-                  className="form-control"
-                  value={pricePerTenant}
-                  onChange={e => setPricePerTenant(e.target.value)}
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Unpaid Invoice Grace Period (Days)</label>
-                <input
-                  type="number"
-                  required
-                  className="form-control"
-                  value={gracePeriod}
-                  onChange={e => setGracePeriod(e.target.value)}
-                />
-              </div>
-              <button type="submit" className="btn btn-primary btn-sm" disabled={loading}>
-                Update Pricing Policy
-              </button>
-            </form>
+            {/* PRICING SETTINGS FORM */}
+            <div className="card" style={{ marginBottom: 0 }}>
+              <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Settings size={18} /> Global Platform Pricing
+              </h3>
+              <form onSubmit={handlePricingSubmit}>
+                <div className="form-group">
+                  <label className="form-label">Price per Active Tenant (Monthly KES)</label>
+                  <input
+                    type="number"
+                    required
+                    className="form-control"
+                    value={pricePerTenant}
+                    onChange={e => setPricePerTenant(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Unpaid Invoice Grace Period (Days)</label>
+                  <input
+                    type="number"
+                    required
+                    className="form-control"
+                    value={gracePeriod}
+                    onChange={e => setGracePeriod(e.target.value)}
+                  />
+                </div>
+                <button type="submit" className="btn btn-primary btn-sm" disabled={loading}>
+                  Update Pricing Policy
+                </button>
+              </form>
+            </div>
           </div>
 
         </div>

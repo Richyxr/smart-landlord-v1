@@ -4381,95 +4381,61 @@ html[data-theme="light"] .sl-empty-state-desc {
 
 /* Layout Shell */
 .super-admin-layout {
-  display: grid;
-  grid-template-columns: 260px 1fr;
-  gap: 24px;
-  min-height: calc(100vh - 120px);
-  align-items: start;
-}
-
-/* Left Sidebar Rail */
-.super-admin-sidebar {
-  position: sticky;
-  top: 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  background: var(--bg-surface);
+  gap: 20px;
+}
+
+/* Desktop Horizontal Segmented Switcher / Toolbar */
+.super-admin-desktop-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(148, 163, 184, 0.04);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 20px 16px;
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-md);
+  max-width: max-content;
 }
 
-.super-admin-sidebar-header {
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border);
-}
-
-.super-admin-sidebar-header h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 800;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-.super-admin-sidebar-header p {
-  margin: 4px 0 0 0;
-  font-size: 11px;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-weight: 700;
-}
-
-.super-admin-sidebar-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.super-admin-sidebar-item {
+.super-admin-switcher-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 6px 12px;
   border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 700;
-  text-align: left;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
-.super-admin-sidebar-item:hover {
+.super-admin-switcher-item:hover {
   color: var(--text-primary);
   background: rgba(148, 163, 184, 0.06);
 }
 
-.super-admin-sidebar-item.active {
+.super-admin-switcher-item.active {
   color: #fff;
   background: var(--primary);
-  border-color: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 12px var(--primary-glow);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: var(--shadow-sm);
 }
 
-/* Workspace */
+/* Workspace Layout */
 .super-admin-workspace {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
   min-width: 0;
 }
 
 .super-admin-workspace-header {
   display: block;
-  padding-bottom: 16px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -4637,6 +4603,14 @@ html[data-theme="light"] .sl-empty-state-desc {
   background: radial-gradient(circle at top right, rgba(16, 185, 129, 0.06), transparent 40%), var(--bg-surface);
 }
 
+/* Side-by-side Layout for Revenue and Pricing Cards */
+.super-admin-overview-bottom {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
 /* Collapsible Mobile Sections & details elements */
 .super-admin-mobile-section {
   border: 1px solid var(--border);
@@ -4703,13 +4677,13 @@ html[data-theme="light"] .sl-empty-state-desc {
 }
 
 @media (max-width: 768px) {
-  .super-admin-layout {
-    grid-template-columns: 1fr;
-    gap: 16px;
+  .super-admin-desktop-switcher {
+    display: none;
   }
 
-  .super-admin-sidebar {
-    display: none;
+  .super-admin-overview-bottom {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 
   .super-admin-workspace-header {
@@ -4875,7 +4849,7 @@ html[data-theme="light"] .sl-empty-state-desc {
 }
 
 /* Light Theme Styling Overrides */
-html[data-theme="light"] .super-admin-sidebar,
+html[data-theme="light"] .super-admin-desktop-switcher,
 html[data-theme="light"] .super-admin-mobile-nav,
 html[data-theme="light"] .super-admin-mobile-section,
 html[data-theme="light"] .super-admin-sms-usage-card,
@@ -4887,16 +4861,16 @@ html[data-theme="light"] .sl-card {
   border-color: #cbd5e1 !important;
 }
 
-html[data-theme="light"] .super-admin-sidebar-item {
+html[data-theme="light"] .super-admin-switcher-item {
   color: #475569;
 }
 
-html[data-theme="light"] .super-admin-sidebar-item:hover {
+html[data-theme="light"] .super-admin-switcher-item:hover {
   background: rgba(241, 245, 249, 0.9);
   color: #0f172a;
 }
 
-html[data-theme="light"] .super-admin-sidebar-item.active {
+html[data-theme="light"] .super-admin-switcher-item.active {
   color: #fff;
   background: var(--primary);
 }
