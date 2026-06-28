@@ -279,7 +279,9 @@ export default function App() {
       <div className="session-restore-screen">
         <div className="session-restore-card">
           <div className="session-restore-orb-container">
-            <div className="session-restore-orb" />
+            <div className="session-restore-orb">
+              <img src="/icons/maskable-192.png" alt="Smart Landlord" className="session-restore-logo" />
+            </div>
           </div>
           <h2 className="session-restore-title">Securing your workspace</h2>
           <p className="session-restore-subtitle">Checking your access and preparing Smart Landlord.</p>
@@ -294,6 +296,13 @@ export default function App() {
 
           <div className="session-restore-skeleton">
             <div className="skeleton-line" />
+          </div>
+
+          <div className="session-restore-footer">
+            <span className="session-restore-brand-text">
+              <span className="session-restore-brand-smart">Smart</span>
+              <span className="session-restore-brand-landlord">Landlord</span>
+            </span>
           </div>
         </div>
       </div>
