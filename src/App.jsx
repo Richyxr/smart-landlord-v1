@@ -5,6 +5,7 @@ import LandlordDashboard from './pages/LandlordDashboard.jsx';
 import Properties from './pages/Properties.jsx';
 import Invoices from './pages/Invoices.jsx';
 import Reconciliation from './pages/Reconciliation.jsx';
+import PaymentEvidence from './pages/PaymentEvidence.jsx';
 import Settings from './pages/Settings.jsx';
 import Caretaker from './pages/Caretaker.jsx';
 import SuperAdmin from './pages/SuperAdmin.jsx';
@@ -50,7 +51,7 @@ export default function App() {
       setInvoicesSubTab(subTab);
     }
   };
-  
+
   // Impersonation Support Session
   const [impersonationSession, setImpersonationSession] = useState(null); // { id, orgName }
   const [originalAdminUser, setOriginalAdminUser] = useState(null);
@@ -200,7 +201,7 @@ export default function App() {
     setRole(authRole);
     setOrganization(authOrg);
     setIsLocked(authOrg?.is_locked || false);
-    
+
     // Set appropriate start tabs
     if (authRole === 'super_admin') {
       setActiveTab('admin_dashboard');
@@ -383,6 +384,8 @@ export default function App() {
         );
       case 'landlord_reconciliation':
         return <Reconciliation organization={organization} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
+      case 'landlord_payment_evidence':
+        return <PaymentEvidence organization={organization} refreshTrigger={refreshTrigger} />;
       case 'landlord_settings':
         return (
           <Settings
@@ -396,7 +399,7 @@ export default function App() {
             role={role}
           />
         );
-      
+
       // Caretaker Pages
       case 'caretaker_dashboard':
       case 'caretaker_readings':
@@ -457,7 +460,7 @@ export default function App() {
                   {role.replace('_', ' ')}
                 </span>
                 <ThemeModeToggle />
-                <button 
+                <button
                   className="btn btn-secondary btn-sm app-logout-button"
                   onClick={handleLogout}
                   style={{ padding: '4px 8px', fontSize: '10px' }}

@@ -13,6 +13,7 @@ import { createWebhookRoutes } from './routes/webhookRoutes.js';
 import { createIntegrationRoutes } from './routes/integrationRoutes.js';
 import { createNotificationRoutes } from './routes/notificationRoutes.js';
 import { createSaasBillingRoutes } from './routes/saasBillingRoutes.js';
+import { createPaymentEvidenceRoutes } from './routes/paymentEvidenceRoutes.js';
 import { NotificationService } from './notificationService.js';
 import { sendEmailWithConfig } from './mailerService.js';
 import { EMAIL_MODES, maskSmtpConfig, normalizeSmtpConfig, prepareSmtpConfigForStorage, resolveEmailDeliveryConfig, validateSmtpConfig } from './emailConfigService.js';
@@ -1603,7 +1604,7 @@ app.post('/api/auth/register', async (req, res) => {
     });
   }
 
-  const { 
+  const {
     type,
     // Individual
     first_name,
@@ -1787,7 +1788,7 @@ app.post('/api/auth/register', async (req, res) => {
 // Complete Profile / KYC verification
 app.post('/api/auth/complete-profile', requireAuthenticated, async (req, res) => {
   const userId = req.auth.userId;
-  const { 
+  const {
     type,
     // Individual
     first_name,
@@ -2091,6 +2092,7 @@ if (pgDb) {
 
 // Mount notification routes (supports both PostgreSQL and JSON DB backends)
 app.use('/api', createNotificationRoutes(pgDb));
+app.use('/api', createPaymentEvidenceRoutes(pgDb));
 
 // Mount platform billing and admin routes (supports both PostgreSQL and JSON DB backends)
 app.use('/api', createSaasBillingRoutes(pgDb, {

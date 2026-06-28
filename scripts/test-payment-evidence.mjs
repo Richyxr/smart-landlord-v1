@@ -4,6 +4,8 @@ import { detectDuplicatePaymentEvidence } from '../server/services/payment-evide
 import { scorePaymentEvidenceMatch } from '../server/services/payment-evidence/scorePaymentEvidenceMatch.js';
 import { PERSPECTIVES, DIRECTIONS, STATUSES, COLLECTION_CHANNELS, DOCUMENT_SOURCES, EVIDENCE_STRENGTHS } from '../server/services/payment-evidence/paymentEvidenceRules.js';
 import { db as jsonDb } from '../server/db.js';
+import { createPaymentEvidenceRoutes } from '../server/routes/paymentEvidenceRoutes.js';
+import fs from 'fs';
 
 let failures = 0;
 
@@ -309,6 +311,102 @@ async function runTests() {
     matchDb
   );
   assert('Reference Account match outside 30 days (31 days) is ignored/unmatched', accMatchOut.evidence_strength === EVIDENCE_STRENGTHS.UNKNOWN);
+
+  // ==========================================
+  // Test 7: Read-Only API Integration
+  // ==========================================
+  console.log('\n7. Read-Only API Integration:');
+
+  const apiDb = new MockDb();
+  apiDb.seed('payment_evidence', [
+    { id: 1001, organization_id: 1, transaction_code: 'TX1001', amount: 5000, transaction_date: '2026-06-25', status: 'needs_review', evidence_strength: 'high', collection_channel: 'MPESA_PAYBILL', payer_name: 'Alpha' },
+    { id: 1002, organization_id: 1, transaction_code: 'TX1002', amount: 12000, transaction_date: '2026-06-26', status: 'auto_reconciled', evidence_strength: 'verified', collection_channel: 'BANK_TRANSFER', payer_name: 'Beta' },
+    { id: 1003, organization_id: 2, transaction_code: 'TX1003', amount: 15000, transaction_date: '2026-06-27', status: 'needs_review', evidence_strength: 'high', collection_channel: 'MPESA_PAYBILL', payer_name: 'Gamma' }
+  ]);
+  apiDb.seed('payment_evidence_batches', [
+    { id: 50, organization_id: 1, upload_filename: 'statement1.csv' }
+  ]);
+  apiDb.seed('tenants', []);
+  apiDb.seed('invoices', []);
+
+  const router = createPaymentEvidenceRoutes(apiDb);
+
+  const getRouteHandler = (path) => {
+    const layer = router.stack.find(l => l.route && l.route.path === path);
+    return layer.route.stack[layer.route.stack.length - 1].handle;
+  };
+
+  const getRouteMiddlewares = (path) => {
+    const layer = router.stack.find(l => l.route && l.route.path === path);
+    return layer.route.stack.slice(0, -1).map(s => s.handle);
+  };
+
+  const authMiddlewares = getRouteMiddlewares('/payment-evidence/rows');
+  const requireLandlordOrSuperAdminMiddleware = authMiddlewares[authMiddlewares.length - 1];
+
+  let statusVal = null;
+  let jsonVal = null;
+  let nextCalled = false;
+
+  const mockRes = {
+    status(code) { statusVal = code; return this; },
+    json(obj) { jsonVal = obj; return this; }
+  };
+
+  await requireLandlordOrSuperAdminMiddleware({ auth: { role: 'caretaker', organizationId: 1, userId: 12 } }, mockRes, () => { nextCalled = true; });
+  assert('Caretaker role is blocked (HTTP 403)', statusVal === 403);
+
+  statusVal = null;
+  await requireLandlordOrSuperAdminMiddleware({ auth: { role: 'tenant', organizationId: 1, userId: 15 } }, mockRes, () => { nextCalled = true; });
+  assert('Tenant role is blocked (HTTP 403)', statusVal === 403);
+
+  nextCalled = false;
+  await requireLandlordOrSuperAdminMiddleware({ auth: { role: 'landlord', organizationId: 1, userId: 10 } }, mockRes, () => { nextCalled = true; });
+  assert('Landlord role is allowed', nextCalled === true);
+
+  nextCalled = false;
+  await requireLandlordOrSuperAdminMiddleware({ auth: { role: 'super_admin', organizationId: 1, userId: 1 } }, mockRes, () => { nextCalled = true; });
+  assert('Super Admin role is allowed', nextCalled === true);
+
+  const listRowsHandler = getRouteHandler('/payment-evidence/rows');
+
+  let rowsResult = null;
+  const mockResList = {
+    status(code) { return this; },
+    json(data) { rowsResult = data; return this; }
+  };
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: {}
+  }, mockResList);
+
+  assert('Returns rows scoped to organization 1 only', rowsResult && rowsResult.length === 2 && rowsResult.every(r => r.organization_id === 1));
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { status: 'auto_reconciled' }
+  }, mockResList);
+  assert('Filters rows by status successfully', rowsResult.length === 1 && rowsResult[0].transaction_code === 'TX1002');
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { search: 'alpha' }
+  }, mockResList);
+  assert('Filters rows by search keyword successfully', rowsResult.length === 1 && rowsResult[0].payer_name === 'Alpha');
+
+  // Verify navigation updates via file analysis
+  const bottomNavContent = fs.readFileSync('src/components/BottomNav.jsx', 'utf8');
+  const desktopSidebarContent = fs.readFileSync('src/components/DesktopSidebar.jsx', 'utf8');
+
+  assert(
+    'Bottom navigation no longer contains Review Queue tab ID',
+    !bottomNavContent.includes('landlord_payment_evidence')
+  );
+  assert(
+    'Desktop sidebar still contains Review Queue tab ID',
+    desktopSidebarContent.includes('landlord_payment_evidence')
+  );
 
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
   if (failures > 0) {

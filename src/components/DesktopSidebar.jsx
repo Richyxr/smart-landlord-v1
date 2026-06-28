@@ -35,7 +35,17 @@ export default function DesktopSidebar({ role, activeTab, onChangeTab }) {
           { id: 'landlord_dashboard', label: 'Home', icon: Home },
           { id: 'landlord_properties', label: 'Properties', icon: Building2 },
           { id: 'landlord_invoices', label: 'Billing', icon: ReceiptText },
+
+          // --- RECONCILIATION MODULE FAMILY ---
+          // Future Sub-Navigation Hierarchy:
+          // Reconciliation
+          //   ├── Payment Automation
+          //   ├── Review Queue (payment evidence)
+          //   ├── Unmatched Payments
+          //   └── Imported Statements
           { id: 'landlord_reconciliation', label: 'Reconcile', icon: Handshake },
+          { id: 'landlord_payment_evidence', label: 'Review Queue', icon: WalletCards },
+
           { id: 'landlord_settings', label: 'Settings', icon: Settings }
         ];
     }
