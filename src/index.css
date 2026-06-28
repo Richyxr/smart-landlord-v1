@@ -4821,10 +4821,6 @@ html[data-theme="light"] .sl-empty-state-desc {
     max-width: 74px;
   }
 
-  #root .app-logout-button::before {
-    content: "Exit";
-  }
-
   .super-admin-readiness-grid,
   .super-admin-sms-usage-card-grid {
     grid-template-columns: 1fr !important;
@@ -4937,11 +4933,11 @@ html[data-theme="light"] .drawer-nav-item.active {
 }
 
 .session-restore-orb {
-  width: 52px;
-  height: 52px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(124, 58, 237, 0.1));
-  border: 1px solid rgba(139, 92, 246, 0.3);
+  border: 1px solid rgba(139, 92, 246, 0.35);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4952,19 +4948,25 @@ html[data-theme="light"] .drawer-nav-item.active {
 @keyframes breathe-orb {
   0%, 100% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.2);
-    filter: drop-shadow(0 0 16px rgba(124, 58, 237, 0.3));
+    box-shadow:
+      0 0 0 0 rgba(139, 92, 246, 0.4),
+      0 0 0 4px rgba(139, 92, 246, 0.1),
+      inset 0 0 12px rgba(139, 92, 246, 0.2);
+    filter: drop-shadow(0 0 12px rgba(124, 58, 237, 0.3));
   }
   50% {
     transform: scale(1.04);
-    box-shadow: 0 0 20px 4px rgba(124, 58, 237, 0.1);
-    filter: drop-shadow(0 0 24px rgba(124, 58, 237, 0.5));
+    box-shadow:
+      0 0 0 8px rgba(139, 92, 246, 0),
+      0 0 0 16px rgba(139, 92, 246, 0),
+      inset 0 0 18px rgba(139, 92, 246, 0.4);
+    filter: drop-shadow(0 0 24px rgba(124, 58, 237, 0.6));
   }
 }
 
 .session-restore-logo {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   object-fit: contain;
   animation: breathe-logo 3s infinite ease-in-out;
 }
