@@ -9,7 +9,8 @@ const JSON_COLUMNS = new Set([
   'old_values',
   'new_values',
   'metadata',
-  'bank_account_details'
+  'bank_account_details',
+  'raw_fields'
 ]);
 
 const TABLES_WITH_UPDATED_AT = new Set([
@@ -35,7 +36,9 @@ const TABLES_WITH_UPDATED_AT = new Set([
   'platform_billing_payments',
   'sms_usage_ledger',
   'deletion_requests',
-  'maintenance_requests'
+  'maintenance_requests',
+  'payment_evidence_batches',
+  'payment_evidence'
 ]);
 
 function createPool() {

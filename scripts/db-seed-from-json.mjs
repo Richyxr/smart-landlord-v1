@@ -26,6 +26,8 @@ const TABLE_ORDER = [
   'payment_allocations',
   'reconciliation_batches',
   'reconciliation_staging_rows',
+  'payment_evidence_batches',
+  'payment_evidence',
   'archived_transactions',
   'meter_readings',
   'internal_messages',
@@ -54,7 +56,8 @@ const JSONB_COLUMNS = new Set([
   'old_values',
   'new_values',
   'metadata',
-  'bank_account_details'
+  'bank_account_details',
+  'raw_fields'
 ]);
 
 if (!process.env.DATABASE_URL) {

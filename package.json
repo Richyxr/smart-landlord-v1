@@ -22,7 +22,8 @@
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:seed:from-json": "node scripts/db-seed-from-json.mjs",
     "db:seed:reset-from-json": "node scripts/db-seed-from-json.mjs --truncate",
-    "db:backup": "node scripts/db-backup.mjs"
+    "db:backup": "node scripts/db-backup.mjs",
+    "test:payment-evidence": "node scripts/test-payment-evidence.mjs"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

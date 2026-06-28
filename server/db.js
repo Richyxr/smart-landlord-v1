@@ -50,7 +50,9 @@ const defaultDb = {
   deletion_requests: [],
   maintenance_requests: [],
   otp_codes: [],
-  password_reset_tokens: []
+  password_reset_tokens: [],
+  payment_evidence_batches: [],
+  payment_evidence: []
 };
 
 // Reading the DB
