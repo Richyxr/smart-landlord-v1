@@ -438,6 +438,102 @@ async function runTests() {
     !paymentEvidenceContent.includes("method: \"DELETE\"")
   );
 
+  // Verify CSV parser implementation details
+  assert(
+    'CSV source shows parser-enabled upload state',
+    paymentEvidenceContent.includes("importSource === 'csv'") &&
+    paymentEvidenceContent.includes("accept=\".csv\"") &&
+    paymentEvidenceContent.includes("onChange={handleFileChange}")
+  );
+
+  assert(
+    'Non-CSV source still shows future parser message',
+    paymentEvidenceContent.includes("Future Mode:") &&
+    paymentEvidenceContent.includes("File parsing will be enabled in a future phase.")
+  );
+
+  assert(
+    'CSV headers are mapped flexibly with standard alternatives',
+    paymentEvidenceContent.includes("'transaction_date'") &&
+    paymentEvidenceContent.includes("'trans_date'") &&
+    paymentEvidenceContent.includes("'value_date'") &&
+    paymentEvidenceContent.includes("'paid_amount'") &&
+    paymentEvidenceContent.includes("'money_in'") &&
+    paymentEvidenceContent.includes("'money_out'") &&
+    paymentEvidenceContent.includes("'transaction_code'") &&
+    paymentEvidenceContent.includes("'payer_phone'") &&
+    paymentEvidenceContent.includes("'reference_account'")
+  );
+
+  assert(
+    'CSV preview rows are rendered inside a table',
+    paymentEvidenceContent.includes("parsedPreviewRows.map") &&
+    paymentEvidenceContent.includes("row.transaction_date") &&
+    paymentEvidenceContent.includes("row.direction") &&
+    paymentEvidenceContent.includes("row.warnings")
+  );
+
+  assert(
+    'Duplicate transaction code warning is raised correctly',
+    paymentEvidenceContent.includes("'duplicate transaction codes'")
+  );
+
+  assert(
+    'Missing amount or date warnings are raised correctly',
+    paymentEvidenceContent.includes("'missing date'") &&
+    paymentEvidenceContent.includes("'missing amount'")
+  );
+
+  assert(
+    'Debit row warning appears for landlord statement',
+    paymentEvidenceContent.includes("'debit rows on landlord statements'")
+  );
+
+  assert(
+    'Import button remains disabled with warning message',
+    paymentEvidenceContent.includes("Import is disabled until database import is enabled in the next phase.")
+  );
+
+  assert(
+    'Large file size rejection safety guard is defined',
+    paymentEvidenceContent.includes("file.size > 1024 * 1024") &&
+    paymentEvidenceContent.includes("This CSV is too large for browser preview.")
+  );
+
+  assert(
+    'Row limit rejection safety guard is defined',
+    paymentEvidenceContent.includes("lines.length > 2001")
+  );
+
+  assert(
+    'Duplicate row detection warning is raised correctly',
+    paymentEvidenceContent.includes("'duplicate rows'")
+  );
+
+  assert(
+    'Empty row detection warning is raised correctly',
+    paymentEvidenceContent.includes("'empty rows'")
+  );
+
+  assert(
+    'Unsupported column warning is raised correctly',
+    paymentEvidenceContent.includes("'unsupported columns'")
+  );
+
+  assert(
+    'Preview summary counters check total, valid, warnings, duplicates, and others',
+    paymentEvidenceContent.includes("Total Rows:") &&
+    paymentEvidenceContent.includes("Valid Rows:") &&
+    paymentEvidenceContent.includes("With Warnings:") &&
+    paymentEvidenceContent.includes("Duplicate Codes:") &&
+    paymentEvidenceContent.includes("Duplicate Rows:") &&
+    paymentEvidenceContent.includes("Missing Dates:") &&
+    paymentEvidenceContent.includes("Missing Amounts:") &&
+    paymentEvidenceContent.includes("Debit Rows:") &&
+    paymentEvidenceContent.includes("Unsupported Rows:") &&
+    paymentEvidenceContent.includes("Skipped Rows:")
+  );
+
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
   if (failures > 0) {
     process.exit(1);

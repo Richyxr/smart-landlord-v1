@@ -44,6 +44,8 @@ export default function PaymentEvidence({ organization, refreshTrigger }) {
   const [importSource, setImportSource] = useState('');
   const [importFile, setImportFile] = useState(null);
   const [importProvider, setImportProvider] = useState('');
+  const [parsedPreviewRows, setParsedPreviewRows] = useState([]);
+  const [wizardError, setWizardError] = useState('');
 
   // Fetch batches & evidence rows
   useEffect(() => {
@@ -58,6 +60,306 @@ export default function PaymentEvidence({ organization, refreshTrigger }) {
     }, 400);
     return () => clearTimeout(timer);
   }, [search]);
+
+  const parseCSV = (text) => {
+    /*
+     * TODO: Move parsing to a Web Worker.
+     * TODO: Support streaming CSV parser.
+     * TODO: Support server-side chunked import.
+     * TODO: Support million-row imports.
+     * TODO: Add resumable imports.
+     */
+    const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+    if (lines.length === 0) return { headers: [], rows: [] };
+
+    const parseLine = (line) => {
+      const result = [];
+      let start = 0;
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        if (line[i] === '"') {
+          inQuotes = !inQuotes;
+        } else if (line[i] === ',' && !inQuotes) {
+          result.push(line.slice(start, i).replace(/^"|"$/g, '').trim());
+          start = i + 1;
+        }
+      }
+      result.push(line.slice(start).replace(/^"|"$/g, '').trim());
+      return result;
+    };
+
+    const headers = parseLine(lines[0]).map(h => h.toLowerCase());
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const values = parseLine(lines[i]);
+      const row = {};
+      headers.forEach((header, index) => {
+        if (header) {
+          row[header] = values[index] !== undefined ? values[index] : '';
+        }
+      });
+      rows.push(row);
+    }
+    return { headers, rows };
+  };
+
+  const mapHeaders = (headers) => {
+    const mappings = {
+      date: ['date', 'transaction_date', 'trans_date', 'value_date'],
+      time: ['time', 'transaction_time'],
+      amount: ['amount', 'paid_amount', 'credit', 'money_in', 'money in'],
+      debit: ['debit', 'money_out', 'money out'],
+      description: ['description', 'details', 'narration', 'transaction_details', 'transaction details'],
+      reference: ['reference', 'transaction_code', 'transaction code', 'mpesa_code', 'receipt_no', 'receipt number'],
+      payer: ['payer', 'payer_name', 'customer_name', 'name'],
+      phone: ['phone', 'payer_phone', 'customer_phone', 'mobile', 'msisdn'],
+      account: ['account', 'account_number', 'reference_account', 'bill_reference', 'paybill_account', 'customer_reference']
+    };
+
+    const resolved = {};
+    Object.keys(mappings).forEach(field => {
+      const match = headers.find(h => mappings[field].includes(h));
+      resolved[field] = match || null;
+    });
+    return resolved;
+  };
+
+  const normalizePreviewRow = (rawRow, mappings, allCsvRows, index) => {
+    const warnings = [];
+
+    // Empty row check
+    const isEmptyRow = Object.values(rawRow).every(val => !val || val.trim() === '');
+    if (isEmptyRow) {
+      warnings.push('empty rows');
+    }
+
+    // Date check
+    let transaction_date = null;
+    if (mappings.date && rawRow[mappings.date]) {
+      transaction_date = rawRow[mappings.date];
+    } else if (!isEmptyRow) {
+      warnings.push('missing date');
+    }
+
+    // Time check
+    const transaction_time = (mappings.time && rawRow[mappings.time]) ? rawRow[mappings.time] : null;
+
+    // Amount check
+    let amountStr = mappings.amount ? rawRow[mappings.amount] : '';
+    let debitStr = mappings.debit ? rawRow[mappings.debit] : '';
+
+    let amount = NaN;
+    let debit = 0;
+    let direction = 'credit';
+
+    if (amountStr) {
+      amount = parseFloat(amountStr.replace(/,/g, ''));
+    }
+    if (debitStr) {
+      debit = parseFloat(debitStr.replace(/,/g, '')) || 0;
+    }
+
+    if (isNaN(amount) && debit > 0) {
+      amount = debit;
+      direction = 'debit';
+    } else if (!isNaN(amount) && debit > 0) {
+      direction = 'credit';
+      warnings.push('ambiguous direction');
+    } else if (!isNaN(amount)) {
+      direction = 'credit';
+    }
+
+    if (isNaN(amount) && !isEmptyRow) {
+      warnings.push('missing amount');
+    } else if (!isNaN(amount) && amount <= 0) {
+      warnings.push('invalid amount');
+    }
+
+    // If amount exists without debit/credit column mappings explicitly, we treat as credit but add warning: "Direction inferred from amount column."
+    if (!mappings.debit && !isNaN(amount) && !isEmptyRow) {
+      warnings.push('Direction inferred from amount column.');
+    }
+
+    // Ref / Code check
+    const transaction_code = (mappings.reference && rawRow[mappings.reference]) ? rawRow[mappings.reference] : null;
+    const reference_account = (mappings.account && rawRow[mappings.account]) ? rawRow[mappings.account] : null;
+
+    if (!transaction_code && !reference_account && !isEmptyRow) {
+      warnings.push('missing transaction code AND missing reference account');
+    }
+
+    // Duplicate transaction code in CSV
+    if (transaction_code) {
+      const isDuplicateCode = allCsvRows.some((r, i) => i !== index && r[mappings.reference] === transaction_code);
+      if (isDuplicateCode) {
+        warnings.push('duplicate transaction codes');
+      }
+    }
+
+    // Duplicate rows check
+    if (!isEmptyRow) {
+      const rowStr = JSON.stringify(rawRow);
+      const isDuplicateRow = allCsvRows.some((r, i) => i !== index && JSON.stringify(r) === rowStr);
+      if (isDuplicateRow) {
+        warnings.push('duplicate rows');
+      }
+    }
+
+    // Unsupported columns check
+    const unsupportedKeys = Object.keys(rawRow).filter(k => !Object.values(mappings).includes(k) && rawRow[k] && rawRow[k].trim() !== '');
+    if (unsupportedKeys.length > 0) {
+      warnings.push('unsupported columns');
+    }
+
+    // Invalid UTF-8 check
+    const hasInvalidUtf8 = Object.values(rawRow).some(val =>
+      val && (val.includes('\uFFFD') || /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(val))
+    );
+    if (hasInvalidUtf8) {
+      warnings.push('invalid UTF-8 characters');
+    }
+
+    // Extremely long text check
+    const hasExtremelyLongText = Object.values(rawRow).some(val => val && val.length > 1000);
+    if (hasExtremelyLongText) {
+      warnings.push('extremely long text');
+    }
+
+    // Debit/outgoing row warning on landlord statement
+    if (direction === 'debit' && !isEmptyRow) {
+      warnings.push('debit rows on landlord statements');
+    }
+
+    const payer_name = (mappings.payer && rawRow[mappings.payer]) ? rawRow[mappings.payer] : null;
+    const payer_phone = (mappings.phone && rawRow[mappings.phone]) ? rawRow[mappings.phone] : null;
+    const description = (mappings.description && rawRow[mappings.description]) ? rawRow[mappings.description] : '';
+
+    return {
+      transaction_date,
+      transaction_time,
+      amount: isNaN(amount) ? 0 : amount,
+      direction,
+      transaction_code,
+      payer_name,
+      payer_phone,
+      reference_account,
+      description,
+      collection_channel: 'unknown',
+      document_source: 'CSV',
+      source_provider: 'unknown',
+      source_perspective: 'landlord',
+      evidence_strength: transaction_code ? 'high' : 'unknown',
+      confidence: 0,
+      status: 'preview_only',
+      warnings,
+      raw_fields: rawRow
+    };
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setWizardError('');
+    setImportFile(null);
+    setParsedPreviewRows([]);
+
+    if (!file.name.endsWith('.csv')) {
+      setWizardError('Only .csv files are supported in this phase.');
+      return;
+    }
+
+    if (file.size > 1024 * 1024) {
+      setWizardError(`This CSV is too large for browser preview.
+Maximum supported preview:
+• 1 MB
+• 2,000 rows
+Please split the file into smaller batches or wait for the upcoming server-side import engine.`);
+      return;
+    }
+
+    setImportFile(file);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target.result;
+
+      const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+      if (lines.length > 2001) {
+        setWizardError(`This CSV is too large for browser preview.
+Maximum supported preview:
+• 1 MB
+• 2,000 rows
+Please split the file into smaller batches or wait for the upcoming server-side import engine.`);
+        setImportFile(null);
+        return;
+      }
+
+      try {
+        const parsed = parseCSV(text);
+        const headers = parsed.headers;
+        const rawRows = parsed.rows;
+
+        const mappings = mapHeaders(headers);
+        const previewRows = rawRows.map((row, index) =>
+          normalizePreviewRow(row, mappings, rawRows, index)
+        );
+
+        setParsedPreviewRows(previewRows);
+      } catch (err) {
+        console.error(err);
+        setWizardError('Failed to parse CSV file.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const getPreviewSummary = () => {
+    const summary = {
+      total: parsedPreviewRows.length,
+      valid: 0,
+      warnings: 0,
+      duplicates: 0,
+      duplicateRows: 0,
+      missingDates: 0,
+      missingAmounts: 0,
+      debits: 0,
+      unsupported: 0,
+      skipped: 0
+    };
+
+    parsedPreviewRows.forEach(r => {
+      if (r.warnings.length > 0) {
+        summary.warnings++;
+      } else {
+        summary.valid++;
+      }
+
+      if (r.warnings.some(w => w.includes('duplicate transaction codes'))) {
+        summary.duplicates++;
+      }
+      if (r.warnings.some(w => w.includes('duplicate rows'))) {
+        summary.duplicateRows++;
+      }
+      if (r.warnings.some(w => w.includes('missing date'))) {
+        summary.missingDates++;
+      }
+      if (r.warnings.some(w => w.includes('missing amount'))) {
+        summary.missingAmounts++;
+      }
+      if (r.direction === 'debit' || r.warnings.some(w => w.includes('debit rows'))) {
+        summary.debits++;
+      }
+      if (r.warnings.some(w => w.includes('unsupported columns'))) {
+        summary.unsupported++;
+      }
+      if (r.warnings.some(w => w.includes('empty rows'))) {
+        summary.skipped++;
+      }
+    });
+
+    return summary;
+  };
 
   const fetchBatches = async () => {
     try {
@@ -700,27 +1002,80 @@ export default function PaymentEvidence({ organization, refreshTrigger }) {
             {wizardStep === 2 && (
               <div>
                 <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 2: Upload Source File</h4>
-                <div style={{
-                  border: '2px dashed var(--border)',
-                  borderRadius: '8px',
-                  padding: '30px',
-                  textAlign: 'center',
-                  backgroundColor: 'var(--bg-surface-elevated)',
-                  marginBottom: '16px'
-                }}>
-                  <Upload size={32} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
-                  <p style={{ fontSize: '13px', fontWeight: '600', margin: '0 0 6px 0' }}>Select or Drag file here</p>
-                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 16px 0' }}>Supports .csv, .pdf, .xls, .xlsx formats</p>
-                  <button type="button" className="btn btn-secondary btn-sm" disabled style={{ cursor: 'not-allowed' }}>
-                    Choose File
-                  </button>
-                </div>
-                <div className="alert alert-info" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '11px', margin: 0, padding: '12px' }}>
-                  <HelpCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
-                  <span>
-                    <strong>Foundation Mode:</strong> File parsing will be enabled in the next phase. This wizard currently prepares the import workflow only. No files will be processed or uploaded.
-                  </span>
-                </div>
+                {wizardError && (
+                  <div className="alert alert-danger" style={{ fontSize: '11px', whiteSpace: 'pre-line', padding: '12px', marginBottom: '12px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                    <ShieldAlert size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <div>{wizardError}</div>
+                  </div>
+                )}
+                {importSource === 'csv' ? (
+                  <div style={{
+                    border: '2px dashed var(--border)',
+                    borderRadius: '8px',
+                    padding: '30px',
+                    textAlign: 'center',
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    marginBottom: '16px',
+                    position: 'relative'
+                  }}>
+                    <Upload size={32} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
+                    <p style={{ fontSize: '13px', fontWeight: '600', margin: '0 0 6px 0' }}>Select CSV File</p>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 16px 0' }}>Supports .csv format only</p>
+
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleFileChange}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        opacity: 0,
+                        cursor: 'pointer'
+                      }}
+                    />
+
+                    {importFile && (
+                      <div style={{ fontSize: '12px', color: 'var(--success)', fontWeight: '700', marginTop: '10px' }}>
+                        Selected: {importFile.name} ({(importFile.size / 1024).toFixed(1)} KB)
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{
+                    border: '2px dashed var(--border)',
+                    borderRadius: '8px',
+                    padding: '30px',
+                    textAlign: 'center',
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    marginBottom: '16px'
+                  }}>
+                    <Upload size={32} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
+                    <p style={{ fontSize: '13px', fontWeight: '600', margin: '0 0 6px 0' }}>Select or Drag file here</p>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 16px 0' }}>Supports .csv, .pdf, .xls, .xlsx formats</p>
+                    <button type="button" className="btn btn-secondary btn-sm" disabled style={{ cursor: 'not-allowed' }}>
+                      Choose File
+                    </button>
+                  </div>
+                )}
+
+                {importSource === 'csv' ? (
+                  <div className="alert alert-info" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '11px', margin: 0, padding: '12px' }}>
+                    <HelpCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <span>
+                      <strong>Local Parse Mode:</strong> The CSV file will be parsed and validated entirely inside your browser. No data will be sent to the server.
+                    </span>
+                  </div>
+                ) : (
+                  <div className="alert alert-info" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '11px', margin: 0, padding: '12px' }}>
+                    <HelpCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <span>
+                      <strong>Future Mode:</strong> File parsing will be enabled in a future phase. This wizard currently prepares the import workflow only.
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -767,19 +1122,128 @@ export default function PaymentEvidence({ organization, refreshTrigger }) {
             {wizardStep === 4 && (
               <div>
                 <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 4: Preview Scored Records</h4>
-                <div style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  padding: '40px 20px',
-                  textAlign: 'center',
-                  backgroundColor: 'var(--bg-surface-elevated)',
-                  color: 'var(--text-muted)'
-                }}>
-                  <FileSpreadsheet size={36} style={{ color: 'var(--text-muted)', marginBottom: '12px', opacity: 0.5 }} />
-                  <p style={{ fontSize: '12px', margin: 0, fontWeight: '500' }}>
-                    Preview will appear here after parser adapters are enabled.
-                  </p>
-                </div>
+                {importSource === 'csv' && parsedPreviewRows.length > 0 ? (
+                  <div>
+                    {/* Summary counters grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '16px' }}>
+                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--primary)' }}>
+                        Total Rows: <strong>{getPreviewSummary().total}</strong>
+                      </div>
+                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--success)' }}>
+                        Valid Rows: <strong>{getPreviewSummary().valid}</strong>
+                      </div>
+                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--warning)' }}>
+                        With Warnings: <strong>{getPreviewSummary().warnings}</strong>
+                      </div>
+                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--danger)' }}>
+                        Duplicate Codes: <strong>{getPreviewSummary().duplicates}</strong>
+                      </div>
+                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--danger)' }}>
+                        Duplicate Rows: <strong>{getPreviewSummary().duplicateRows}</strong>
+                      </div>
+                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--warning)' }}>
+                        Missing Dates: <strong>{getPreviewSummary().missingDates}</strong>
+                      </div>
+                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--warning)' }}>
+                        Missing Amounts: <strong>{getPreviewSummary().missingAmounts}</strong>
+                      </div>
+                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--text-secondary)' }}>
+                        Debit Rows: <strong>{getPreviewSummary().debits}</strong>
+                      </div>
+                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--warning)' }}>
+                        Unsupported Rows: <strong>{getPreviewSummary().unsupported}</strong>
+                      </div>
+                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--text-muted)' }}>
+                        Skipped Rows: <strong>{getPreviewSummary().skipped}</strong>
+                      </div>
+                    </div>
+
+                    {/* Preview Table */}
+                    <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '8px', maxBlockSize: '240px', overflowY: 'auto', marginBottom: '16px' }}>
+                      <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', backgroundColor: 'var(--bg-surface-elevated)' }}>
+                            <th style={{ padding: '8px' }}>Status/Warnings</th>
+                            <th style={{ padding: '8px' }}>Date</th>
+                            <th style={{ padding: '8px', textAlign: 'right' }}>Amount</th>
+                            <th style={{ padding: '8px' }}>Direction</th>
+                            <th style={{ padding: '8px' }}>Payer</th>
+                            <th style={{ padding: '8px' }}>Phone</th>
+                            <th style={{ padding: '8px' }}>Code</th>
+                            <th style={{ padding: '8px' }}>Account</th>
+                            <th style={{ padding: '8px' }}>Description</th>
+                            <th style={{ padding: '8px' }}>Channel</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {parsedPreviewRows.map((row, idx) => (
+                            <tr key={idx} style={{ borderBottom: '1px solid var(--border)', backgroundColor: row.warnings.length > 0 ? 'rgba(var(--warning-rgb), 0.05)' : 'transparent' }}>
+                              <td style={{ padding: '8px', verticalAlign: 'top' }}>
+                                {row.warnings.length === 0 ? (
+                                  <span style={{ color: 'var(--success)', fontWeight: '700' }}>✓ Valid</span>
+                                ) : (
+                                  <div style={{ color: 'var(--warning)', fontSize: '10px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                    {row.warnings.map((w, wIdx) => (
+                                      <div key={wIdx} title={w}>• {w.length > 25 ? w.slice(0, 25) + '...' : w}</div>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ padding: '8px', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{row.transaction_date || 'N/A'}</td>
+                              <td style={{ padding: '8px', textAlign: 'right', fontWeight: '700', verticalAlign: 'top' }}>{formatCurrency(row.amount)}</td>
+                              <td style={{ padding: '8px', textTransform: 'capitalize', verticalAlign: 'top' }}>{row.direction}</td>
+                              <td style={{ padding: '8px', verticalAlign: 'top' }}>{row.payer_name || 'N/A'}</td>
+                              <td style={{ padding: '8px', verticalAlign: 'top' }}>{row.payer_phone || 'N/A'}</td>
+                              <td style={{ padding: '8px', fontWeight: '600', verticalAlign: 'top' }}>{row.transaction_code || 'N/A'}</td>
+                              <td style={{ padding: '8px', verticalAlign: 'top' }}>{row.reference_account || 'N/A'}</td>
+                              <td style={{ padding: '8px', verticalAlign: 'top', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxInlineSize: '120px' }} title={row.description}>{row.description || 'N/A'}</td>
+                              <td style={{ padding: '8px', verticalAlign: 'top' }}>{row.collection_channel}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Task 5: User Guidance Panel */}
+                    <div style={{
+                      backgroundColor: 'var(--bg-surface-elevated)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      padding: '12px 16px',
+                      fontSize: '11px',
+                      lineHeight: '1.5'
+                    }}>
+                      <div style={{ fontWeight: '700', marginBottom: '6px', color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <ShieldAlert size={14} />
+                        Current Phase: Preview Only
+                      </div>
+                      <p style={{ margin: '0 0 8px 0', color: 'var(--text-secondary)' }}>
+                        This is a browser-only preview. <strong>No data has been saved to the database</strong>, no reconciliation has occurred, and no payment allocations have been created. The final Import button is intentionally disabled.
+                      </p>
+                      <div style={{ fontWeight: '700', marginBottom: '4px', color: 'var(--text-primary)' }}>Future phases will enable:</div>
+                      <ul style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-muted)' }}>
+                        <li>CSV, PDF, and Excel Import & validation adapters</li>
+                        <li>Bank and M-Pesa statements file upload</li>
+                        <li>OCR receipt scanning & digitizing pipeline</li>
+                        <li>Automatic matching engine with manual review queue reconciliation</li>
+                      </ul>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    padding: '40px 20px',
+                    textAlign: 'center',
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    color: 'var(--text-muted)'
+                  }}>
+                    <FileSpreadsheet size={36} style={{ color: 'var(--text-muted)', marginBottom: '12px', opacity: 0.5 }} />
+                    <p style={{ fontSize: '12px', margin: 0, fontWeight: '500' }}>
+                      Preview will appear here after parser adapters are enabled.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -801,7 +1265,7 @@ export default function PaymentEvidence({ organization, refreshTrigger }) {
                     <strong>Selected Provider:</strong> {importProvider ? importProvider.toUpperCase() : 'N/A'}
                   </div>
                   <div style={{ fontSize: '12px' }}>
-                    <strong>Validation Status:</strong> <span style={{ color: 'var(--warning)', fontWeight: '700' }}>PENDING PARSING</span>
+                    <strong>Validation Status:</strong> <span style={{ color: importSource === 'csv' && parsedPreviewRows.length > 0 ? 'var(--success)' : 'var(--warning)', fontWeight: '700' }}>{importSource === 'csv' && parsedPreviewRows.length > 0 ? 'PARSED PREVIEW READY' : 'PENDING PARSING'}</span>
                   </div>
                 </div>
 
@@ -812,10 +1276,10 @@ export default function PaymentEvidence({ organization, refreshTrigger }) {
                     disabled
                     style={{ width: '100%', cursor: 'not-allowed', opacity: 0.6 }}
                   >
-                    Import Scored Rows to Review Queue
+                    Import Scored Rows to Review Queue (Disabled)
                   </button>
                   <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>
-                    Import will be enabled after preview validation is implemented.
+                    Import is disabled until database import is enabled in the next phase.
                   </p>
                 </div>
               </div>
