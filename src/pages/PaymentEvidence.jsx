@@ -11,7 +11,11 @@ import {
   ShieldAlert,
   HelpCircle,
   FileSpreadsheet,
-  Coins
+  Coins,
+  Upload,
+  ArrowLeft,
+  ArrowRight,
+  Check
 } from 'lucide-react';
 
 export default function PaymentEvidence({ organization, refreshTrigger }) {
@@ -33,6 +37,13 @@ export default function PaymentEvidence({ organization, refreshTrigger }) {
 
   // Selected row for Detail Drawer
   const [selectedRow, setSelectedRow] = useState(null);
+
+  // Import Wizard State
+  const [showImportWizard, setShowImportWizard] = useState(false);
+  const [wizardStep, setWizardStep] = useState(1);
+  const [importSource, setImportSource] = useState('');
+  const [importFile, setImportFile] = useState(null);
+  const [importProvider, setImportProvider] = useState('');
 
   // Fetch batches & evidence rows
   useEffect(() => {
@@ -168,6 +179,21 @@ export default function PaymentEvidence({ organization, refreshTrigger }) {
             Inspect, classify, and match imported payment evidence records.
           </p>
         </div>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          onClick={() => {
+            setShowImportWizard(true);
+            setWizardStep(1);
+            setImportSource('');
+            setImportFile(null);
+            setImportProvider('');
+          }}
+          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <Layers size={14} />
+          Import Payment Evidence
+        </button>
       </div>
 
       {/* SUMMARY METRICS CARDS */}
@@ -562,6 +588,275 @@ export default function PaymentEvidence({ organization, refreshTrigger }) {
               >
                 Close Details
               </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+        {/* IMPORT WIZARD MODAL */}
+      {showImportWizard && (
+        <div className="modal-backdrop" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050 }}>
+          <div className="modal-content" style={{ maxWidth: '680px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: '24px', borderRadius: '12px', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', position: 'relative' }}>
+
+            {/* Close button */}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setShowImportWizard(false)}
+              style={{ position: 'absolute', right: '16px', top: '16px', borderRadius: '50%', width: '28px', height: '28px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <X size={14} />
+            </button>
+
+            <h3 className="card-title" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px', fontSize: '16px', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Layers size={18} style={{ color: 'var(--primary)' }} />
+              Import Payment Evidence Wizard
+            </h3>
+
+            {/* STEP PROGRESS BAR */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', position: 'relative', padding: '0 10px' }}>
+              <div style={{ position: 'absolute', top: '14px', left: '20px', right: '20px', height: '2px', backgroundColor: 'var(--border)', zIndex: 1 }} />
+              <div style={{ position: 'absolute', top: '14px', left: '20px', right: '20px', height: '2px', backgroundColor: 'var(--primary)', width: `${((wizardStep - 1) / 4) * 100}%`, transition: 'width 0.3s ease', zIndex: 2 }} />
+
+              {[1, 2, 3, 4, 5].map((step) => {
+                const isCompleted = step < wizardStep;
+                const isActive = step === wizardStep;
+                return (
+                  <div key={step} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 3, position: 'relative' }}>
+                    <div style={{
+                      width: '30px',
+                      height: '30px',
+                      borderRadius: '50%',
+                      backgroundColor: isCompleted ? 'var(--primary)' : isActive ? 'var(--bg-surface)' : 'var(--bg-surface-elevated)',
+                      border: isActive ? '2.5px solid var(--primary)' : isCompleted ? 'none' : '2px solid var(--border)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: '700',
+                      fontSize: '12px',
+                      color: isCompleted ? '#ffffff' : isActive ? 'var(--primary)' : 'var(--text-muted)',
+                      transition: 'all 0.2s ease',
+                      boxShadow: isActive ? '0 0 10px var(--primary-glow)' : 'none'
+                    }}>
+                      {isCompleted ? <Check size={14} strokeWidth={3} /> : step}
+                    </div>
+                    <span style={{
+                      fontSize: '9px',
+                      marginTop: '6px',
+                      fontWeight: isActive || isCompleted ? '700' : '500',
+                      color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {step === 1 && 'Source'}
+                      {step === 2 && 'Upload'}
+                      {step === 3 && 'Provider'}
+                      {step === 4 && 'Preview'}
+                      {step === 5 && 'Import'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* STEP 1: CHOOSE SOURCE */}
+            {wizardStep === 1 && (
+              <div>
+                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 1: Choose Source Template</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                  {[
+                    { id: 'csv', name: 'CSV statement', desc: 'Raw spreadsheet exports' },
+                    { id: 'pdf_bank', name: 'PDF bank statement', desc: 'Standard monthly e-statements' },
+                    { id: 'pdf_receipt', name: 'PDF receipt/advice', desc: 'Individual transaction receipts' },
+                    { id: 'mpesa_statement', name: 'M-Pesa statement', desc: 'Official Safaricom ledger exports' },
+                    { id: 'excel', name: 'Excel file', desc: 'XLSX formats or accounting tables' },
+                    { id: 'unknown', name: 'Other/Unknown', desc: 'Unformatted text or other layouts' }
+                  ].map((src) => (
+                    <div
+                      key={src.id}
+                      onClick={() => setImportSource(src.id)}
+                      style={{
+                        padding: '14px',
+                        border: importSource === src.id ? '2px solid var(--primary)' : '1px solid var(--border)',
+                        borderRadius: '8px',
+                        backgroundColor: importSource === src.id ? 'var(--primary-glow)' : 'var(--bg-surface-elevated)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                        boxShadow: importSource === src.id ? '0 4px 12px rgba(0,0,0,0.15)' : 'none'
+                      }}
+                      className="wizard-card-hover"
+                    >
+                      <div style={{ fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--border)', backgroundColor: importSource === src.id ? 'var(--primary)' : 'transparent', transition: 'all 0.1s' }} />
+                        {src.name}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '18px' }}>{src.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* STEP 2: UPLOAD FILE */}
+            {wizardStep === 2 && (
+              <div>
+                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 2: Upload Source File</h4>
+                <div style={{
+                  border: '2px dashed var(--border)',
+                  borderRadius: '8px',
+                  padding: '30px',
+                  textAlign: 'center',
+                  backgroundColor: 'var(--bg-surface-elevated)',
+                  marginBottom: '16px'
+                }}>
+                  <Upload size={32} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
+                  <p style={{ fontSize: '13px', fontWeight: '600', margin: '0 0 6px 0' }}>Select or Drag file here</p>
+                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 16px 0' }}>Supports .csv, .pdf, .xls, .xlsx formats</p>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled style={{ cursor: 'not-allowed' }}>
+                    Choose File
+                  </button>
+                </div>
+                <div className="alert alert-info" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '11px', margin: 0, padding: '12px' }}>
+                  <HelpCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                  <span>
+                    <strong>Foundation Mode:</strong> File parsing will be enabled in the next phase. This wizard currently prepares the import workflow only. No files will be processed or uploaded.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 3: DETECT PROVIDER */}
+            {wizardStep === 3 && (
+              <div>
+                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 3: Select or Confirm Provider</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                  {[
+                    { id: 'mpesa', name: 'M-Pesa', desc: 'Safaricom mobile network operator' },
+                    { id: 'coop', name: 'Co-op Bank', desc: 'Co-operative Bank of Kenya' },
+                    { id: 'loop', name: 'Loop', desc: 'Loop Digital Banking' },
+                    { id: 'kcb', name: 'KCB', desc: 'Kenya Commercial Bank' },
+                    { id: 'equity', name: 'Equity', desc: 'Equity Bank Group' },
+                    { id: 'absa', name: 'Absa', desc: 'Absa Bank Kenya' },
+                    { id: 'ncba', name: 'NCBA', desc: 'NCBA Bank Group' },
+                    { id: 'unknown', name: 'Other/Unknown', desc: 'Other bank or processing channel' }
+                  ].map((prov) => (
+                    <div
+                      key={prov.id}
+                      onClick={() => setImportProvider(prov.id)}
+                      style={{
+                        padding: '12px',
+                        border: importProvider === prov.id ? '2px solid var(--primary)' : '1px solid var(--border)',
+                        borderRadius: '8px',
+                        backgroundColor: importProvider === prov.id ? 'var(--primary-glow)' : 'var(--bg-surface-elevated)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                      className="wizard-card-hover"
+                    >
+                      <div style={{ fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--border)', backgroundColor: importProvider === prov.id ? 'var(--primary)' : 'transparent', transition: 'all 0.1s' }} />
+                        {prov.name}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '18px' }}>{prov.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* STEP 4: PREVIEW & VALIDATE */}
+            {wizardStep === 4 && (
+              <div>
+                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 4: Preview Scored Records</h4>
+                <div style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  padding: '40px 20px',
+                  textAlign: 'center',
+                  backgroundColor: 'var(--bg-surface-elevated)',
+                  color: 'var(--text-muted)'
+                }}>
+                  <FileSpreadsheet size={36} style={{ color: 'var(--text-muted)', marginBottom: '12px', opacity: 0.5 }} />
+                  <p style={{ fontSize: '12px', margin: 0, fontWeight: '500' }}>
+                    Preview will appear here after parser adapters are enabled.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 5: IMPORT TO REVIEW QUEUE */}
+            {wizardStep === 5 && (
+              <div>
+                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 5: Finalize Import</h4>
+                <div style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: '8px',
+                  padding: '24px',
+                  backgroundColor: 'var(--bg-surface-elevated)',
+                  marginBottom: '16px'
+                }}>
+                  <div style={{ fontSize: '12px', marginBottom: '12px' }}>
+                    <strong>Selected Source:</strong> {importSource ? importSource.toUpperCase() : 'N/A'}
+                  </div>
+                  <div style={{ fontSize: '12px', marginBottom: '12px' }}>
+                    <strong>Selected Provider:</strong> {importProvider ? importProvider.toUpperCase() : 'N/A'}
+                  </div>
+                  <div style={{ fontSize: '12px' }}>
+                    <strong>Validation Status:</strong> <span style={{ color: 'var(--warning)', fontWeight: '700' }}>PENDING PARSING</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled
+                    style={{ width: '100%', cursor: 'not-allowed', opacity: 0.6 }}
+                  >
+                    Import Scored Rows to Review Queue
+                  </button>
+                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>
+                    Import will be enabled after preview validation is implemented.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL FOOTER BUTTONS */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '16px', marginTop: '24px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  if (wizardStep === 1) {
+                    setShowImportWizard(false);
+                  } else {
+                    setWizardStep(wizardStep - 1);
+                  }
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <ArrowLeft size={14} />
+                {wizardStep === 1 ? 'Cancel' : 'Back'}
+              </button>
+
+              {wizardStep < 5 && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setWizardStep(wizardStep + 1)}
+                  disabled={(wizardStep === 1 && !importSource) || (wizardStep === 3 && !importProvider)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    opacity: ((wizardStep === 1 && !importSource) || (wizardStep === 3 && !importProvider)) ? 0.6 : 1,
+                    cursor: ((wizardStep === 1 && !importSource) || (wizardStep === 3 && !importProvider)) ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  Next
+                  <ArrowRight size={14} />
+                </button>
+              )}
             </div>
 
           </div>

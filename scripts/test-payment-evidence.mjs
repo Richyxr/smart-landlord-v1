@@ -408,6 +408,36 @@ async function runTests() {
     desktopSidebarContent.includes('landlord_payment_evidence')
   );
 
+  // Verify Import Wizard UI Shell elements exist
+  const paymentEvidenceContent = fs.readFileSync('src/pages/PaymentEvidence.jsx', 'utf8');
+
+  assert(
+    'Payment Evidence page renders import wizard trigger button',
+    paymentEvidenceContent.includes('Import Payment Evidence') && paymentEvidenceContent.includes('setShowImportWizard(true)')
+  );
+  assert(
+    'Import Wizard shows all five steps',
+    paymentEvidenceContent.includes('Step 1: Choose Source') &&
+    paymentEvidenceContent.includes('Step 2: Upload Source') &&
+    paymentEvidenceContent.includes('Step 3: Select or Confirm Provider') &&
+    paymentEvidenceContent.includes('Step 4: Preview Scored Records') &&
+    paymentEvidenceContent.includes('Step 5: Finalize Import')
+  );
+  assert(
+    'Import Wizard final import action button is disabled',
+    paymentEvidenceContent.includes('Import Scored Rows to Review Queue') &&
+    paymentEvidenceContent.includes('disabled')
+  );
+  assert(
+    'No write API calls or POST/PUT/DELETE fetch triggers are defined in the wizard page',
+    !paymentEvidenceContent.includes("method: 'POST'") &&
+    !paymentEvidenceContent.includes("method: 'PUT'") &&
+    !paymentEvidenceContent.includes("method: 'DELETE'") &&
+    !paymentEvidenceContent.includes("method: \"POST\"") &&
+    !paymentEvidenceContent.includes("method: \"PUT\"") &&
+    !paymentEvidenceContent.includes("method: \"DELETE\"")
+  );
+
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
   if (failures > 0) {
     process.exit(1);
