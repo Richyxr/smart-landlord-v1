@@ -33,6 +33,7 @@ export default function App() {
   const [settingsSubTab, setSettingsSubTab] = useState(null);
   const [invoicesSubTab, setInvoicesSubTab] = useState(null);
   const [authRestoring, setAuthRestoring] = useState(true);
+  const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
 
   const handleNavigate = (page, subTab) => {
     setActiveTab(page);
@@ -118,6 +119,22 @@ export default function App() {
 
     return unsubscribe;
   }, []);
+
+  const statusTexts = [
+    'Verifying your session',
+    'Loading your dashboard',
+    'Preparing your workspace',
+    'Almost ready'
+  ];
+
+  useEffect(() => {
+    if (authRestoring) {
+      const interval = setInterval(() => {
+        setLoadingStatusIndex(prev => (prev + 1) % statusTexts.length);
+      }, 1500);
+      return () => clearInterval(interval);
+    }
+  }, [authRestoring]);
 
   // Load a demo session only for local/demo builds.
   useEffect(() => {
@@ -259,9 +276,26 @@ export default function App() {
 
   if (authRestoring) {
     return (
-      <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center', textAlign: 'center' }}>
-        <h2>Restoring your session...</h2>
-        <p>Please wait while Smart Landlord signs you back in.</p>
+      <div className="session-restore-screen">
+        <div className="session-restore-card">
+          <div className="session-restore-orb-container">
+            <div className="session-restore-orb" />
+          </div>
+          <h2 className="session-restore-title">Securing your workspace</h2>
+          <p className="session-restore-subtitle">Checking your access and preparing Smart Landlord.</p>
+
+          <div className="session-restore-progress-container">
+            <div className="session-restore-progress-bar" />
+          </div>
+
+          <div className="session-restore-status">
+            <span>{statusTexts[loadingStatusIndex]}</span>
+          </div>
+
+          <div className="session-restore-skeleton">
+            <div className="skeleton-line" />
+          </div>
+        </div>
       </div>
     );
   }
