@@ -495,59 +495,72 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
   };
 
   const handleSendTestSms = async (id) => {
-    const phoneNumber = window.prompt("Enter the mobile number to send the test SMS to (e.g. 2547XXXXXXXX):");
-    if (!phoneNumber) return;
-
-    setLoading(true);
-    setError('');
-    setInfoMessage('');
-    try {
-      const res = await fetch(`/api/integrations/${id}/test-sms`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone_number: phoneNumber })
-      });
-      const data = await safeParseJson(res, 'Failed to send test SMS');
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to send test SMS.');
+    window.showPrompt(
+      'Send Test SMS',
+      'Enter the mobile number to send the test SMS to (e.g. 2547XXXXXXXX):',
+      '',
+      async (phoneNumber) => {
+        if (!phoneNumber) return;
+        setLoading(true);
+        setError('');
+        setInfoMessage('');
+        try {
+          const res = await fetch(`/api/integrations/${id}/test-sms`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ phone_number: phoneNumber })
+          });
+          const data = await safeParseJson(res, 'Failed to send test SMS');
+          if (!res.ok) {
+            throw new Error(data.error || 'Failed to send test SMS.');
+          }
+          setInfoMessage(`Test SMS dispatched successfully. Details: ${data.message || 'Sent'}`);
+          window.notifySuccess('SMS Dispatched', 'Test SMS was sent successfully.');
+          setError('');
+          fetchData();
+        } catch (err) {
+          setError(err.message);
+          window.notifyError('SMS Send Failed', err.message);
+        } finally {
+          setLoading(false);
+        }
       }
-      setInfoMessage(`Test SMS dispatched successfully. Details: ${data.message || 'Sent'}`);
-      setError('');
-      fetchData();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    );
   };
 
   const handleSendTestEmail = async (id) => {
-    const recipient = window.prompt('Enter the email address to send the test email to (leave blank to use your account email):');
-    // User pressed Cancel
-    if (recipient === null) return;
-
-    setLoading(true);
-    setError('');
-    setInfoMessage('');
-    try {
-      const body = recipient.trim() ? { to: recipient.trim() } : {};
-      const res = await fetch(`/api/integrations/${id}/test-email`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const data = await safeParseJson(res, 'Failed to send test email');
-      if (!res.ok) {
-        throw new Error(data.error || data.summary || 'Failed to send test email.');
+    window.showPrompt(
+      'Send Test Email',
+      'Enter the email address to send the test email to (leave blank to use your account email):',
+      '',
+      async (recipient) => {
+        if (recipient === null) return;
+        setLoading(true);
+        setError('');
+        setInfoMessage('');
+        try {
+          const body = recipient.trim() ? { to: recipient.trim() } : {};
+          const res = await fetch(`/api/integrations/${id}/test-email`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          const data = await safeParseJson(res, 'Failed to send test email');
+          if (!res.ok) {
+            throw new Error(data.error || data.summary || 'Failed to send test email.');
+          }
+          setInfoMessage(`Test email sent successfully. ${data.message || ''}`);
+          window.notifySuccess('Email Dispatched', 'Test email was sent successfully.');
+          setError('');
+          fetchData();
+        } catch (err) {
+          setError(err.message);
+          window.notifyError('Email Send Failed', err.message);
+        } finally {
+          setLoading(false);
+        }
       }
-      setInfoMessage(`Test email sent successfully. ${data.message || ''}`);
-      setError('');
-      fetchData();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    );
   };
 
   const handleDeleteIntegrationTrigger = (id) => {

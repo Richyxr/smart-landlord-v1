@@ -293,21 +293,28 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
   };
 
   const handleVacateTenant = async (id) => {
-    if (!window.confirm('Are you sure you want to vacate this tenant? This will free the unit and mark the tenant history.')) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/tenants/${id}/vacate`, {
-        method: 'POST',
-        headers
-      });
-      if (!res.ok) throw new Error('Vacate tenant failed.');
-      fetchData();
-      onRefresh();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    window.showConfirm(
+      'Vacate Tenant',
+      'Are you sure you want to vacate this tenant? This will free the unit and mark the tenant history.',
+      async () => {
+        setLoading(true);
+        try {
+          const res = await fetch(`/api/tenants/${id}/vacate`, {
+            method: 'POST',
+            headers
+          });
+          if (!res.ok) throw new Error('Vacate tenant failed.');
+          window.notifySuccess('Tenant Vacated', 'The tenant has been vacated and the unit is now available.');
+          fetchData();
+          onRefresh();
+        } catch (err) {
+          setError(err.message);
+          window.notifyError('Action Failed', err.message);
+        } finally {
+          setLoading(false);
+        }
+      }
+    );
   };
 
   const handleSubmitCaretaker = async (e) => {
@@ -355,9 +362,17 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       }
 
       if (editId) {
-        alert('Caretaker updated successfully!');
+        window.notifySuccess('Caretaker Updated', 'Caretaker updated successfully!');
       } else {
-        alert(`Caretaker created successfully!\n\nName: ${data.user.name}\nPhone: ${data.user.phone_number}\nSystem-Generated PIN: ${data.temporary_pin}\n\nIMPORTANT: Please copy and share this PIN with the caretaker. It will not be shown again!`);
+        window.showConfirm(
+          'Caretaker Created Successfully',
+          `Name: ${data.user.name}\nPhone: ${data.user.phone_number}\nSystem-Generated PIN: ${data.temporary_pin}\n\nIMPORTANT: Please copy and share this PIN with the caretaker. It will not be shown again!`,
+          () => {},
+          null,
+          'OK',
+          'Close',
+          true
+        );
       }
       
       setShowAddForm(false);
@@ -373,31 +388,36 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
   };
 
   const handleResetPin = async (id, name) => {
-    if (!window.confirm(`Are you sure you want to reset the PIN for caretaker ${name}?`)) {
-      return;
-    }
-    setError('');
-    setLoading(true);
-    setResetPinResult(null);
-    try {
-      const res = await fetch(`/api/properties/caretakers/${id}/reset-pin`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' }
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || data.error || 'Failed to reset PIN.');
+    window.showConfirm(
+      'Reset Caretaker PIN',
+      `Are you sure you want to reset the PIN for caretaker ${name}?`,
+      async () => {
+        setError('');
+        setLoading(true);
+        setResetPinResult(null);
+        try {
+          const res = await fetch(`/api/properties/caretakers/${id}/reset-pin`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' }
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.message || data.error || 'Failed to reset PIN.');
+          }
+          setResetPinResult({
+            name: data.user.name,
+            phone: data.user.phone_number,
+            pin: data.temporary_pin
+          });
+          window.notifySuccess('PIN Reset Success', 'A new temporary PIN has been generated.');
+        } catch (err) {
+          setError(err.message);
+          window.notifyError('PIN Reset Failed', err.message);
+        } finally {
+          setLoading(false);
+        }
       }
-      setResetPinResult({
-        name: data.user.name,
-        phone: data.user.phone_number,
-        pin: data.temporary_pin
-      });
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    );
   };
 
   const resetPropertyForm = () => {
@@ -785,12 +805,25 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                       setNotes(p.notes || '');
                       setShowAddForm(true);
                     }}>Edit</button>
-                    <button className="btn btn-danger btn-sm" onClick={async () => {
-                      if (window.confirm('Delete property? All child units will be soft-deleted.')) {
-                        await fetch(`/api/properties/${p.id}`, { method: 'DELETE', headers });
-                        fetchData();
-                        onRefresh();
-                      }
+                    <button className="btn btn-danger btn-sm" onClick={() => {
+                      window.showConfirm(
+                        'Delete Property',
+                        'Are you sure you want to delete this property? All child units will be soft-deleted.',
+                        async () => {
+                          setLoading(true);
+                          try {
+                            const res = await fetch(`/api/properties/${p.id}`, { method: 'DELETE', headers });
+                            if (!res.ok) throw new Error('Failed to delete property.');
+                            window.notifySuccess('Property Deleted', 'The property and its child units have been soft-deleted.');
+                            fetchData();
+                            onRefresh();
+                          } catch (err) {
+                            window.notifyError('Delete Failed', err.message);
+                          } finally {
+                            setLoading(false);
+                          }
+                        }
+                      );
                     }}>Delete</button>
                   </div>
                 </div>
@@ -838,12 +871,25 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                       setUnitNotes(u.notes || '');
                       setShowAddForm(true);
                     }}>Edit</button>
-                    <button className="btn btn-danger btn-sm" onClick={async () => {
-                      if (window.confirm('Delete unit? Tenant will be vacated.')) {
-                        await fetch(`/api/units/${u.id}`, { method: 'DELETE', headers });
-                        fetchData();
-                        onRefresh();
-                      }
+                    <button className="btn btn-danger btn-sm" onClick={() => {
+                      window.showConfirm(
+                        'Delete Unit',
+                        'Are you sure you want to delete this unit? Any active tenant will be vacated.',
+                        async () => {
+                          setLoading(true);
+                          try {
+                            const res = await fetch(`/api/units/${u.id}`, { method: 'DELETE', headers });
+                            if (!res.ok) throw new Error('Failed to delete unit.');
+                            window.notifySuccess('Unit Deleted', 'The unit has been soft-deleted.');
+                            fetchData();
+                            onRefresh();
+                          } catch (err) {
+                            window.notifyError('Delete Failed', err.message);
+                          } finally {
+                            setLoading(false);
+                          }
+                        }
+                      );
                     }}>Delete</button>
                   </div>
                 </div>

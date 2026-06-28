@@ -9,6 +9,7 @@ import Settings from './pages/Settings.jsx';
 import Caretaker from './pages/Caretaker.jsx';
 import SuperAdmin from './pages/SuperAdmin.jsx';
 import SaaSInvoices from './pages/SaaSInvoices.jsx';
+import { Toaster, toast } from 'sonner';
 
 import BottomNav from './components/BottomNav.jsx';
 import DesktopSidebar from './components/DesktopSidebar.jsx';
@@ -34,6 +35,8 @@ export default function App() {
   const [invoicesSubTab, setInvoicesSubTab] = useState(null);
   const [authRestoring, setAuthRestoring] = useState(true);
   const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
+  const [confirmState, setConfirmState] = useState(null);
+  const [promptState, setPromptState] = useState(null);
 
   const handleNavigate = (page, subTab) => {
     setActiveTab(page);
@@ -135,6 +138,36 @@ export default function App() {
       return () => clearInterval(interval);
     }
   }, [authRestoring]);
+
+  useEffect(() => {
+    window.notifySuccess = (title, description) => {
+      toast.success(title, { description });
+    };
+    window.notifyError = (title, description) => {
+      toast.error(title, { description });
+    };
+    window.notifyWarning = (title, description) => {
+      toast.warning(title, { description });
+    };
+    window.notifyInfo = (title, description) => {
+      toast.info(title, { description });
+    };
+    window.showConfirm = (title, message, onConfirm, onCancel, confirmText, cancelText, hideCancel = false) => {
+      setConfirmState({ title, message, onConfirm, onCancel, confirmText, cancelText, hideCancel });
+    };
+    window.showPrompt = (title, placeholder, defaultValue, onSubmit, onCancel) => {
+      setPromptState({ title, placeholder, defaultValue, onSubmit, onCancel });
+    };
+
+    return () => {
+      delete window.notifySuccess;
+      delete window.notifyError;
+      delete window.notifyWarning;
+      delete window.notifyInfo;
+      delete window.showConfirm;
+      delete window.showPrompt;
+    };
+  }, []);
 
   // Load a demo session only for local/demo builds.
   useEffect(() => {
@@ -457,6 +490,108 @@ export default function App() {
         </div>
       )}
       <InstallPrompt />
+
+      {/* Centralized Branded Alert Dialog */}
+      {confirmState && (
+        <div className="modal-backdrop">
+          <div className="modal-content" style={{ maxWidth: '380px', padding: '20px' }}>
+            <h3 className="card-title" style={{ fontSize: '15px', fontWeight: '800', marginBottom: '8px', borderBottom: 'none', paddingBottom: 0 }}>
+              {confirmState.title}
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+              {confirmState.message}
+            </p>
+            <div className="flex-gap" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+              {!confirmState.hideCancel && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    if (confirmState.onCancel) confirmState.onCancel();
+                    setConfirmState(null);
+                  }}
+                  style={{ minWidth: '70px' }}
+                >
+                  {confirmState.cancelText || 'Cancel'}
+                </button>
+              )}
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  if (confirmState.onConfirm) confirmState.onConfirm();
+                  setConfirmState(null);
+                }}
+                style={{ minWidth: '70px' }}
+              >
+                {confirmState.confirmText || 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Centralized Branded Prompt Modal */}
+      {promptState && (
+        <PromptModalStateWrapper promptState={promptState} onClose={() => setPromptState(null)} />
+      )}
+
+      {/* Branded Toaster */}
+      <Toaster
+        theme="dark"
+        position="top-right"
+        closeButton
+        toastOptions={{
+          className: 'sl-toast',
+          success: { className: 'sl-toast-success' },
+          error: { className: 'sl-toast-error' },
+          warning: { className: 'sl-toast-warning' }
+        }}
+      />
+    </div>
+  );
+}
+
+function PromptModalStateWrapper({ promptState, onClose }) {
+  const [val, setVal] = useState(promptState.defaultValue || '');
+  return (
+    <div className="modal-backdrop">
+      <div className="modal-content" style={{ maxWidth: '380px', padding: '20px' }}>
+        <h3 className="card-title" style={{ fontSize: '15px', fontWeight: '800', marginBottom: '12px', borderBottom: 'none', paddingBottom: 0 }}>
+          {promptState.title}
+        </h3>
+        <div className="form-group" style={{ marginBottom: '20px' }}>
+          <input
+            type="text"
+            className="form-control"
+            placeholder={promptState.placeholder}
+            value={val}
+            onChange={e => setVal(e.target.value)}
+            autoFocus
+            style={{ width: '100%' }}
+          />
+        </div>
+        <div className="flex-gap" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => {
+              if (promptState.onCancel) promptState.onCancel();
+              onClose();
+            }}
+            style={{ minWidth: '70px' }}
+          >
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              if (promptState.onSubmit) promptState.onSubmit(val);
+              onClose();
+            }}
+            style={{ minWidth: '70px' }}
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

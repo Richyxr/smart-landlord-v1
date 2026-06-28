@@ -381,18 +381,18 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       });
       const data = await res.json().catch(() => null);
       if (res.ok) {
-        alert('Pricing settings updated successfully.');
+        window.notifySuccess('Pricing settings saved', 'The platform pricing policy has been updated.');
         fetchStats();
         fetchData();
         onRefresh();
       } else {
         const errMsg = data?.error || data?.message || 'Failed to update pricing.';
         setError(errMsg);
-        alert(`Error: ${errMsg}`);
+        window.notifyError('Pricing update failed', errMsg);
       }
     } catch (e) {
       setError('Failed to update pricing.');
-      alert('Failed to update pricing due to a network error.');
+      window.notifyError('Connection problem', 'Could not reach the server. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -407,7 +407,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         body: JSON.stringify({ payment_id: payId })
       });
       if (res.ok) {
-        alert('SaaS payment manually confirmed! Organization unlocked.');
+        window.notifySuccess('SaaS Payment Confirmed', 'The organization has been unlocked.');
         fetchData();
         fetchStats();
         onRefresh();
@@ -516,26 +516,33 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
   };
 
   const handlePlatformEmailTest = async () => {
-    const recipient = window.prompt('Enter a test recipient email address (leave blank to use your account email):');
-    if (recipient === null) return;
-
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/admin/platform-email/test', {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(recipient.trim() ? { to: recipient.trim() } : {})
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || data.message || 'Failed to send platform email test.');
-      setPlatformEmail(prev => ({ ...prev, status: data.status || 'active', last_tested_at: data.last_tested_at || new Date().toISOString() }));
-      onRefresh();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    window.showPrompt(
+      'Send Test Email',
+      'Enter a test recipient email address (leave blank to use your account email):',
+      '',
+      async (recipient) => {
+        if (recipient === null) return;
+        setLoading(true);
+        setError('');
+        try {
+          const res = await fetch('/api/admin/platform-email/test', {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(recipient.trim() ? { to: recipient.trim() } : {})
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || data.message || 'Failed to send platform email test.');
+          setPlatformEmail(prev => ({ ...prev, status: data.status || 'active', last_tested_at: data.last_tested_at || new Date().toISOString() }));
+          window.notifySuccess('Test Email Sent', 'Platform test email was successfully dispatched.');
+          onRefresh();
+        } catch (err) {
+          setError(err.message);
+          window.notifyError('Test Email Failed', err.message);
+        } finally {
+          setLoading(false);
+        }
+      }
+    );
   };
 
   const handlePlatformSmsSave = async (e) => {
@@ -644,48 +651,67 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
   };
 
   const handlePlatformSmsTest = async () => {
-    const recipient = window.prompt('Enter a test recipient mobile phone number (e.g. +254700000000):');
-    if (recipient === null || !recipient.trim()) return;
-
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch('/api/admin/platform-sms/test', {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: recipient.trim() })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || data.message || 'Failed to send platform SMS test.');
-      setPlatformSms(prev => ({
-        ...prev,
-        status: data.status || 'active',
-        last_tested_at: data.last_tested_at || new Date().toISOString(),
-        sms_last_error: null
-      }));
-      await fetchData();
-      onRefresh();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    window.showPrompt(
+      'Send Test SMS',
+      'Enter a test recipient mobile phone number (e.g. +254700000000):',
+      '',
+      async (recipient) => {
+        if (recipient === null || !recipient.trim()) return;
+        setLoading(true);
+        setError('');
+        try {
+          const res = await fetch('/api/admin/platform-sms/test', {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to: recipient.trim() })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || data.message || 'Failed to send platform SMS test.');
+          setPlatformSms(prev => ({
+            ...prev,
+            status: data.status || 'active',
+            last_tested_at: data.last_tested_at || new Date().toISOString(),
+            sms_last_error: null
+          }));
+          window.notifySuccess('Test SMS Sent', 'Platform test SMS was successfully dispatched.');
+          await fetchData();
+          onRefresh();
+        } catch (err) {
+          setError(err.message);
+          window.notifyError('Test SMS Failed', err.message);
+        } finally {
+          setLoading(false);
+        }
+      }
+    );
   };
 
   const handleProcessDeletion = async (requestId, action) => {
-    let reason = '';
     if (action === 'reject') {
-      reason = window.prompt('Enter reason for rejection:');
-      if (reason === null) return;
-      if (!reason.trim()) {
-        alert('Reason is required for rejection.');
-        return;
-      }
+      window.showPrompt(
+        'Reject Deletion Request',
+        'Enter reason for rejection:',
+        '',
+        async (reasonVal) => {
+          if (!reasonVal || !reasonVal.trim()) {
+            window.notifyWarning('Validation Error', 'Reason is required for rejection.');
+            return;
+          }
+          await executeProcessDeletion(requestId, action, reasonVal.trim());
+        }
+      );
     } else {
-      const confirmed = window.confirm('Are you sure you want to APPROVE this deletion request? This will permanently anonymize personal identity data (PII) and cannot be undone.');
-      if (!confirmed) return;
+      window.showConfirm(
+        'Approve Deletion Request',
+        'Are you sure you want to APPROVE this deletion request? This will permanently anonymize personal identity data (PII) and cannot be undone.',
+        async () => {
+          await executeProcessDeletion(requestId, action, '');
+        }
+      );
     }
+  };
 
+  const executeProcessDeletion = async (requestId, action, reason) => {
     setLoading(true);
     setError('');
     try {
@@ -700,12 +726,13 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         throw new Error(data.error || 'Failed to process request.');
       }
 
-      alert(`Request has been successfully ${action === 'approve' ? 'approved & data anonymized' : 'rejected'}.`);
+      window.notifySuccess('Action Successful', `Request has been successfully ${action === 'approve' ? 'approved & data anonymized' : 'rejected'}.`);
       fetchData();
       fetchStats();
       onRefresh();
     } catch (err) {
       setError(err.message);
+      window.notifyError('Action Failed', err.message);
     } finally {
       setLoading(false);
     }

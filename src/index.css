@@ -5111,3 +5111,26 @@ html[data-theme="light"] .session-restore-brand-smart {
 html[data-theme="light"] .skeleton-line::after {
   background: linear-gradient(90deg, transparent, rgba(15, 23, 42, 0.03), transparent);
 }
+
+/* Custom premium Sonner Toast styling */
+.sl-toast {
+  background: rgba(15, 23, 42, 0.9) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  color: var(--text-primary) !important;
+  border-radius: var(--radius-md) !important;
+  backdrop-filter: blur(12px) !important;
+  box-shadow: 0 12px 32px rgba(2, 6, 23, 0.38) !important;
+  font-family: inherit !important;
+}
+
+.sl-toast-success {
+  border-left: 4px solid #10b981 !important;
+}
+
+.sl-toast-error {
+  border-left: 4px solid #ef4444 !important;
+}
+
+.sl-toast-warning {
+  border-left: 4px solid #f59e0b !important;
+}
