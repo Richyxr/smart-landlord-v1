@@ -16,6 +16,17 @@ const DEFAULT_STATS = {
 
 const ORG_ACCOUNT_NUMBER_PATTERN = /^SL-ORG-[0-9]{6,}$/;
 
+const SUPER_ADMIN_TABS = [
+  { id: 'dashboard', label: 'Overview' },
+  { id: 'landlords', label: 'Landlords' },
+  { id: 'billing', label: 'Confirm SaaS' },
+  { id: 'email', label: 'Email' },
+  { id: 'sms', label: 'SMS Gateway' },
+  { id: 'errors', label: 'Errors' },
+  { id: 'audits', label: 'System Logs' },
+  { id: 'compliance', label: 'Compliance' }
+];
+
 function toFiniteNumber(value, fallback = 0) {
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -776,56 +787,18 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       )}
 
       {/* SUPER ADMIN MENU TABS */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)' }}>
-        <button
-          style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'dashboard' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'dashboard' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-          onClick={() => setActiveTab('dashboard')}
-        >
-          Overview
-        </button>
-        <button
-          style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'landlords' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'landlords' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-          onClick={() => setActiveTab('landlords')}
-        >
-          Landlords
-        </button>
-        <button
-          style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'billing' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'billing' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-          onClick={() => setActiveTab('billing')}
-        >
-          Confirm SaaS
-        </button>
-        <button
-          style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'email' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'email' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-          onClick={() => setActiveTab('email')}
-        >
-          Email
-        </button>
-        <button
-          style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'sms' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'sms' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-          onClick={() => setActiveTab('sms')}
-        >
-          SMS Gateway
-        </button>
-        <button
-          style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'errors' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'errors' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-          onClick={() => setActiveTab('errors')}
-        >
-          Errors
-        </button>
-        <button
-          style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'audits' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'audits' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-          onClick={() => setActiveTab('audits')}
-        >
-          System Logs
-        </button>
-        <button
-          style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'compliance' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'compliance' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '11px', cursor: 'pointer' }}
-          onClick={() => setActiveTab('compliance')}
-        >
-          Compliance
-        </button>
-      </div>
+      <nav className="super-admin-tabs" aria-label="Super Admin sections">
+        {SUPER_ADMIN_TABS.map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            className={`super-admin-tab ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
 
       {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>{error}</div>}
 
@@ -1094,7 +1067,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
 
       {/* PLATFORM SMS GATEWAY */}
       {activeTab === 'sms' && (
-        <div className="card">
+        <div className="card super-admin-sms-card">
           <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <MessageSquare size={18} /> Platform SMS Gateway
           </h3>
@@ -1102,7 +1075,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
             Used for system alerts, notifications, and tenant messaging.
           </p>
 
-          <div className="flex-row" style={{ marginBottom: '12px' }}>
+          <div className="flex-row super-admin-sms-status-row" style={{ marginBottom: '12px' }}>
             <span className={`badge ${
               platformSms.status === 'active' ? 'badge-success' :
               platformSms.status === 'test_failed' ? 'badge-danger' :
@@ -1129,11 +1102,11 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
             </div>
           )}
 
-          <div style={{ marginBottom: '16px', padding: '14px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border)', borderRadius: '8px' }}>
+          <div className="super-admin-readiness-panel" style={{ marginBottom: '16px', padding: '14px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border)', borderRadius: '8px' }}>
             <h4 style={{ margin: '0 0 10px', fontSize: '14px' }}>Provider Readiness</h4>
-            <div className="grid-3">
+            <div className="grid-3 super-admin-readiness-grid">
               {smsReadinessRows.map(item => (
-                <div key={item.key} style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '10px', background: 'var(--bg-surface)' }}>
+                <div key={item.key} className="super-admin-readiness-item" style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '10px', background: 'var(--bg-surface)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
                     <strong style={{ fontSize: '12px' }}>{item.label}</strong>
                     <span className={`badge ${item.ok ? 'badge-success' : item.status === 'blocked' ? 'badge-danger' : 'badge-secondary'}`}>
@@ -1146,21 +1119,21 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
             </div>
           </div>
 
-          <div className="grid-4" style={{ marginBottom: '16px' }}>
+          <div className="grid-4 super-admin-sms-kpis" style={{ marginBottom: '16px' }}>
             <div className="sl-metric-card">
-              <div className="sl-metric-label">SMS sent today</div>
+              <div className="sl-metric-label">Sent Today</div>
               <div className="sl-metric-value">{toFiniteNumber(smsSummary.sent_today)}</div>
             </div>
             <div className="sl-metric-card">
-              <div className="sl-metric-label">SMS sent this month</div>
+              <div className="sl-metric-label">Sent Month</div>
               <div className="sl-metric-value">{toFiniteNumber(smsSummary.sent_month)}</div>
             </div>
             <div className="sl-metric-card">
-              <div className="sl-metric-label">SMS failed this month</div>
+              <div className="sl-metric-label">Failed</div>
               <div className="sl-metric-value">{toFiniteNumber(smsSummary.failed_month)}</div>
             </div>
             <div className="sl-metric-card">
-              <div className="sl-metric-label">SMS blocked this month</div>
+              <div className="sl-metric-label">Blocked</div>
               <div className="sl-metric-value">{toFiniteNumber(smsSummary.blocked_month)}</div>
             </div>
             <div className="sl-metric-card">
@@ -1181,8 +1154,10 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
             </div>
           </div>
 
-          <form onSubmit={handleSmsPricingSave} style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px', padding: '14px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border)', borderRadius: '8px' }}>
-            <h4 style={{ margin: 0, fontSize: '14px' }}>SMS Pricing Controls</h4>
+          <details className="super-admin-mobile-section" open>
+            <summary>SMS Pricing</summary>
+            <form onSubmit={handleSmsPricingSave} className="super-admin-sms-pricing-form" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px', padding: '14px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border)', borderRadius: '8px' }}>
+              <h4 style={{ margin: 0, fontSize: '14px' }}>SMS Pricing Controls</h4>
             <div className="grid-4">
               <div className="form-group">
                 <label className="form-label">Provider Cost / SMS</label>
@@ -1232,9 +1207,12 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
             <div>
               <button type="submit" className="btn btn-primary btn-sm" disabled={loading}>Save SMS Pricing</button>
             </div>
-          </form>
+            </form>
+          </details>
 
-          <form onSubmit={handlePlatformSmsSave} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <details className="super-admin-mobile-section" open>
+            <summary>Provider Settings</summary>
+            <form onSubmit={handlePlatformSmsSave} className="super-admin-sms-provider-form" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div className="grid-2">
               <div className="form-group">
                 <label className="form-label">SMS Provider</label>
@@ -1367,11 +1345,12 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
               <button type="submit" className="btn btn-primary btn-sm" disabled={loading}>Save Platform SMS Settings</button>
               <button type="button" className="btn btn-secondary btn-sm" onClick={handlePlatformSmsTest} disabled={loading || !platformSms.has_credentials}>Send Test SMS</button>
             </div>
-          </form>
+            </form>
+          </details>
 
-          <div style={{ marginTop: '18px' }}>
+          <div className="super-admin-sms-usage" style={{ marginTop: '18px' }}>
             <h4 style={{ margin: '0 0 10px', fontSize: '14px' }}>Landlord SMS Usage This Month</h4>
-            <div style={{ overflowX: 'auto' }}>
+            <div className="super-admin-sms-usage-table" style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
                 <thead>
                   <tr style={{ color: 'var(--text-secondary)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
@@ -1412,6 +1391,51 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
                   )}
                 </tbody>
               </table>
+            </div>
+            <div className="super-admin-sms-usage-cards">
+              {smsLandlordRows.length === 0 ? (
+                <div className="sl-empty-state">
+                  <div className="sl-empty-state-title">No SMS usage recorded this month.</div>
+                </div>
+              ) : (
+                smsLandlordRows.map(row => (
+                  <article key={row.organization_id || 'platform-card'} className="super-admin-sms-usage-card">
+                    <div className="super-admin-sms-usage-card-head">
+                      <strong>{row.organization_name || 'Platform / Unassigned'}</strong>
+                      <span className={`badge ${row.last_sms_status === 'sent' || row.last_sms_status === 'delivered' ? 'badge-success' : row.last_sms_status === 'failed' ? 'badge-danger' : row.last_sms_status === 'blocked' ? 'badge-warning' : 'badge-secondary'}`}>
+                        {row.last_sms_status || 'No status'}
+                      </span>
+                    </div>
+                    <div className="super-admin-sms-count-strip">
+                      <span><strong>{toFiniteNumber(row.sent_month)}</strong> Sent</span>
+                      <span><strong>{toFiniteNumber(row.failed_month)}</strong> Failed</span>
+                      <span><strong>{toFiniteNumber(row.blocked_month)}</strong> Blocked</span>
+                    </div>
+                    <div className="super-admin-sms-usage-card-grid">
+                      <div>
+                        <span>Provider Cost</span>
+                        <strong>{formatMoney(row.provider_cost_month, smsCurrency)}</strong>
+                      </div>
+                      <div>
+                        <span>Billed Revenue</span>
+                        <strong>{formatMoney(row.billed_revenue_month, smsCurrency)}</strong>
+                      </div>
+                      <div>
+                        <span>Margin</span>
+                        <strong>{formatMoney(row.margin_month, smsCurrency)}</strong>
+                      </div>
+                      <div>
+                        <span>Sender / Approval</span>
+                        <strong>{row.sender_id || '-'} / {row.sender_approval_status || '-'}</strong>
+                      </div>
+                    </div>
+                    <div className="super-admin-sms-last-error">
+                      <span>Last Error</span>
+                      <strong>{row.last_error || '-'}</strong>
+                    </div>
+                  </article>
+                ))
+              )}
             </div>
           </div>
         </div>

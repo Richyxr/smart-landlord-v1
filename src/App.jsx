@@ -376,13 +376,13 @@ export default function App() {
                   <span className="header-brand-landlord">Landlord</span>
                 </span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="badge badge-info" style={{ textTransform: 'uppercase', fontSize: '9px' }}>
+              <div className="app-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="badge badge-info app-role-badge" style={{ textTransform: 'uppercase', fontSize: '9px' }}>
                   {role.replace('_', ' ')}
                 </span>
                 <ThemeModeToggle />
                 <button 
-                  className="btn btn-secondary btn-sm" 
+                  className="btn btn-secondary btn-sm app-logout-button"
                   onClick={handleLogout}
                   style={{ padding: '4px 8px', fontSize: '10px' }}
                 >
