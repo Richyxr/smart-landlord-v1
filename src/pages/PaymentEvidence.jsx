@@ -361,6 +361,73 @@ Please split the file into smaller batches or wait for the upcoming server-side 
     return summary;
   };
 
+  const [importing, setImporting] = useState(false);
+
+  const isImportEnabled =
+    importSource === 'csv' &&
+    parsedPreviewRows.length > 0 &&
+    parsedPreviewRows.some(row => row.amount > 0 && row.transaction_date && (!row.warnings || !row.warnings.includes('empty rows'))) &&
+    !wizardError;
+
+  const handleImportCSV = () => {
+    const showConfirm = window.showConfirm || ((title, msg, cb) => { if (window.confirm(msg)) cb(); });
+    const notifySuccess = window.notifySuccess || ((title, msg) => alert(msg));
+    const notifyError = window.notifyError || ((title, msg) => alert(msg));
+    const notifyWarning = window.notifyWarning || ((title, msg) => alert(msg));
+
+    showConfirm(
+      "Import CSV Records",
+      "Import preview rows into Review Queue? No reconciliation or payment allocation will happen.",
+      async () => {
+        setImporting(true);
+        try {
+          const response = await fetch('/api/payment-evidence/import-csv-preview', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              source_provider: importProvider || 'unknown',
+              source_perspective: 'landlord',
+              document_source: 'CSV',
+              collection_channel: 'unknown',
+              original_filename: importFile ? importFile.name : 'uploaded_statement.csv',
+              preview_rows: parsedPreviewRows
+            })
+          });
+
+          const data = await response.json();
+          if (response.ok && data.success) {
+            if (data.imported_count === 0 && data.needs_review_count === 0) {
+              notifyWarning(
+                'Import Results',
+                `No new rows were imported. (Skipped ${data.duplicate_count} duplicate rows, ${data.failed_validation_count} failed validation).`
+              );
+            } else {
+              notifySuccess(
+                'Import Successful',
+                `Successfully imported CSV batch!\n- Imported: ${data.imported_count} rows\n- Needs Review: ${data.needs_review_count} rows\n- Ignored: ${data.ignored_count} rows\n- Duplicates Skipped: ${data.duplicate_count} rows\n- Failed Validation: ${data.failed_validation_count} rows`
+              );
+            }
+            setShowImportWizard(false);
+            setImportFile(null);
+            setParsedPreviewRows([]);
+            setWizardError('');
+            await fetchBatches();
+            await fetchEvidenceRows();
+          } else {
+            notifyError('Import Failed', data.message || 'Unknown error');
+          }
+        } catch (err) {
+          console.error(err);
+          notifyError('Error', 'An error occurred during import.');
+        } finally {
+          setImporting(false);
+        }
+      }
+    );
+  };
+
   const fetchBatches = async () => {
     try {
       const res = await fetch('/api/payment-evidence/batches');
@@ -1273,13 +1340,18 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                   <button
                     type="button"
                     className="btn btn-primary"
-                    disabled
-                    style={{ width: '100%', cursor: 'not-allowed', opacity: 0.6 }}
+                    disabled={!isImportEnabled || importing}
+                    onClick={handleImportCSV}
+                    style={{
+                      width: '100%',
+                      cursor: (!isImportEnabled || importing) ? 'not-allowed' : 'pointer',
+                      opacity: (!isImportEnabled || importing) ? 0.6 : 1
+                    }}
                   >
-                    Import Scored Rows to Review Queue (Disabled)
+                    {importing ? 'Importing...' : 'Import CSV to Review Queue'}
                   </button>
                   <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>
-                    Import is disabled until database import is enabled in the next phase.
+                    Importing only saves evidence rows for review. It does not reconcile payments or update invoices.
                   </p>
                 </div>
               </div>

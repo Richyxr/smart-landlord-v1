@@ -34,12 +34,17 @@ class MockDb {
       transactions: [],
       tenants: [],
       invoices: [],
-      payment_evidence: []
+      payment_evidence: [],
+      payment_evidence_batches: []
     };
   }
 
   seed(table, data) {
     this.tables[table] = data;
+  }
+
+  get(table) {
+    return this.tables[table] || [];
   }
 
   async find(table, filterObj) {
@@ -55,6 +60,36 @@ class MockDb {
   async findOne(table, filterObj) {
     const results = await this.find(table, filterObj);
     return results[0] || null;
+  }
+
+  async insert(table, rowData) {
+    if (!this.tables[table]) this.tables[table] = [];
+    const maxId = this.tables[table].reduce((max, r) => (r.id > max ? r.id : max), 0);
+    const newId = maxId + 1;
+    const newRow = { id: newId, ...rowData };
+    this.tables[table].push(newRow);
+    return newRow;
+  }
+
+  async update(table, query, updates) {
+    if (!this.tables[table]) return [];
+    const isId = typeof query === 'number';
+    this.tables[table] = this.tables[table].map(row => {
+      let match = false;
+      if (isId) {
+        match = row.id === query;
+      } else {
+        match = Object.keys(query).every(k => row[k] === query[k]);
+      }
+      if (match) {
+        return { ...row, ...updates };
+      }
+      return row;
+    });
+    return this.tables[table].filter(row => {
+      if (isId) return row.id === query;
+      return Object.keys(query).every(k => row[k] === query[k]);
+    });
   }
 }
 
@@ -424,16 +459,14 @@ async function runTests() {
     paymentEvidenceContent.includes('Step 5: Finalize Import')
   );
   assert(
-    'Import Wizard final import action button is disabled',
-    paymentEvidenceContent.includes('Import Scored Rows to Review Queue') &&
-    paymentEvidenceContent.includes('disabled')
+    'Import Wizard final import action button enables dynamically and handles click',
+    paymentEvidenceContent.includes('Import CSV to Review Queue') &&
+    paymentEvidenceContent.includes('onClick={handleImportCSV}')
   );
   assert(
-    'No write API calls or POST/PUT/DELETE fetch triggers are defined in the wizard page',
-    !paymentEvidenceContent.includes("method: 'POST'") &&
+    'No unauthorized write API calls (only POST endpoint for import) exist',
     !paymentEvidenceContent.includes("method: 'PUT'") &&
     !paymentEvidenceContent.includes("method: 'DELETE'") &&
-    !paymentEvidenceContent.includes("method: \"POST\"") &&
     !paymentEvidenceContent.includes("method: \"PUT\"") &&
     !paymentEvidenceContent.includes("method: \"DELETE\"")
   );
@@ -490,8 +523,9 @@ async function runTests() {
   );
 
   assert(
-    'Import button remains disabled with warning message',
-    paymentEvidenceContent.includes("Import is disabled until database import is enabled in the next phase.")
+    'Import button is enabled only for valid CSV preview',
+    paymentEvidenceContent.includes("disabled={!isImportEnabled || importing}") &&
+    paymentEvidenceContent.includes("Importing only saves evidence rows for review. It does not reconcile payments or update invoices.")
   );
 
   assert(
@@ -532,6 +566,213 @@ async function runTests() {
     paymentEvidenceContent.includes("Debit Rows:") &&
     paymentEvidenceContent.includes("Unsupported Rows:") &&
     paymentEvidenceContent.includes("Skipped Rows:")
+  );
+
+  // Verify POST CSV Import endpoint integration
+  const importCsvHandler = getRouteHandler('/payment-evidence/import-csv-preview');
+  const importMiddlewares = getRouteMiddlewares('/payment-evidence/import-csv-preview');
+
+  assert(
+    'Post import CSV endpoint requires landlord or super_admin authentication',
+    importMiddlewares.includes(requireLandlordOrSuperAdminMiddleware)
+  );
+
+  apiDb.seed('payment_evidence', [
+    { id: 1001, organization_id: 1, transaction_code: 'TX1001', amount: 5000, transaction_date: '2026-06-25', status: 'needs_review', evidence_strength: 'high', collection_channel: 'MPESA_PAYBILL', payer_name: 'Alpha', row_hash: 'HASH-EXISTING' }
+  ]);
+  apiDb.seed('payment_evidence_batches', []);
+
+  let postResult = null;
+  let postStatus = null;
+  const mockResPost = {
+    status(code) { postStatus = code; return this; },
+    json(data) { postResult = data; return this; }
+  };
+
+  const previewRowsToImport = [
+    {
+      amount: 1500,
+      transaction_date: '2026-06-28',
+      transaction_code: 'TXNEW01',
+      direction: 'credit',
+      payer_name: 'David',
+      warnings: []
+    },
+    {
+      amount: 2500,
+      transaction_date: '2026-06-28',
+      transaction_code: 'TXNEW02',
+      direction: 'credit',
+      payer_name: 'Eric',
+      warnings: ['missing reference account']
+    },
+    {
+      amount: 500,
+      transaction_date: '2026-06-28',
+      transaction_code: 'TXNEW03',
+      direction: 'debit',
+      payer_name: 'Frank',
+      warnings: ['debit rows on landlord statements']
+    },
+    {
+      amount: 5000,
+      transaction_date: '2026-06-25',
+      transaction_code: 'TX1001',
+      direction: 'credit',
+      payer_name: 'Alpha',
+      warnings: []
+    }
+  ];
+
+  await importCsvHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    body: {
+      source_provider: 'mpesa',
+      source_perspective: 'landlord',
+      document_source: 'CSV',
+      collection_channel: 'unknown',
+      original_filename: 'test_import.csv',
+      preview_rows: previewRowsToImport
+    }
+  }, mockResPost);
+
+  assert('Import executes successfully', postResult && postResult.success === true);
+  assert('Import creates payment_evidence_batches row', apiDb.get('payment_evidence_batches').length === 1);
+  assert('Import creates payment_evidence rows', apiDb.get('payment_evidence').length === 4);
+  assert('Duplicate transaction_code is skipped', postResult.duplicate_count === 1);
+  assert('Debit landlord row status is ignored', apiDb.get('payment_evidence').some(r => r.transaction_code === 'TXNEW03' && r.status === 'ignored'));
+  assert('Warning row status is needs_review', apiDb.get('payment_evidence').some(r => r.transaction_code === 'TXNEW02' && r.status === 'needs_review'));
+  assert('Clean row status is imported', apiDb.get('payment_evidence').some(r => r.transaction_code === 'TXNEW01' && r.status === 'imported'));
+  assert('No row status is auto_reconciled or manually_reconciled', !apiDb.get('payment_evidence').some(r => r.status === 'auto_reconciled' || r.status === 'manually_reconciled'));
+
+  postResult = null;
+  await importCsvHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    body: {
+      source_provider: 'mpesa',
+      source_perspective: 'landlord',
+      document_source: 'CSV',
+      collection_channel: 'unknown',
+      original_filename: 'test_import.csv',
+      preview_rows: [
+        {
+          amount: 1500,
+          transaction_date: '2026-06-28',
+          transaction_code: 'TXNEW01',
+          direction: 'credit',
+          payer_name: 'David',
+          warnings: []
+        }
+      ]
+    }
+  }, mockResPost);
+  assert('Duplicate row_hash or transaction_code is skipped on second attempt', postResult && postResult.duplicate_count === 1 && postResult.rows.length === 0);
+
+  // 1. Backend re-normalizes suspicious frontend data
+  postResult = null;
+  await importCsvHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    body: {
+      source_provider: 'mpesa',
+      source_perspective: 'landlord',
+      document_source: 'CSV',
+      collection_channel: 'unknown',
+      original_filename: 'test_import.csv',
+      preview_rows: [
+        {
+          amount: 2500,
+          transaction_date: '2026-06-29',
+          transaction_code: 'txnew_lower',
+          direction: 'credit',
+          payer_name: 'George',
+          payer_phone: '0711223344',
+          warnings: []
+        }
+      ]
+    }
+  }, mockResPost);
+
+  assert('Backend converts transaction_code to uppercase', postResult && postResult.rows[0].transaction_code === 'TXNEW_LOWER');
+  assert('Backend normalizes payer_phone correctly', postResult && postResult.rows[0].payer_phone === '254711223344');
+
+  // 2. Empty transaction_code does not trigger duplicate-code false positives
+  postResult = null;
+  await importCsvHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    body: {
+      source_provider: 'mpesa',
+      source_perspective: 'landlord',
+      document_source: 'CSV',
+      collection_channel: 'unknown',
+      original_filename: 'test_import.csv',
+      preview_rows: [
+        {
+          amount: 3000,
+          transaction_date: '2026-06-30',
+          transaction_code: '',
+          direction: 'credit',
+          payer_name: 'Harry',
+          warnings: []
+        },
+        {
+          amount: 3500,
+          transaction_date: '2026-06-30',
+          transaction_code: null,
+          direction: 'credit',
+          payer_name: 'Ian',
+          warnings: []
+        }
+      ]
+    }
+  }, mockResPost);
+
+  assert('Empty transaction codes do not block multiple insertions', postResult && postResult.needs_review_count === 2 && postResult.duplicate_count === 0);
+
+  // 3. Duplicate rows within the same submitted batch are skipped
+  postResult = null;
+  await importCsvHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    body: {
+      source_provider: 'mpesa',
+      source_perspective: 'landlord',
+      document_source: 'CSV',
+      collection_channel: 'unknown',
+      original_filename: 'test_import.csv',
+      preview_rows: [
+        {
+          amount: 4000,
+          transaction_date: '2026-07-01',
+          transaction_code: 'TXUNIQUE_DUP_BATCH',
+          direction: 'credit',
+          payer_name: 'Jack',
+          warnings: []
+        },
+        {
+          amount: 4000,
+          transaction_date: '2026-07-01',
+          transaction_code: 'TXUNIQUE_DUP_BATCH',
+          direction: 'credit',
+          payer_name: 'Jack',
+          warnings: []
+        }
+      ]
+    }
+  }, mockResPost);
+
+  assert('Duplicate transaction code in same batch is skipped', postResult && postResult.needs_review_count === 1 && postResult.duplicate_count === 1);
+
+  // 4. No auto_reconciled/manually_reconciled status can be inserted
+  assert(
+    'No auto_reconciled/manually_reconciled status can be created by endpoint',
+    !paymentEvidenceContent.includes("status: 'auto_reconciled'") &&
+    !paymentEvidenceContent.includes("status: 'manually_reconciled'")
+  );
+
+  // 5. Generic browser alert/confirm is not used directly without safety fallback checks
+  assert(
+    'Generic browser alert/confirm is not used directly',
+    !paymentEvidenceContent.includes("if (!window.confirm(") &&
+    paymentEvidenceContent.includes("window.showConfirm ||")
   );
 
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
