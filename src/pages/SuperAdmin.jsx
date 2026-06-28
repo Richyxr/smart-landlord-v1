@@ -35,6 +35,23 @@ function safeArrayPayload(payload) {
   return Array.isArray(payload) ? payload : [];
 }
 
+const SMS_FIELD_LABELS = {
+  api_key: 'API Key',
+  api_key_header_name: 'API Key Header Name',
+  bearer_token: 'Bearer Token',
+  callback_url: 'Callback URL',
+  client_id: 'Partner ID / Client ID',
+  password: 'Password',
+  service_id: 'Service ID',
+  username: 'Username'
+};
+
+const SMS_SENSITIVE_FIELDS = new Set(['api_key', 'bearer_token', 'client_id', 'password', 'username']);
+
+function smsFieldLabel(field) {
+  return SMS_FIELD_LABELS[field] || field;
+}
+
 export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTrigger, onRefresh }) {
   const routeTabMap = {
     admin_dashboard: 'dashboard',
@@ -80,6 +97,8 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
   // Platform SMS state
   const [platformSms, setPlatformSms] = useState({
     provider: '',
+    provider_key: '',
+    provider_profile: null,
     api_url: '',
     sender_id: 'SMARTLANDY',
     sender_id_type: 'transactional',
@@ -89,8 +108,10 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     last_tested_at: null,
     sms_last_error: null,
     config_masked: {},
-    has_credentials: false
+    has_credentials: false,
+    readiness: { checklist: [] }
   });
+  const [smsProviderProfiles, setSmsProviderProfiles] = useState([]);
   const [smsUsage, setSmsUsage] = useState({
     summary: {
       sent_today: 0,
@@ -112,7 +133,13 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     sender_approval_status: 'pending',
     default_country_code: '+254',
     api_key: '',
-    client_id: ''
+    api_key_header_name: '',
+    bearer_token: '',
+    callback_url: '',
+    client_id: '',
+    password: '',
+    service_id: '',
+    username: ''
   });
   const [smsPricingForm, setSmsPricingForm] = useState({
     sms_billing_enabled: false,
@@ -209,6 +236,11 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         });
         setPlatformEmailPasswordMasked(Boolean(data.has_credentials));
       } else if (activeTab === 'sms') {
+        const providerRes = await fetch('/api/admin/platform-sms/providers', { headers });
+        if (!providerRes.ok) throw new Error('Failed to fetch SMS provider profiles.');
+        const providerData = await providerRes.json();
+        setSmsProviderProfiles(safeArrayPayload(providerData.providers));
+
         const res = await fetch('/api/admin/platform-sms', { headers });
         if (!res.ok) throw new Error('Failed to fetch platform SMS settings.');
         const data = await res.json();
@@ -227,7 +259,13 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           sender_approval_status: data.sender_approval_status || 'pending',
           default_country_code: data.default_country_code || '+254',
           api_key: '',
-          client_id: data.config_masked?.client_id || ''
+          api_key_header_name: data.config_masked?.api_key_header_name || '',
+          bearer_token: '',
+          callback_url: data.config_masked?.callback_url || '',
+          client_id: data.config_masked?.client_id || '',
+          password: '',
+          service_id: data.config_masked?.service_id || '',
+          username: data.config_masked?.username || ''
         });
         setPlatformSmsCredentialsMasked(Boolean(data.has_credentials));
 
@@ -439,7 +477,13 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     try {
       const payload = {
         api_key: platformSmsForm.api_key.trim(),
-        client_id: platformSmsForm.client_id.trim()
+        api_key_header_name: platformSmsForm.api_key_header_name.trim(),
+        bearer_token: platformSmsForm.bearer_token.trim(),
+        callback_url: platformSmsForm.callback_url.trim(),
+        client_id: platformSmsForm.client_id.trim(),
+        password: platformSmsForm.password.trim(),
+        service_id: platformSmsForm.service_id.trim(),
+        username: platformSmsForm.username.trim()
       };
 
       const body = {
@@ -454,8 +498,12 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
 
       if (platformSmsCredentialsMasked) {
         body.config_json = {
+          ...payload,
           api_key: '********',
-          client_id: '********'
+          bearer_token: '********',
+          client_id: '********',
+          password: '********',
+          username: '********'
         };
       }
 
@@ -470,7 +518,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
 
       setPlatformSms(data);
       setPlatformSmsCredentialsMasked(true);
-      setPlatformSmsForm(prev => ({ ...prev, api_key: '' }));
+      setPlatformSmsForm(prev => ({ ...prev, api_key: '', bearer_token: '', password: '', username: '' }));
       onRefresh();
     } catch (err) {
       setError(err.message);
@@ -642,6 +690,16 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
   const smsSummary = smsUsage.summary || {};
   const smsCurrency = smsPricingForm.sms_currency || platformSms.sms_currency || 'KES';
   const smsLandlordRows = safeArrayPayload(smsUsage.landlords);
+  const selectedSmsProviderKey = platformSmsForm.provider || platformSms.provider_key || platformSms.provider || '';
+  const selectedSmsProviderProfile = smsProviderProfiles.find(profile => profile.provider_key === selectedSmsProviderKey) || platformSms.provider_profile || null;
+  const selectedSmsConfigFields = selectedSmsProviderProfile
+    ? Array.from(new Set([
+      ...(selectedSmsProviderProfile.required_credentials || []),
+      ...(selectedSmsProviderProfile.optional_credentials || []),
+      ...(selectedSmsProviderProfile.required_static_fields || []).filter(field => field !== 'api_url')
+    ]))
+    : ['api_key'];
+  const smsReadinessRows = safeArrayPayload(platformSms.readiness?.checklist);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -1071,6 +1129,23 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
             </div>
           )}
 
+          <div style={{ marginBottom: '16px', padding: '14px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border)', borderRadius: '8px' }}>
+            <h4 style={{ margin: '0 0 10px', fontSize: '14px' }}>Provider Readiness</h4>
+            <div className="grid-3">
+              {smsReadinessRows.map(item => (
+                <div key={item.key} style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '10px', background: 'var(--bg-surface)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' }}>
+                    <strong style={{ fontSize: '12px' }}>{item.label}</strong>
+                    <span className={`badge ${item.ok ? 'badge-success' : item.status === 'blocked' ? 'badge-danger' : 'badge-secondary'}`}>
+                      {item.ok ? 'Ready' : item.status === 'blocked' ? 'Blocked' : 'Missing'}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: '6px', color: 'var(--text-secondary)', fontSize: '12px' }}>{item.detail}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="grid-4" style={{ marginBottom: '16px' }}>
             <div className="sl-metric-card">
               <div className="sl-metric-label">SMS sent today</div>
@@ -1162,12 +1237,25 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           <form onSubmit={handlePlatformSmsSave} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div className="grid-2">
               <div className="form-group">
-                <label className="form-label">SMS Provider Name</label>
-                <input className="form-control" value={platformSmsForm.provider} placeholder="e.g. mock, mobitech, africas_talking" onChange={e => setPlatformSmsForm(prev => ({ ...prev, provider: e.target.value }))} required />
+                <label className="form-label">SMS Provider</label>
+                <select
+                  className="form-control"
+                  value={platformSmsForm.provider}
+                  onChange={e => {
+                    setPlatformSmsCredentialsMasked(false);
+                    setPlatformSmsForm(prev => ({ ...prev, provider: e.target.value }));
+                  }}
+                  required
+                >
+                  <option value="">Select provider</option>
+                  {smsProviderProfiles.map(profile => (
+                    <option key={profile.provider_key} value={profile.provider_key}>{profile.provider_display_name}</option>
+                  ))}
+                </select>
               </div>
               <div className="form-group">
-                <label className="form-label">API Base URL</label>
-                <input className="form-control" value={platformSmsForm.api_url} placeholder="e.g. https://api.mobitech.co.ke" onChange={e => setPlatformSmsForm(prev => ({ ...prev, api_url: e.target.value }))} required />
+                <label className="form-label">Advanced / Custom API URL</label>
+                <input className="form-control" value={platformSmsForm.api_url} placeholder="Provider API base URL when required" onChange={e => setPlatformSmsForm(prev => ({ ...prev, api_url: e.target.value }))} />
               </div>
             </div>
 
@@ -1214,7 +1302,16 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
                         sender_id_type: platformSmsForm.sender_id_type,
                         sender_approval_status: platformSmsForm.sender_approval_status,
                         default_country_code: platformSmsForm.default_country_code,
-                        config_json: { api_key: '********', client_id: '********' }
+                        config_json: {
+                          api_key: '********',
+                          api_key_header_name: platformSmsForm.api_key_header_name,
+                          bearer_token: '********',
+                          callback_url: platformSmsForm.callback_url,
+                          client_id: '********',
+                          password: '********',
+                          service_id: platformSmsForm.service_id,
+                          username: '********'
+                        }
                       })
                     });
                     if (res.ok) {
@@ -1235,22 +1332,33 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
             </div>
 
             <div className="form-group">
-              <label className="form-label">Gateway Credentials</label>
+              <label className="form-label">Provider Credentials and Required Details</label>
               {platformSmsCredentialsMasked ? (
                 <div className="flex-row" style={{ gap: '8px' }}>
-                  <input className="form-control" value="••••••••" readOnly />
+                  <input className="form-control" value="Credentials stored securely" readOnly />
                   <button type="button" className="btn btn-secondary btn-sm" onClick={() => setPlatformSmsCredentialsMasked(false)}>Update Credentials</button>
                 </div>
               ) : (
                 <div className="grid-2">
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" style={{ fontSize: '11px' }}>API Key / Token</label>
-                    <input type="password" className="form-control" value={platformSmsForm.api_key} onChange={e => setPlatformSmsForm(prev => ({ ...prev, api_key: e.target.value }))} required />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" style={{ fontSize: '11px' }}>Client ID / Username (Optional)</label>
-                    <input className="form-control" value={platformSmsForm.client_id} onChange={e => setPlatformSmsForm(prev => ({ ...prev, client_id: e.target.value }))} />
-                  </div>
+                  {selectedSmsConfigFields.map(field => {
+                    const required = Boolean(
+                      selectedSmsProviderProfile?.required_credentials?.includes(field)
+                      || selectedSmsProviderProfile?.required_static_fields?.includes(field)
+                    );
+                    const sensitive = SMS_SENSITIVE_FIELDS.has(field);
+                    return (
+                      <div className="form-group" style={{ marginBottom: 0 }} key={field}>
+                        <label className="form-label" style={{ fontSize: '11px' }}>{smsFieldLabel(field)}{required ? '' : ' (Optional)'}</label>
+                        <input
+                          type={sensitive ? 'password' : 'text'}
+                          className="form-control"
+                          value={platformSmsForm[field] || ''}
+                          onChange={e => setPlatformSmsForm(prev => ({ ...prev, [field]: e.target.value }))}
+                          required={required}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

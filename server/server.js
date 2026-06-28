@@ -17,7 +17,15 @@ import { NotificationService } from './notificationService.js';
 import { sendEmailWithConfig } from './mailerService.js';
 import { EMAIL_MODES, maskSmtpConfig, normalizeSmtpConfig, prepareSmtpConfigForStorage, resolveEmailDeliveryConfig, validateSmtpConfig } from './emailConfigService.js';
 import { maskSmsConfig, normalizeSmsConfig, prepareSmsConfigForStorage, validateSmsConfig } from './smsConfigService.js';
-import { sendSmsViaAdapter, normalizeKenyanPhoneNumber } from './smsProviderService.js';
+import {
+  buildSmsReadinessChecklist,
+  getSmsProviderProfile,
+  listSmsProviderProfiles,
+  normalizeProviderKey,
+  normalizeKenyanPhoneNumber,
+  sendSmsViaAdapter,
+  validateSmsProviderConfig
+} from './smsProviderService.js';
 import {
   getPlatformSmsPricingSettings,
   logSmsSystemError,
@@ -4693,8 +4701,19 @@ function platformEmailResponseFromSettings(settings) {
 
 function platformSmsResponseFromSettings(settings) {
   if (!settings) {
+    const readiness = buildSmsReadinessChecklist({
+      provider: '',
+      api_url: '',
+      config: {},
+      sender_id: 'SMARTLANDY',
+      sender_approval_status: 'pending',
+      default_country_code: '+254',
+      pricing: {}
+    });
     return {
       provider: '',
+      provider_key: '',
+      provider_profile: null,
       api_url: '',
       sender_id: 'SMARTLANDY',
       sender_id_type: 'transactional',
@@ -4710,16 +4729,33 @@ function platformSmsResponseFromSettings(settings) {
       sms_free_monthly_allowance: 0,
       sms_markup_strategy: 'fixed',
       config_masked: {},
-      has_credentials: false
+      has_credentials: false,
+      readiness
     };
   }
 
   const config = settings.sms_config_encrypted
     ? normalizeSmsConfig(decryptConfig(settings.sms_config_encrypted))
     : {};
+  const providerKey = normalizeProviderKey(settings.sms_provider || '');
+  const readiness = buildSmsReadinessChecklist({
+    provider: providerKey,
+    api_url: settings.sms_api_url || '',
+    config,
+    sender_id: settings.sms_sender_id || 'SMARTLANDY',
+    sender_approval_status: settings.sms_sender_approval_status || 'pending',
+    default_country_code: settings.sms_default_country_code || '+254',
+    pricing: {
+      default_sms_provider_cost: settings.default_sms_provider_cost,
+      default_sms_sell_price: settings.default_sms_sell_price,
+      sms_currency: settings.sms_currency || settings.currency || 'KES'
+    }
+  });
 
   return {
     provider: settings.sms_provider || '',
+    provider_key: providerKey,
+    provider_profile: getSmsProviderProfile(providerKey),
     api_url: settings.sms_api_url || '',
     sender_id: settings.sms_sender_id || 'SMARTLANDY',
     sender_id_type: settings.sms_sender_id_type || 'transactional',
@@ -4735,7 +4771,8 @@ function platformSmsResponseFromSettings(settings) {
     sms_free_monthly_allowance: Number(settings.sms_free_monthly_allowance || 0),
     sms_markup_strategy: settings.sms_markup_strategy || 'fixed',
     config_masked: settings.sms_config_encrypted ? maskSmsConfig(config) : {},
-    has_credentials: Boolean(settings.sms_config_encrypted)
+    has_credentials: Boolean(settings.sms_config_encrypted),
+    readiness
   };
 }
 
@@ -5020,7 +5057,7 @@ app.post('/api/admin/platform-email/test', async (req, res) => {
 function sanitizeSmsErrorMessage(msg, config = {}) {
   if (!msg) return '';
   let sanitized = String(msg);
-  const sensitiveFields = ['api_key', 'client_id'];
+  const sensitiveFields = ['api_key', 'bearer_token', 'client_id', 'password', 'username'];
   for (const field of sensitiveFields) {
     const val = config[field];
     if (val && typeof val === 'string' && val.length > 2) {
@@ -5046,6 +5083,38 @@ app.get('/api/admin/platform-sms', async (req, res) => {
   const settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
   await activeDb.logAudit(null, userId, 'super_admin', 'platform_sms_viewed', 'platform_billing_settings', settings?.id || 1, null, null, 'Platform SMS Gateway configuration viewed.');
   res.json(platformSmsResponseFromSettings(settings));
+});
+
+app.get('/api/admin/platform-sms/providers', async (req, res) => {
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
+
+  if (role !== 'super_admin' || !userId) {
+    return res.status(403).json({ error: 'SUPER_ADMIN_REQUIRED', message: 'Super admin access is required.' });
+  }
+
+  res.json({ providers: listSmsProviderProfiles() });
+});
+
+app.get('/api/admin/platform-sms/readiness', async (req, res) => {
+  const role = req.auth?.role;
+  const userId = req.auth?.userId;
+  const activeDb = pgDb || db;
+
+  if (role !== 'super_admin' || !userId) {
+    return res.status(403).json({ error: 'SUPER_ADMIN_REQUIRED', message: 'Super admin access is required.' });
+  }
+
+  const settings = await activeDb.findOne('platform_billing_settings', { id: 1 });
+  const response = platformSmsResponseFromSettings(settings);
+  res.json({
+    provider: response.provider,
+    provider_key: response.provider_key,
+    provider_profile: response.provider_profile,
+    readiness: response.readiness,
+    status: response.status,
+    has_credentials: response.has_credentials
+  });
 });
 
 app.get('/api/admin/platform-sms/usage', async (req, res) => {
@@ -5200,7 +5269,25 @@ app.put('/api/admin/platform-sms', async (req, res) => {
     existingEncryptedConfig: settings.sms_config_encrypted || null
   });
 
-  const missing = validateSmsConfig(configForStorage);
+  const providerKey = normalizeProviderKey(provider || '');
+  const fieldValidation = validateSmsProviderConfig({
+    provider: providerKey,
+    api_url,
+    api_key: configForStorage.api_key,
+    bearer_token: configForStorage.bearer_token,
+    client_id: configForStorage.client_id,
+    default_country_code,
+    password: configForStorage.password,
+    sender_id,
+    service_id: configForStorage.service_id,
+    username: configForStorage.username
+  });
+
+  if (fieldValidation.error) {
+    return res.status(400).json({ error: fieldValidation.error });
+  }
+
+  const missing = validateSmsConfig(configForStorage, providerKey);
   if (missing.length > 0) {
     return res.status(400).json({ error: `Missing required SMS fields: ${missing.join(', ')}.` });
   }
@@ -5209,7 +5296,7 @@ app.put('/api/admin/platform-sms', async (req, res) => {
   const nextStatus = 'verified';
 
   const updated = await activeDb.update('platform_billing_settings', settings.id, {
-    sms_provider: provider || null,
+    sms_provider: providerKey || null,
     sms_api_url: api_url || null,
     sms_config_encrypted: encryptedConfig,
     sms_sender_id: sender_id || 'SMARTLANDY',
@@ -5235,7 +5322,7 @@ app.put('/api/admin/platform-sms', async (req, res) => {
 
   const mergedSettings = {
     ...settings,
-    sms_provider: provider || null,
+    sms_provider: providerKey || null,
     sms_api_url: api_url || null,
     sms_config_encrypted: encryptedConfig,
     sms_sender_id: sender_id || 'SMARTLANDY',
@@ -5266,30 +5353,49 @@ app.post('/api/admin/platform-sms/test', async (req, res) => {
   }
 
   const config = normalizeSmsConfig(decryptConfig(settings.sms_config_encrypted));
-  const missing = validateSmsConfig(config);
-  if (missing.length > 0) {
-    return res.status(400).json({ error: `Missing required SMS fields: ${missing.join(', ')}.` });
+  const provider = settings.sms_provider || 'mock';
+  const apiUrl = settings.sms_api_url || '';
+  const senderId = settings.sms_sender_id || 'SMARTLANDY';
+  const validation = validateSmsProviderConfig({
+    provider,
+    api_url: apiUrl,
+    api_key: config.api_key,
+    bearer_token: config.bearer_token,
+    client_id: config.client_id,
+    default_country_code: settings.sms_default_country_code || '+254',
+    password: config.password,
+    sender_id: senderId,
+    service_id: config.service_id,
+    username: config.username
+  });
+  if (validation.error) {
+    return res.status(400).json({ error: validation.error });
   }
 
   try {
-    const provider = settings.sms_provider || 'mock';
-    const apiUrl = settings.sms_api_url || '';
-    const senderId = settings.sms_sender_id || 'SMARTLANDY';
     const pricingSettings = await getPlatformSmsPricingSettings(activeDb);
 
     const result = await sendSmsViaAdapter({
       provider,
       api_url: apiUrl,
       api_key: config.api_key,
+      api_key_header_name: config.api_key_header_name,
+      bearer_token: config.bearer_token,
       client_id: config.client_id,
+      callback_url: config.callback_url,
+      default_country_code: settings.sms_default_country_code || '+254',
+      password: config.password,
+      service_id: config.service_id,
       sender_id: senderId,
+      username: config.username,
       to,
       message: 'Smart Landlord SMS Gateway Verification Test.',
       sender_approval_status: settings.sms_sender_approval_status
     });
 
-    if (!result.success) {
-      const blocked = /blocked/i.test(result.error || '') && /sender id/i.test(result.error || '');
+    if (!result.success && !result.ok) {
+      const safeResultError = result.sanitized_error || result.error || 'Unknown gateway error.';
+      const blocked = result.status === 'blocked' || (/blocked/i.test(safeResultError) && /sender id|live sms/i.test(safeResultError));
       const ledger = await recordSmsUsageLedger(activeDb, {
         organization_id: null,
         message_type: 'test',
@@ -5297,21 +5403,21 @@ app.post('/api/admin/platform-sms/test', async (req, res) => {
         sender_id: senderId,
         provider,
         status: blocked ? 'blocked' : 'failed',
-        failure_reason: result.error || 'Unknown gateway error.',
+        failure_reason: safeResultError,
         source: 'test_sms',
         pricingSettings,
-        sensitiveValues: [config.api_key, config.client_id]
+        sensitiveValues: [config.api_key, config.client_id, config.bearer_token, config.password]
       });
 
       await logSmsSystemError(activeDb, {
         provider,
         status: blocked ? 'blocked' : 'failed',
-        message: result.error || 'Unknown gateway error.',
+        message: safeResultError,
         ledger_id: ledger?.id || null,
-        sensitiveValues: [config.api_key, config.client_id]
+        sensitiveValues: [config.api_key, config.client_id, config.bearer_token, config.password]
       });
 
-      throw new Error(result.error || 'Unknown gateway error.');
+      throw new Error(safeResultError);
     }
 
     await recordSmsUsageLedger(activeDb, {
@@ -5320,7 +5426,7 @@ app.post('/api/admin/platform-sms/test', async (req, res) => {
       recipient_phone_e164: to,
       sender_id: senderId,
       provider,
-      provider_message_id: result.messageId || null,
+      provider_message_id: result.provider_message_id || result.messageId || null,
       status: 'sent',
       source: 'test_sms',
       pricingSettings
@@ -5344,10 +5450,18 @@ app.post('/api/admin/platform-sms/test', async (req, res) => {
       'Platform test SMS sent successfully.'
     );
 
-    return res.json({ success: true, status: 'active', last_tested_at: new Date().toISOString(), sms_last_error: null });
+    return res.json({
+      ok: true,
+      success: true,
+      provider,
+      provider_message_id: result.provider_message_id || result.messageId || null,
+      status: 'active',
+      last_tested_at: new Date().toISOString(),
+      sms_last_error: null
+    });
   } catch (error) {
     const safeErrorMsg = sanitizeSmsErrorMessage(error.message, config);
-    if (!/Live SMS sending is blocked|Invalid API Key|Unknown gateway error|Unsupported SMS provider|required|Unreachable/i.test(error.message || '')) {
+    if (!/Live SMS sending is blocked|Invalid API Key|Unknown gateway error|Unsupported SMS provider|required|Unreachable|readiness-only/i.test(error.message || '')) {
       const provider = settings.sms_provider || 'mock';
       const senderId = settings.sms_sender_id || 'SMARTLANDY';
       const ledger = await recordSmsUsageLedger(activeDb, {
@@ -5359,14 +5473,14 @@ app.post('/api/admin/platform-sms/test', async (req, res) => {
         status: 'failed',
         failure_reason: safeErrorMsg,
         source: 'test_sms',
-        sensitiveValues: [config.api_key, config.client_id]
+        sensitiveValues: [config.api_key, config.client_id, config.bearer_token, config.password]
       });
       await logSmsSystemError(activeDb, {
         provider,
         status: 'failed',
         message: safeErrorMsg,
         ledger_id: ledger?.id || null,
-        sensitiveValues: [config.api_key, config.client_id]
+        sensitiveValues: [config.api_key, config.client_id, config.bearer_token, config.password]
       });
     }
     await activeDb.update('platform_billing_settings', settings.id, {
@@ -5387,7 +5501,7 @@ app.post('/api/admin/platform-sms/test', async (req, res) => {
       `Platform test SMS failed: ${safeErrorMsg}`
     );
 
-    return res.status(502).json({ error: safeErrorMsg, status: 'test_failed' });
+    return res.status(502).json({ ok: false, success: false, error: safeErrorMsg, sanitized_error: safeErrorMsg, status: 'test_failed' });
   }
 });
 

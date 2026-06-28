@@ -1,4 +1,5 @@
 import { decryptConfig } from './crypto.js';
+import { getSmsProviderProfile } from './smsProviderService.js';
 
 function cleanOptionalText(value) {
   if (value === undefined || value === null) return '';
@@ -13,13 +14,26 @@ function isMaskedValue(value) {
 export function normalizeSmsConfig(configJson = {}) {
   return {
     api_key: cleanOptionalText(configJson.api_key),
-    client_id: cleanOptionalText(configJson.client_id)
+    api_key_header_name: cleanOptionalText(configJson.api_key_header_name),
+    bearer_token: cleanOptionalText(configJson.bearer_token),
+    callback_url: cleanOptionalText(configJson.callback_url),
+    client_id: cleanOptionalText(configJson.client_id),
+    password: cleanOptionalText(configJson.password),
+    service_id: cleanOptionalText(configJson.service_id),
+    username: cleanOptionalText(configJson.username)
   };
 }
 
-export function validateSmsConfig(config) {
+export function validateSmsConfig(config, provider = 'mock') {
   const missing = [];
-  if (!config.api_key) missing.push('api_key');
+  const profile = getSmsProviderProfile(provider);
+  const requiredCredentials = profile?.required_credentials || ['api_key'];
+  const requiredStaticFields = profile?.required_static_fields?.filter(field => !['api_url'].includes(field)) || [];
+
+  for (const field of [...requiredCredentials, ...requiredStaticFields]) {
+    if (!cleanOptionalText(config[field])) missing.push(field);
+  }
+
   return missing;
 }
 
@@ -27,7 +41,7 @@ export function maskSmsConfig(config) {
   if (!config || typeof config !== 'object') return {};
 
   const masked = { ...config };
-  const sensitiveFields = ['api_key', 'client_id'];
+  const sensitiveFields = ['api_key', 'bearer_token', 'client_id', 'password', 'username'];
   for (const field of sensitiveFields) {
     if (masked[field]) {
       const val = String(masked[field]);
@@ -44,7 +58,7 @@ export function prepareSmsConfigForStorage({ incomingConfig = {}, existingEncryp
   if (existingEncryptedConfig) {
     try {
       const existingConfig = decryptConfig(existingEncryptedConfig);
-      const sensitiveFields = ['api_key', 'client_id'];
+      const sensitiveFields = ['api_key', 'bearer_token', 'client_id', 'password', 'username'];
       
       for (const field of sensitiveFields) {
         const incomingVal = incomingConfig[field];

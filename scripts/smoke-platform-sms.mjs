@@ -136,6 +136,7 @@ async function main() {
     api_key: 'key',
     client_id: 'client',
     sender_id: 'SMARTLANDY',
+    default_country_code: '+254',
     to: '0712345678',
     message: 'Hello'
   });
@@ -151,12 +152,13 @@ async function main() {
     api_key: '',
     client_id: 'client',
     sender_id: 'SMARTLANDY',
+    default_country_code: '+254',
     to: '0712345678',
     message: 'Hello',
     sender_approval_status: 'approved'
   });
   assert.strictEqual(realNoKey.success, false);
-  assert.strictEqual(realNoKey.error, 'Mobitech API key is required.');
+  assert.strictEqual(realNoKey.error, 'Missing required SMS fields: API Key.');
 
   const realNoClientId = await sendSmsViaAdapter({
     provider: 'mobitech',
@@ -164,12 +166,13 @@ async function main() {
     api_key: 'key',
     client_id: '',
     sender_id: 'SMARTLANDY',
+    default_country_code: '+254',
     to: '0712345678',
     message: 'Hello',
     sender_approval_status: 'approved'
   });
   assert.strictEqual(realNoClientId.success, false);
-  assert.strictEqual(realNoClientId.error, 'Mobitech Partner ID (Client ID) is required.');
+  assert.strictEqual(realNoClientId.error, 'Missing required SMS fields: Partner ID / Client ID.');
 
   const realNoUrl = await sendSmsViaAdapter({
     provider: 'mobitech',
@@ -177,12 +180,13 @@ async function main() {
     api_key: 'key',
     client_id: 'client',
     sender_id: 'SMARTLANDY',
+    default_country_code: '+254',
     to: '0712345678',
     message: 'Hello',
     sender_approval_status: 'approved'
   });
   assert.strictEqual(realNoUrl.success, false);
-  assert.strictEqual(realNoUrl.error, 'Mobitech API base URL is required.');
+  assert.strictEqual(realNoUrl.error, 'Missing required SMS fields: API Base URL.');
   // 7. Live SMS block when Sender ID is not approved
   console.log(' - Verify live SMS block when Sender ID is not approved...');
   const realBlocked = await sendSmsViaAdapter({
@@ -191,11 +195,13 @@ async function main() {
     api_key: 'key',
     client_id: 'client',
     sender_id: 'SMARTLANDY',
+    default_country_code: '+254',
     to: '0712345678',
     message: 'Hello',
     sender_approval_status: 'pending'
   });
   assert.strictEqual(realBlocked.success, false);
+  assert.strictEqual(realBlocked.status, 'blocked');
   assert.ok(realBlocked.error.includes('Live SMS sending is blocked'));
 
   console.log('   ✅ All adapter unit tests passed!\n');
@@ -273,10 +279,30 @@ async function main() {
       body: JSON.stringify({ default_sms_provider_cost: '1', default_sms_sell_price: '2', sms_currency: 'KES' })
     });
     assert.strictEqual(unauthPricing.status, 403, 'Landlord role should not save SMS pricing');
+
+    const unauthProviders = await fetch(`${BASE_URL}/api/admin/platform-sms/providers`, {
+      headers: { 'Authorization': `Bearer ${landlordToken}` }
+    });
+    assert.strictEqual(unauthProviders.status, 403, 'Landlord role should not read provider profiles');
+
+    const unauthReadiness = await fetch(`${BASE_URL}/api/admin/platform-sms/readiness`, {
+      headers: { 'Authorization': `Bearer ${landlordToken}` }
+    });
+    assert.strictEqual(unauthReadiness.status, 403, 'Landlord role should not read SMS readiness');
     console.log('   ✅ Unauthorized access block passed');
 
     // 5. Super admin access allowed
     console.log(' - Verify super admin access...');
+    const providersRes = await fetch(`${BASE_URL}/api/admin/platform-sms/providers`, {
+      headers: { 'Authorization': `Bearer ${superAdminToken}` }
+    });
+    assert.strictEqual(providersRes.status, 200);
+    const providersData = await providersRes.json();
+    const providerKeys = providersData.providers.map(provider => provider.provider_key);
+    assert.ok(providerKeys.includes('mock'));
+    assert.ok(providerKeys.includes('mobitech_official'));
+    assert.ok(providerKeys.includes('textsms_compatible'));
+
     const getRes = await fetch(`${BASE_URL}/api/admin/platform-sms`, {
       headers: { 'Authorization': `Bearer ${superAdminToken}` }
     });
@@ -285,6 +311,7 @@ async function main() {
     assert.ok(getData.hasOwnProperty('status'));
     assert.ok(getData.hasOwnProperty('config_masked'));
     assert.ok(getData.hasOwnProperty('default_sms_sell_price'));
+    assert.ok(getData.hasOwnProperty('readiness'));
     console.log('   ✅ Super admin access allowed passed');
 
     // 5b. Pricing controls validation and save
@@ -325,6 +352,31 @@ async function main() {
     assert.strictEqual(pricingData.sms_billing_enabled, true);
     console.log('   ✅ SMS pricing controls passed');
 
+    // 5c. Provider-specific required fields block incomplete configuration
+    console.log(' - Verify provider readiness validation...');
+    const incompleteProviderRes = await fetch(`${BASE_URL}/api/admin/platform-sms`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${superAdminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        provider: 'textsms_compatible',
+        api_url: 'http://localhost/test-sms-gateway',
+        sender_id: 'SMARTLANDY',
+        sender_id_type: 'transactional',
+        sender_approval_status: 'approved',
+        default_country_code: '+254',
+        config_json: {
+          api_key: 'test-api-key-123456789'
+        }
+      })
+    });
+    assert.strictEqual(incompleteProviderRes.status, 400, 'Missing provider credentials should be rejected safely');
+    const incompleteProviderData = await incompleteProviderRes.json();
+    assert.ok(incompleteProviderData.error.includes('Partner ID / Client ID'));
+    console.log('   ✅ Provider readiness validation passed');
+
     // 6. Config Save (PUT)
     console.log(' - Verify config save (PUT)...');
     const configPayload = {
@@ -356,7 +408,20 @@ async function main() {
     assert.strictEqual(putData.sender_approval_status, 'approved');
     assert.strictEqual(putData.default_country_code, '+254');
     assert.strictEqual(putData.status, 'verified');
+    assert.strictEqual(putData.provider_key, 'mock');
+    assert.ok(putData.readiness.checklist.find(item => item.key === 'provider_selected')?.ok);
+    assert.ok(putData.readiness.checklist.find(item => item.key === 'api_credentials_present')?.ok);
     console.log('   ✅ Config save (PUT) passed');
+
+    const readinessRes = await fetch(`${BASE_URL}/api/admin/platform-sms/readiness`, {
+      headers: { 'Authorization': `Bearer ${superAdminToken}` }
+    });
+    assert.strictEqual(readinessRes.status, 200);
+    const readinessData = await readinessRes.json();
+    assert.strictEqual(readinessData.provider_key, 'mock');
+    assert.ok(readinessData.readiness.checklist.find(item => item.key === 'pricing_configured')?.ok);
+    assert.ok(readinessData.readiness.checklist.find(item => item.key === 'live_sending_allowed')?.ok);
+    console.log('   ✅ Provider readiness checklist passed');
 
     // 7. Masked API response
     console.log(' - Verify masked API response...');
@@ -387,6 +452,7 @@ async function main() {
     assert.strictEqual(testSuccessRes.status, 200);
     const testSuccessData = await testSuccessRes.json();
     assert.strictEqual(testSuccessData.success, true);
+    assert.strictEqual(testSuccessData.ok, true);
     assert.strictEqual(testSuccessData.status, 'active');
 
     const dbStatusRes = await client.query('SELECT sms_status, sms_last_error, sms_last_tested_at FROM platform_billing_settings WHERE id = 1');
@@ -468,7 +534,7 @@ async function main() {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        provider: 'mobitech',
+        provider: 'textsms_compatible',
         api_url: 'http://localhost/test-sms-gateway',
         sender_id: 'SMARTLANDY',
         sender_id_type: 'transactional',
@@ -499,6 +565,15 @@ async function main() {
     `);
     assert.strictEqual(blockedLedgerRes.rows[0].status, 'blocked');
     assert.ok(blockedLedgerRes.rows[0].failure_reason.includes('Live SMS sending is blocked'));
+
+    const blockedReadinessRes = await fetch(`${BASE_URL}/api/admin/platform-sms/readiness`, {
+      headers: { 'Authorization': `Bearer ${superAdminToken}` }
+    });
+    assert.strictEqual(blockedReadinessRes.status, 200);
+    const blockedReadinessData = await blockedReadinessRes.json();
+    assert.strictEqual(blockedReadinessData.provider_key, 'textsms_compatible');
+    assert.strictEqual(blockedReadinessData.readiness.checklist.find(item => item.key === 'sender_approval_status')?.status, 'blocked');
+    assert.strictEqual(blockedReadinessData.readiness.checklist.find(item => item.key === 'live_sending_allowed')?.status, 'blocked');
     console.log('   ✅ Sender ID pending block ledger passed');
 
     // 12. Super Admin usage summary
