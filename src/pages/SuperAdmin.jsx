@@ -256,7 +256,14 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     setLoading(true);
     setError('');
     try {
-      if (activeTab === 'landlords') {
+      if (activeTab === 'dashboard') {
+        const res = await fetch('/api/admin/pricing', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setPricePerTenant(String(data.price_per_active_tenant ?? '200'));
+          setGracePeriod(String(data.grace_period_days ?? '7'));
+        }
+      } else if (activeTab === 'landlords') {
         const res = await fetch('/api/admin/organizations', { headers });
         const data = await res.json().catch(() => null);
         if (!res.ok) {
@@ -372,13 +379,20 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ price_per_active_tenant: pricePerTenant, grace_period_days: gracePeriod })
       });
+      const data = await res.json().catch(() => null);
       if (res.ok) {
         alert('Pricing settings updated successfully.');
         fetchStats();
+        fetchData();
         onRefresh();
+      } else {
+        const errMsg = data?.error || data?.message || 'Failed to update pricing.';
+        setError(errMsg);
+        alert(`Error: ${errMsg}`);
       }
     } catch (e) {
       setError('Failed to update pricing.');
+      alert('Failed to update pricing due to a network error.');
     } finally {
       setLoading(false);
     }

@@ -1013,7 +1013,7 @@ async function checkOrganizationLock(req, res, next) {
 
         // Demo/MVP deployments should not lock newly registered landlord accounts.
         // Real SaaS lock enforcement should be re-enabled only after billing/payment flows are production-ready.
-        if (!DEMO_MODE && org.is_locked && !req.path.startsWith('/api/saas') && !req.path.startsWith('/api/admin')) {
+        if ((!DEMO_MODE || org.subscription_status === 'overdue') && org.is_locked && !req.path.startsWith('/api/saas') && !req.path.startsWith('/api/admin')) {
           return res.status(403).json({
             error: 'LOCKED',
             message: 'Your account is temporarily locked due to an overdue platform invoice. Please complete payment to restore access.'

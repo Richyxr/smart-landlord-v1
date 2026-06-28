@@ -109,7 +109,7 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         .sort((a, b) => b.id - a.id);
     }
 
-    if (demoMode && org) {
+    if (demoMode && org && org.subscription_status !== 'overdue') {
       org = {
         ...org,
         is_locked: false,
@@ -803,6 +803,31 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
     }
 
     res.json({ success: true, message: 'Payment confirmed successfully. Organization unlocked.' });
+  }));
+
+  // =========================================================================
+  // GET /api/admin/pricing
+  // =========================================================================
+  router.get('/admin/pricing', requireSuperAdminContext, asyncHandler(async (req, res) => {
+    let settings;
+    if (pgDb) {
+      const result = await pgDb.query(
+        'SELECT price_per_active_tenant, grace_period_days FROM platform_billing_settings WHERE id = 1'
+      );
+      settings = result.rows[0];
+    } else {
+      const localDb = await reqDb();
+      settings = localDb.findOne('platform_billing_settings', { id: 1 });
+    }
+
+    if (!settings) {
+      settings = { price_per_active_tenant: 200, grace_period_days: 7 };
+    }
+
+    res.json({
+      price_per_active_tenant: Number(settings.price_per_active_tenant),
+      grace_period_days: Number(settings.grace_period_days)
+    });
   }));
 
   // =========================================================================

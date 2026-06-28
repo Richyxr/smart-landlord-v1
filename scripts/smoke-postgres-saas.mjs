@@ -347,6 +347,40 @@ try {
   }
   console.log('PASS: Global platform pricing updated successfully.');
 
+  // 8b. Fetch pricing again to verify persistence
+  console.log('Fetching global pricing settings as super_admin...');
+  const getPricingRes = await fetch(`${BASE_URL}/api/admin/pricing`, { headers: adminHeaders });
+  if (getPricingRes.status !== 200) {
+    throw new Error(`GET /api/admin/pricing failed: ${getPricingRes.status}`);
+  }
+  const fetchedPricing = await getPricingRes.json();
+  if (fetchedPricing.price_per_active_tenant !== 250 || fetchedPricing.grace_period_days !== 10) {
+    throw new Error(`GET /api/admin/pricing returned incorrect values: ${JSON.stringify(fetchedPricing)}`);
+  }
+  console.log('PASS: Global platform pricing fetched successfully.');
+
+  // 8c. Test unauthorized non-super-admin access (blocked)
+  console.log('Testing unauthorized GET to /api/admin/pricing...');
+  const unauthGetRes = await fetch(`${BASE_URL}/api/admin/pricing`, { headers: landlordHeaders });
+  if (unauthGetRes.status !== 403) {
+    throw new Error(`Expected 403 Forbidden for unauthorized GET, got: ${unauthGetRes.status}`);
+  }
+  console.log('PASS: Unauthorized GET is correctly blocked (403).');
+
+  console.log('Testing unauthorized POST to /api/admin/pricing...');
+  const unauthPostRes = await fetch(`${BASE_URL}/api/admin/pricing`, {
+    method: 'POST',
+    headers: landlordHeaders,
+    body: JSON.stringify({
+      price_per_active_tenant: 300,
+      grace_period_days: 15
+    })
+  });
+  if (unauthPostRes.status !== 403) {
+    throw new Error(`Expected 403 Forbidden for unauthorized POST, got: ${unauthPostRes.status}`);
+  }
+  console.log('PASS: Unauthorized POST is correctly blocked (403).');
+
   console.log('All SaaS billing smoke tests passed successfully!');
 } finally {
   server.kill('SIGTERM');
