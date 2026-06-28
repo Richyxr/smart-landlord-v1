@@ -4814,11 +4814,70 @@ html[data-theme="light"] .sl-empty-state-desc {
 
 @media (max-width: 480px) {
   #root .app-header {
-    padding: 8px 10px;
+    padding: 6px 10px !important;
+    min-height: 48px !important;
   }
 
-  #root .app-role-badge {
-    max-width: 74px;
+  #root .app-header .app-brand-logo {
+    width: 22px !important;
+    height: 22px !important;
+    border-radius: 6px !important;
+  }
+
+  #root .app-header .header-brand-text {
+    font-size: 15px !important;
+    gap: 2px !important;
+  }
+
+  #root .app-header .app-role-badge {
+    font-size: 8px !important;
+    padding: 2px 4px !important;
+    max-width: none !important;
+    flex-shrink: 0 !important;
+  }
+
+  #root .app-header .theme-mode-toggle {
+    width: 24px !important;
+    height: 24px !important;
+    min-width: 24px !important;
+  }
+
+  #root .app-header .theme-mode-icon {
+    width: 11px !important;
+    height: 11px !important;
+  }
+
+  #root .app-header .app-logout-button {
+    padding: 3px 6px !important;
+    font-size: 9px !important;
+  }
+
+  /* Compact metrics grid & cards */
+  .super-admin-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .sl-metric-card {
+    padding: 10px 12px !important;
+    min-height: 64px !important;
+    gap: 4px !important;
+  }
+
+  .sl-metric-label {
+    font-size: 9px !important;
+  }
+
+  .sl-metric-value {
+    font-size: 18px !important;
+    margin-top: 2px !important;
+  }
+
+  /* Compact forms, lists, cards */
+  .super-admin-content-area .sl-card,
+  .super-admin-content-area .card,
+  .super-admin-content-area .sl-list-card {
+    padding: 12px 14px !important;
   }
 
   .super-admin-readiness-grid,
@@ -4841,6 +4900,37 @@ html[data-theme="light"] .sl-empty-state-desc {
 
   .super-admin-sms-count-strip {
     grid-template-columns: 1fr 1fr 1fr;
+  }
+}
+
+@media (max-width: 360px) {
+  .super-admin-metrics-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+.super-admin-revenue-num {
+  color: var(--success);
+  font-size: 28px;
+  margin-top: 8px;
+}
+
+@media (max-width: 480px) {
+  .super-admin-revenue-num {
+    font-size: 22px !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .super-admin-layout {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important;
+    gap: 12px !important;
+  }
+  .super-admin-workspace {
+    gap: 12px !important;
+  }
+  .super-admin-mobile-nav {
+    padding: 6px 12px !important;
   }
 }
 

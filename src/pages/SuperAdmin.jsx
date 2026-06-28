@@ -879,14 +879,14 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           <div className="super-admin-mobile-nav">
             <div className="super-admin-mobile-nav-header">
               <div>
-                <span className="form-label" style={{ marginBottom: '2px', display: 'block', fontSize: '9px', color: 'var(--text-muted)' }}>Workspace</span>
-                <h2 className="super-admin-workspace-title" style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>{activeSuperAdminSection.label}</h2>
+                <span className="form-label" style={{ marginBottom: '1px', display: 'block', fontSize: '8px', color: 'var(--text-muted)' }}>Workspace</span>
+                <h2 className="super-admin-workspace-title" style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.2 }}>{activeSuperAdminSection.label}</h2>
               </div>
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
                 onClick={() => setIsDrawerOpen(true)}
-                style={{ padding: '6px 12px', fontSize: '12px', fontWeight: 700 }}
+                style={{ padding: '4px 8px', fontSize: '11px', fontWeight: 700 }}
               >
                 Manage sections
               </button>
@@ -970,7 +970,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           <div className="super-admin-overview-bottom">
             <div className="sl-card sl-card-success" style={{ marginBottom: 0 }}>
               <span className="kpi-lbl">This Month SaaS Revenue</span>
-              <div className="kpi-num" style={{ color: 'var(--success)', fontSize: '28px', marginTop: '8px' }}>
+              <div className="kpi-num super-admin-revenue-num">
                 {formatCurrency(safeStats.monthly_saas_revenue)}
               </div>
               <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
