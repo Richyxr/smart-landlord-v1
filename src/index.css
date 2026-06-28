@@ -4375,299 +4375,389 @@ html[data-theme="light"] .sl-empty-state-desc {
   color: #475569 !important;
 }
 
-/* Super Admin mobile layout refinements */
-.super-admin-tabs {
-  display: flex;
-  gap: 8px;
-  padding: 8px;
-  margin-bottom: 16px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scroll-snap-type: x proximity;
-  scrollbar-width: thin;
-  background:
-    linear-gradient(135deg, rgba(124, 58, 237, 0.10), rgba(99, 102, 241, 0.05)),
-    var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+/* ==========================================
+   Super Admin command center layouts
+   ========================================== */
+
+/* Layout Shell */
+.super-admin-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 24px;
+  min-height: calc(100vh - 120px);
+  align-items: start;
 }
 
-.super-admin-tab {
-  flex: 0 0 auto;
-  min-height: 36px;
-  padding: 8px 13px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  background: rgba(18, 20, 32, 0.68);
-  color: var(--text-secondary);
-  font-size: 12px;
+/* Left Sidebar Rail */
+.super-admin-sidebar {
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.super-admin-sidebar-header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.super-admin-sidebar-header h3 {
+  margin: 0;
+  font-size: 16px;
   font-weight: 800;
-  white-space: nowrap;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.super-admin-sidebar-header p {
+  margin: 4px 0 0 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+
+.super-admin-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.super-admin-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
   cursor: pointer;
-  scroll-snap-align: start;
   transition: all var(--transition-fast);
 }
 
-.super-admin-tab:hover {
+.super-admin-sidebar-item:hover {
   color: var(--text-primary);
-  border-color: rgba(139, 92, 246, 0.28);
+  background: rgba(148, 163, 184, 0.06);
 }
 
-.super-admin-tab.active {
+.super-admin-sidebar-item.active {
   color: #fff;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.12), transparent 34%),
-    linear-gradient(135deg, var(--primary), var(--accent));
-  border-color: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 8px 20px var(--primary-glow);
+  background: var(--primary);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px var(--primary-glow);
 }
 
-.super-admin-mobile-section {
+/* Workspace */
+.super-admin-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.super-admin-workspace-header {
+  display: block;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.super-admin-workspace-title {
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.super-admin-workspace-desc {
+  color: var(--text-secondary);
+}
+
+/* Mobile Nav Bar - Hidden on Desktop */
+.super-admin-mobile-nav {
+  display: none;
+}
+
+/* Drawer Backdrop & Content */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.drawer-content {
+  width: 100%;
+  max-width: 540px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 24px 20px 32px;
+  box-shadow: var(--shadow-lg);
+  animation: drawer-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes drawer-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.drawer-header {
+  text-align: center;
   margin-bottom: 16px;
 }
 
+.drawer-handle {
+  width: 40px;
+  height: 4px;
+  background: var(--border);
+  border-radius: var(--radius-pill);
+  margin: 0 auto 12px;
+}
+
+.drawer-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: rgba(148, 163, 184, 0.04);
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.drawer-nav-item:hover {
+  color: var(--text-primary);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.drawer-nav-item.active {
+  color: #fff;
+  background: var(--primary);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Metrics Grid & Cards */
+.super-admin-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.sl-metric-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: space-between;
+  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-sm);
+}
+
+.sl-metric-card:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+.sl-metric-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sl-metric-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.sl-metric-value {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  margin-top: 4px;
+}
+
+.sl-metric-danger {
+  border-color: rgba(239, 68, 68, 0.2);
+  background: radial-gradient(circle at top right, rgba(239, 68, 68, 0.06), transparent 50%), var(--bg-surface);
+}
+
+.sl-metric-danger:hover {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.sl-metric-warning {
+  border-color: rgba(245, 158, 11, 0.2);
+  background: radial-gradient(circle at top right, rgba(245, 158, 11, 0.06), transparent 50%), var(--bg-surface);
+}
+
+.sl-metric-warning:hover {
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.sl-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.sl-card-success {
+  border-color: rgba(16, 185, 129, 0.2);
+  background: radial-gradient(circle at top right, rgba(16, 185, 129, 0.06), transparent 40%), var(--bg-surface);
+}
+
+/* Collapsible Mobile Sections & details elements */
+.super-admin-mobile-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  margin-bottom: 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-fast);
+}
+
+.super-admin-mobile-section:hover {
+  border-color: rgba(148, 163, 184, 0.25);
+}
+
 .super-admin-mobile-section > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--text-primary);
+  background: rgba(148, 163, 184, 0.02);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.super-admin-mobile-section > summary::-webkit-details-marker {
   display: none;
 }
 
-.super-admin-sms-usage-cards {
-  display: none;
+.super-admin-mobile-section > summary::after {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--text-secondary);
+  border-bottom: 2px solid var(--text-secondary);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform var(--transition-normal);
+  margin-right: 4px;
 }
 
-@media (min-width: 769px) {
-  .super-admin-tabs {
-    flex-wrap: wrap;
-    overflow: visible;
-  }
+.super-admin-mobile-section[open] > summary::after {
+  transform: rotate(-135deg) translateY(2px);
+}
 
-  .super-admin-tab {
-    flex: 1 1 auto;
-    text-align: center;
+.super-admin-mobile-section[open] > summary {
+  border-bottom: 1px solid var(--border);
+  background: rgba(148, 163, 184, 0.04);
+}
+
+.super-admin-mobile-section-content {
+  padding: 16px;
+}
+
+/* Mobile responsive media queries */
+@media (max-width: 1024px) {
+  .super-admin-metrics-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 768px) {
-  #root .app-header {
-    gap: 10px;
-    padding: 10px 12px;
+  .super-admin-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
   }
 
-  #root .app-header .app-brand {
-    min-width: 0;
-    flex: 1 1 auto;
+  .super-admin-sidebar {
+    display: none;
   }
 
-  #root .app-header .app-brand-logo {
-    width: 30px;
-    height: 30px;
-    flex: 0 0 auto;
+  .super-admin-workspace-header {
+    display: none;
   }
 
-  #root .app-header .header-brand-text {
-    min-width: 0;
-    white-space: nowrap;
-    font-size: clamp(15px, 4.2vw, 19px);
-  }
-
-  #root .app-header-actions {
-    flex: 0 0 auto;
-    gap: 6px !important;
-    padding: 3px;
-    border: 1px solid rgba(148, 163, 184, 0.12);
-    border-radius: var(--radius-pill);
-    background: rgba(18, 20, 32, 0.52);
-  }
-
-  #root .app-role-badge {
-    max-width: 92px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 8px !important;
-    padding: 3px 6px !important;
-  }
-
-  #root .app-logout-button {
-    min-height: 30px !important;
-    width: auto;
-    padding: 4px 8px !important;
-    font-size: 0 !important;
-  }
-
-  #root .app-logout-button::before {
-    content: "Logout";
-    font-size: 10px;
-  }
-
-  .super-admin-tabs {
-    margin: -2px -2px 14px;
-    padding: 7px;
-    border-radius: 14px;
-  }
-
-  .super-admin-tab {
-    min-height: 34px;
-    padding: 8px 12px;
-    font-size: 11px;
-  }
-
-  .super-admin-sms-card.card {
-    padding: 14px;
-    overflow: hidden;
-  }
-
-  .super-admin-sms-card .card-title {
-    font-size: 15px;
-  }
-
-  .super-admin-sms-status-row {
-    align-items: flex-start;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .super-admin-readiness-panel {
-    padding: 10px !important;
-    margin-bottom: 12px !important;
-  }
-
-  .super-admin-readiness-grid {
-    grid-template-columns: 1fr 1fr !important;
-    gap: 8px !important;
-  }
-
-  .super-admin-readiness-item {
-    padding: 8px !important;
-    min-height: 0;
-  }
-
-  .super-admin-readiness-item strong {
-    font-size: 11px !important;
-    line-height: 1.25;
-  }
-
-  .super-admin-readiness-item .badge {
-    font-size: 9px !important;
-    min-height: 20px;
-    padding: 2px 6px;
-  }
-
-  .super-admin-readiness-item div:last-child {
-    font-size: 11px !important;
-    line-height: 1.35;
-  }
-
-  .super-admin-sms-kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 8px !important;
-  }
-
-  .super-admin-sms-kpis .sl-metric-card {
-    min-height: 74px;
-    padding: 10px;
-    border-radius: 10px;
-  }
-
-  .super-admin-sms-kpis .sl-metric-label {
-    font-size: 9.5px;
-    line-height: 1.2;
-  }
-
-  .super-admin-sms-kpis .sl-metric-value {
-    font-size: 20px !important;
-    margin-top: 6px;
-    overflow-wrap: anywhere;
-  }
-
-  .super-admin-mobile-section {
-    border: 1px solid rgba(148, 163, 184, 0.16);
+  .super-admin-mobile-nav {
+    display: block;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    background:
-      radial-gradient(circle at top left, rgba(124, 58, 237, 0.08), transparent 36%),
-      rgba(17, 19, 29, 0.72);
-    overflow: hidden;
+    padding: 12px 16px;
+    box-shadow: var(--shadow-sm);
   }
 
-  .super-admin-mobile-section > summary {
+  .super-admin-mobile-nav-header {
     display: flex;
-    align-items: center;
     justify-content: space-between;
-    min-height: 44px;
-    padding: 12px 14px;
-    color: var(--text-primary);
-    font-size: 13px;
-    font-weight: 800;
-    cursor: pointer;
-    list-style: none;
+    align-items: center;
+    gap: 12px;
   }
 
-  .super-admin-mobile-section > summary::-webkit-details-marker {
-    display: none;
+  .super-admin-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
   }
 
-  .super-admin-mobile-section > summary::after {
-    content: "";
-    width: 8px;
-    height: 8px;
-    border-right: 2px solid var(--text-secondary);
-    border-bottom: 2px solid var(--text-secondary);
-    transform: rotate(45deg);
-    transition: transform var(--transition-fast);
+  .sl-metric-card {
+    padding: 12px;
   }
 
-  .super-admin-mobile-section[open] > summary::after {
-    transform: rotate(225deg) translate(-2px, -2px);
+  .sl-metric-value {
+    font-size: 20px;
   }
 
-  .super-admin-sms-pricing-form,
-  .super-admin-sms-provider-form {
-    padding: 12px !important;
-    margin: 0 !important;
-    border: none !important;
-    border-top: 1px solid rgba(148, 163, 184, 0.14) !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    gap: 10px !important;
-  }
-
-  .super-admin-sms-pricing-form h4 {
-    display: none;
-  }
-
-  .super-admin-sms-pricing-form .grid-4,
-  .super-admin-sms-provider-form .grid-2,
-  .super-admin-sms-provider-form .grid-3 {
-    grid-template-columns: 1fr !important;
-    gap: 10px !important;
-  }
-
-  .super-admin-sms-provider-form .flex-gap,
-  .super-admin-sms-pricing-form .flex-gap {
-    flex-direction: column;
-  }
-
-  .super-admin-sms-provider-form .btn,
-  .super-admin-sms-pricing-form .btn {
-    width: 100%;
-  }
-
-  .super-admin-sms-usage-table {
-    display: none !important;
-  }
-
+  /* SMS usage cards display on mobile */
   .super-admin-sms-usage-cards {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
   }
 
   .super-admin-sms-usage-card {
-    border: 1px solid rgba(148, 163, 184, 0.16);
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    padding: 12px;
-    background:
-      radial-gradient(circle at top left, rgba(124, 58, 237, 0.08), transparent 34%),
-      rgba(18, 20, 32, 0.78);
+    padding: 14px;
+    box-shadow: var(--shadow-sm);
   }
 
   .super-admin-sms-usage-card-head {
@@ -4757,6 +4847,10 @@ html[data-theme="light"] .sl-empty-state-desc {
     max-width: 74px;
   }
 
+  #root .app-logout-button::before {
+    content: "Exit";
+  }
+
   .super-admin-readiness-grid,
   .super-admin-sms-usage-card-grid {
     grid-template-columns: 1fr !important;
@@ -4780,20 +4874,49 @@ html[data-theme="light"] .sl-empty-state-desc {
   }
 }
 
-html[data-theme="light"] .super-admin-tabs,
+/* Light Theme Styling Overrides */
+html[data-theme="light"] .super-admin-sidebar,
+html[data-theme="light"] .super-admin-mobile-nav,
 html[data-theme="light"] .super-admin-mobile-section,
-html[data-theme="light"] .super-admin-sms-usage-card {
+html[data-theme="light"] .super-admin-sms-usage-card,
+html[data-theme="light"] .sl-metric-card,
+html[data-theme="light"] .sl-card {
   background:
     radial-gradient(circle at top left, rgba(91, 77, 244, 0.05), transparent 34%),
     rgba(255, 255, 255, 0.98) !important;
   border-color: #cbd5e1 !important;
 }
 
-html[data-theme="light"] .super-admin-tab {
-  background: rgba(241, 245, 249, 0.92);
+html[data-theme="light"] .super-admin-sidebar-item {
   color: #475569;
 }
 
-html[data-theme="light"] .super-admin-tab.active {
+html[data-theme="light"] .super-admin-sidebar-item:hover {
+  background: rgba(241, 245, 249, 0.9);
+  color: #0f172a;
+}
+
+html[data-theme="light"] .super-admin-sidebar-item.active {
   color: #fff;
+  background: var(--primary);
+}
+
+html[data-theme="light"] .drawer-content {
+  background: #ffffff;
+  border-color: #e2e8f0;
+}
+
+html[data-theme="light"] .drawer-nav-item {
+  background: rgba(241, 245, 249, 0.9);
+  color: #475569;
+}
+
+html[data-theme="light"] .drawer-nav-item:hover {
+  background: rgba(226, 232, 240, 0.9);
+  color: #0f172a;
+}
+
+html[data-theme="light"] .drawer-nav-item.active {
+  color: #fff;
+  background: var(--primary);
 }

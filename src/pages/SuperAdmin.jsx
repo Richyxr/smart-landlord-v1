@@ -1,5 +1,47 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Building2, Mail, ShieldCheck, TestTube2, Pencil, MessageSquare } from 'lucide-react';
+import {
+  Settings,
+  Building2,
+  Mail,
+  ShieldCheck,
+  TestTube2,
+  Pencil,
+  MessageSquare,
+  BarChart3,
+  CreditCard,
+  AlertTriangle,
+  FileText,
+  X
+} from 'lucide-react';
+
+const tabIcons = {
+  dashboard: BarChart3,
+  landlords: Building2,
+  billing: CreditCard,
+  email: Mail,
+  sms: MessageSquare,
+  errors: AlertTriangle,
+  audits: FileText,
+  compliance: ShieldCheck
+};
+
+function getTabIcon(tabId) {
+  return tabIcons[tabId] || Settings;
+}
+
+function getSectionDescription(tabId) {
+  const descriptions = {
+    dashboard: "Global platform metrics, SaaS revenue overview, and pricing configuration.",
+    landlords: "Manage registered organizations, edit account numbers, and impersonate landlord views.",
+    billing: "Manually confirm bank deposits and unlock pending landlord subscriptions.",
+    email: "Configure global SMTP server details for registration, OTPs, and system alerts.",
+    sms: "Manage SMS gateway providers, default country settings, pricing, and landlord billing.",
+    errors: "Monitor unhandled application exceptions and server stack traces.",
+    audits: "Audit trails of admin actions and platform configuration changes.",
+    compliance: "Process compliance requests, GDPR data deletes, and tenant anonymity options."
+  };
+  return descriptions[tabId] || "";
+}
 
 const DEFAULT_STATS = {
   total_organizations: 0,
@@ -73,6 +115,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
   };
 
   const [activeTab, setActiveTab] = useState(routeTabMap[activeRoute] || 'dashboard'); // dashboard, landlords, billing, email, errors, audits
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   useEffect(() => {
     const nextTab = routeTabMap[activeRoute];
@@ -712,6 +755,8 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     : ['api_key'];
   const smsReadinessRows = safeArrayPayload(platformSms.readiness?.checklist);
 
+  const activeSuperAdminSection = SUPER_ADMIN_TABS.find(tab => tab.id === activeTab) || SUPER_ADMIN_TABS[0];
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
       
@@ -786,59 +831,113 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         </div>
       )}
 
-      {/* SUPER ADMIN MENU TABS */}
-      <nav className="super-admin-tabs" aria-label="Super Admin sections">
-        {SUPER_ADMIN_TABS.map(tab => (
-          <button
-            key={tab.id}
-            type="button"
-            className={`super-admin-tab ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
+      <div className="super-admin-layout">
+        {/* Left Side Section Rail for Desktop */}
+        <aside className="super-admin-sidebar">
+          <div className="super-admin-sidebar-header">
+            <h3>Command Center</h3>
+            <p>Super Admin Console</p>
+          </div>
+          <nav className="super-admin-sidebar-nav">
+            {SUPER_ADMIN_TABS.map(tab => {
+              const Icon = getTabIcon(tab.id);
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={`super-admin-sidebar-item ${activeTab === tab.id ? 'active' : ''}`}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  <Icon size={16} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
 
-      {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '12px' }}>{error}</div>}
+        {/* Right Workspace Content */}
+        <main className="super-admin-workspace">
+          {/* Mobile manage sections controls */}
+          <div className="super-admin-mobile-nav">
+            <div className="super-admin-mobile-nav-header">
+              <div>
+                <span className="form-label" style={{ marginBottom: '2px', display: 'block', fontSize: '9px', color: 'var(--text-muted)' }}>Workspace</span>
+                <h2 className="super-admin-workspace-title" style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>{activeSuperAdminSection.label}</h2>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setIsDrawerOpen(true)}
+                style={{ padding: '6px 12px', fontSize: '12px', fontWeight: 700 }}
+              >
+                Manage sections
+              </button>
+            </div>
+          </div>
+
+          {/* Desktop workspace headers */}
+          <div className="super-admin-workspace-header">
+            <h1 className="super-admin-workspace-title" style={{ fontSize: '24px', fontWeight: 800, margin: 0 }}>{activeSuperAdminSection.label}</h1>
+            <p className="super-admin-workspace-desc" style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>{getSectionDescription(activeTab)}</p>
+          </div>
+
+          {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px', padding: '10px', background: 'var(--danger-glow)', borderLeft: '3px solid var(--danger)', borderRadius: '4px' }}>{error}</div>}
+
+          <div className="super-admin-content-area">
 
       {/* OVERVIEW PLATFORM STATS */}
       {activeTab === 'dashboard' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           
-          <div className="grid-2">
-            <div className="card" style={{ marginBottom: 0 }}>
-              <span className="kpi-lbl">Total Landlords</span>
-              <div className="kpi-num">{safeStats.total_organizations}</div>
+          <div className="super-admin-metrics-grid">
+            <div className="sl-metric-card">
+              <div className="sl-metric-top">
+                <span className="sl-metric-label">Total Landlords</span>
+                <Building2 size={16} style={{ color: 'var(--text-secondary)' }} />
+              </div>
+              <div className="sl-metric-value">{safeStats.total_organizations}</div>
             </div>
-            <div className="card" style={{ marginBottom: 0 }}>
-              <span className="kpi-lbl">Active Rental Tenants</span>
-              <div className="kpi-num">{safeStats.active_rental_tenants}</div>
+            <div className="sl-metric-card">
+              <div className="sl-metric-top">
+                <span className="sl-metric-label">Active Tenants</span>
+                <Building2 size={16} style={{ color: 'var(--text-secondary)' }} />
+              </div>
+              <div className="sl-metric-value">{safeStats.active_rental_tenants}</div>
             </div>
-            <div className="card" style={{ marginBottom: 0 }}>
-              <span className="kpi-lbl">Billable Tenants</span>
-              <div className="kpi-num">{safeStats.billable_tenants}</div>
+            <div className="sl-metric-card">
+              <div className="sl-metric-top">
+                <span className="sl-metric-label">Billable Tenants</span>
+                <Building2 size={16} style={{ color: 'var(--text-secondary)' }} />
+              </div>
+              <div className="sl-metric-value">{safeStats.billable_tenants}</div>
             </div>
-            <div className="card" style={{ marginBottom: 0 }}>
-              <span className="kpi-lbl">Locked accounts</span>
-              <div className="kpi-num" style={{ color: safeStats.locked_organizations > 0 ? 'var(--danger)' : 'var(--text-primary)' }}>
+            <div className={`sl-metric-card ${safeStats.locked_organizations > 0 ? 'sl-metric-danger' : ''}`}>
+              <div className="sl-metric-top">
+                <span className="sl-metric-label">Locked Accounts</span>
+                <ShieldCheck size={16} style={{ color: safeStats.locked_organizations > 0 ? 'var(--danger)' : 'var(--text-secondary)' }} />
+              </div>
+              <div className="sl-metric-value" style={{ color: safeStats.locked_organizations > 0 ? 'var(--danger)' : 'var(--text-primary)' }}>
                 {safeStats.locked_organizations}
               </div>
             </div>
-            <div className="card" style={{ marginBottom: 0 }}>
-              <span className="kpi-lbl">SaaS Billing Confirmations</span>
-              <div className="kpi-num" style={{ color: safeStats.pending_confirmations > 0 ? 'var(--warning)' : 'var(--text-primary)' }}>
+            <div className={`sl-metric-card ${safeStats.pending_confirmations > 0 ? 'sl-metric-warning' : ''}`}>
+              <div className="sl-metric-top">
+                <span className="sl-metric-label">Confirmations</span>
+                <CreditCard size={16} style={{ color: safeStats.pending_confirmations > 0 ? 'var(--warning)' : 'var(--text-secondary)' }} />
+              </div>
+              <div className="sl-metric-value" style={{ color: safeStats.pending_confirmations > 0 ? 'var(--warning)' : 'var(--text-primary)' }}>
                 {safeStats.pending_confirmations}
               </div>
             </div>
           </div>
 
-          <div className="card">
+          <div className="sl-card sl-card-success" style={{ marginBottom: 0 }}>
             <span className="kpi-lbl">This Month SaaS Revenue</span>
-            <div className="kpi-num" style={{ color: 'var(--success)', fontSize: '28px' }}>
+            <div className="kpi-num" style={{ color: 'var(--success)', fontSize: '28px', marginTop: '8px' }}>
               {formatCurrency(safeStats.monthly_saas_revenue)}
             </div>
-            <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+            <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
               Lifetime SaaS Revenue: <strong>{formatCurrency(safeStats.lifetime_saas_revenue)}</strong>
             </div>
           </div>
@@ -1544,6 +1643,50 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         </div>
       )}
 
+          </div>
+        </main>
+
+        {/* Mobile Sheet / Drawer Menu */}
+        {isDrawerOpen && (
+          <div className="drawer-backdrop" onClick={() => setIsDrawerOpen(false)}>
+            <div className="drawer-content" onClick={e => e.stopPropagation()}>
+              <div className="drawer-header">
+                <div className="drawer-handle" />
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800 }}>Manage Sections</h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>Switch between control panels</p>
+              </div>
+              <nav className="drawer-nav" style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '12px' }}>
+                {SUPER_ADMIN_TABS.map(tab => {
+                  const Icon = getTabIcon(tab.id);
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      className={`drawer-nav-item ${activeTab === tab.id ? 'active' : ''}`}
+                      onClick={() => {
+                        setActiveTab(tab.id);
+                        setIsDrawerOpen(false);
+                      }}
+                    >
+                      <Icon size={18} />
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ marginTop: '16px', width: '100%', padding: '10px' }}
+                onClick={() => setIsDrawerOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }
