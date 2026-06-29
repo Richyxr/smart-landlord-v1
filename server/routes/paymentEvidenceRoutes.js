@@ -1131,6 +1131,48 @@ export function createPaymentEvidenceRoutes(pgDb) {
       overpayment_preview = Math.max(0, amount - invoice_balance);
     }
 
+    const blocking_reasons = [];
+    if (!reviewDecision) {
+      blocking_reasons.push('Evidence row has not been reviewed yet.');
+    }
+    if (row.status === 'ignored' || reviewDecision === 'marked_irrelevant') {
+      blocking_reasons.push('Evidence row is ignored or irrelevant.');
+    }
+    if (reviewDecision === 'rejected_suggestion' || reviewDecision === 'needs_more_evidence') {
+      blocking_reasons.push('No accepted match suggestion for this evidence row.');
+    }
+    if (reviewDecision === 'accepted_suggestion') {
+      if (!row.accepted_tenant_id || !tenant) {
+        blocking_reasons.push('Accepted tenant is missing or does not exist.');
+      }
+      if (!row.accepted_invoice_id || !invoice) {
+        blocking_reasons.push('Accepted invoice is missing or does not exist.');
+      } else if (invoice.status === 'paid' || invoice.status === 'void') {
+        blocking_reasons.push('Accepted invoice is already paid or void.');
+      }
+    }
+    if (amount <= 0 || isNaN(amount)) {
+      blocking_reasons.push('Payment evidence amount must be positive.');
+    }
+    if (row.status === 'auto_reconciled' || row.status === 'manually_reconciled') {
+      blocking_reasons.push('An allocation or reconciliation already exists for this evidence row.');
+    }
+
+    const can_confirm_allocation = ready && blocking_reasons.length === 0;
+
+    const confirmation_contract = {
+      can_confirm_allocation,
+      required_confirmation_text: 'CONFIRM ALLOCATION PREVIEW',
+      blocking_reasons,
+      requires_landlord_confirmation: true,
+      requires_current_preview_state: true,
+      requires_accepted_review_decision: true,
+      requires_invoice_payable: true,
+      requires_positive_amount: true,
+      requires_no_existing_allocation: true,
+      safety_message: 'This confirmation contract is read-only. No allocation, invoice, tenant balance, ledger, receipt, or payment record has been changed.'
+    };
+
     res.json({
       ready,
       state,
@@ -1146,6 +1188,10 @@ export function createPaymentEvidenceRoutes(pgDb) {
       allocation_amount_preview,
       remaining_balance_preview,
       overpayment_preview,
+      confirmation_contract,
+      required_confirmation_text: 'CONFIRM ALLOCATION PREVIEW',
+      can_confirm_allocation,
+      blocking_reasons,
       safety_message: 'This is a draft allocation preview only. No invoice, tenant balance, ledger, receipt, or payment record has been changed.'
     });
   }));

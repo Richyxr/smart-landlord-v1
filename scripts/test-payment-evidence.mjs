@@ -1449,7 +1449,9 @@ async function runTests() {
     // Accepted - valid match (ready)
     { id: 6005, organization_id: 1, amount: 5000, transaction_date: '2026-06-20', status: 'needs_review', review_status: 'accepted_suggestion', review_decision: 'accepted_suggestion', accepted_tenant_id: 101, accepted_invoice_id: 201 },
     // Accepted - overpaid match (ready)
-    { id: 6006, organization_id: 1, amount: 8000, transaction_date: '2026-06-20', status: 'needs_review', review_status: 'accepted_suggestion', review_decision: 'accepted_suggestion', accepted_tenant_id: 101, accepted_invoice_id: 201 }
+    { id: 6006, organization_id: 1, amount: 8000, transaction_date: '2026-06-20', status: 'needs_review', review_status: 'accepted_suggestion', review_decision: 'accepted_suggestion', accepted_tenant_id: 101, accepted_invoice_id: 201 },
+    // Accepted - negative amount (invalid)
+    { id: 6007, organization_id: 1, amount: -100, transaction_date: '2026-06-20', status: 'needs_review', review_status: 'accepted_suggestion', review_decision: 'accepted_suggestion', accepted_tenant_id: 101, accepted_invoice_id: 201 }
   ]);
 
   apiDb.seed('tenants', [
@@ -1476,7 +1478,7 @@ async function runTests() {
   }, mockResPreview);
   assert('Wrong organization returns HTTP 404', previewResStatus === 404 && previewResResult.error === 'ROW_NOT_FOUND');
 
-  // 2. Unreviewed row returns 'not_reviewed' state
+  // 2. Unreviewed row returns 'not_reviewed' state and false can_confirm_allocation
   previewResStatus = null;
   previewResResult = null;
   await previewHandler({
@@ -1484,8 +1486,9 @@ async function runTests() {
     params: { id: '6001' }
   }, mockResPreview);
   assert('Unreviewed row returns not_reviewed status', previewResResult && previewResResult.ready === false && previewResResult.state === 'not_reviewed');
+  assert('Unreviewed row has can_confirm_allocation false', previewResResult && previewResResult.confirmation_contract.can_confirm_allocation === false && previewResResult.confirmation_contract.blocking_reasons.includes('Evidence row has not been reviewed yet.'));
 
-  // 3. Ignored row returns 'ignored' state
+  // 3. Ignored row returns 'ignored' state and false can_confirm_allocation
   previewResStatus = null;
   previewResResult = null;
   await previewHandler({
@@ -1493,8 +1496,9 @@ async function runTests() {
     params: { id: '6002' }
   }, mockResPreview);
   assert('Ignored row returns ignored status', previewResResult && previewResResult.ready === false && previewResResult.state === 'ignored');
+  assert('Ignored row has can_confirm_allocation false', previewResResult && previewResResult.confirmation_contract.can_confirm_allocation === false && previewResResult.confirmation_contract.blocking_reasons.includes('Evidence row is ignored or irrelevant.'));
 
-  // 4. Missing tenant accepted match returns 'missing_tenant' state
+  // 4. Missing tenant accepted match returns 'missing_tenant' state and false can_confirm_allocation
   previewResStatus = null;
   previewResResult = null;
   await previewHandler({
@@ -1502,8 +1506,9 @@ async function runTests() {
     params: { id: '6003' }
   }, mockResPreview);
   assert('Missing tenant match returns missing_tenant status', previewResResult && previewResResult.ready === false && previewResResult.state === 'missing_tenant');
+  assert('Missing tenant match has can_confirm_allocation false', previewResResult && previewResResult.confirmation_contract.can_confirm_allocation === false && previewResResult.confirmation_contract.blocking_reasons.includes('Accepted tenant is missing or does not exist.'));
 
-  // 5. Missing invoice accepted match returns 'missing_invoice' state
+  // 5. Missing invoice accepted match returns 'missing_invoice' state and false can_confirm_allocation
   previewResStatus = null;
   previewResResult = null;
   await previewHandler({
@@ -1511,8 +1516,18 @@ async function runTests() {
     params: { id: '6004' }
   }, mockResPreview);
   assert('Missing invoice match returns missing_invoice status', previewResResult && previewResResult.ready === false && previewResResult.state === 'missing_invoice');
+  assert('Missing invoice match has can_confirm_allocation false', previewResResult && previewResResult.confirmation_contract.can_confirm_allocation === false && previewResResult.confirmation_contract.blocking_reasons.includes('Accepted invoice is missing or does not exist.'));
 
-  // 6. Valid accepted match returns 'ready_for_draft_allocation' and calculates preview details (partial payment case)
+  // 6. Negative amount returns 'amount_invalid' state and false can_confirm_allocation
+  previewResStatus = null;
+  previewResResult = null;
+  await previewHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '6007' }
+  }, mockResPreview);
+  assert('Negative amount has can_confirm_allocation false', previewResResult && previewResResult.confirmation_contract.can_confirm_allocation === false && previewResResult.confirmation_contract.blocking_reasons.includes('Payment evidence amount must be positive.'));
+
+  // 7. Valid accepted match returns 'ready_for_draft_allocation' and calculates preview details (partial payment case)
   previewResStatus = null;
   previewResResult = null;
   const initialInvoiceListPreview = JSON.stringify(apiDb.get('invoices'));
@@ -1529,7 +1544,14 @@ async function runTests() {
   assert('Calculates overpayment preview as zero correctly', previewResResult && previewResResult.overpayment_preview === 0);
   assert('Returns the safety message correctly', previewResResult && previewResResult.safety_message === 'This is a draft allocation preview only. No invoice, tenant balance, ledger, receipt, or payment record has been changed.');
 
-  // 7. Overpaid accepted match calculates overpayment correctly
+  // Confirmation contract assertions
+  assert('Valid match has can_confirm_allocation true', previewResResult && previewResResult.confirmation_contract.can_confirm_allocation === true);
+  assert('Confirmation contract returns required confirmation text', previewResResult && previewResResult.confirmation_contract.required_confirmation_text === 'CONFIRM ALLOCATION PREVIEW');
+  assert('Confirmation contract returns zero blocking reasons', previewResResult && previewResResult.confirmation_contract.blocking_reasons.length === 0);
+  assert('Confirmation contract requires landlord confirmation', previewResResult && previewResResult.confirmation_contract.requires_landlord_confirmation === true);
+  assert('Confirmation contract has contract-level safety message', previewResResult && previewResResult.confirmation_contract.safety_message === 'This confirmation contract is read-only. No allocation, invoice, tenant balance, ledger, receipt, or payment record has been changed.');
+
+  // 8. Overpaid accepted match calculates overpayment correctly
   previewResStatus = null;
   previewResResult = null;
   await previewHandler({
@@ -1557,8 +1579,28 @@ async function runTests() {
   );
 
   assert(
+    'PaymentEvidence.jsx renders Confirmation Requirements header',
+    paymentEvidenceContent.includes('Confirmation Requirements')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders required confirmation text',
+    paymentEvidenceContent.includes('previewData.confirmation_contract.required_confirmation_text')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders blocking reasons',
+    paymentEvidenceContent.includes('previewData.confirmation_contract.blocking_reasons')
+  );
+
+  assert(
     'PaymentEvidence.jsx contains preview safety notice copy',
     paymentEvidenceContent.includes('previewData.safety_message')
+  );
+
+  assert(
+    'PaymentEvidence.jsx contains contract security notice copy',
+    paymentEvidenceContent.includes('previewData.confirmation_contract.safety_message')
   );
 
   assert(

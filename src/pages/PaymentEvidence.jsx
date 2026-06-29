@@ -1396,6 +1396,49 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                       </div>
                     )}
 
+                    {/* Confirmation Contract Sub-Section */}
+                    {previewData.confirmation_contract && (
+                      <div style={{ marginTop: '10px', borderTop: '1px dashed var(--border)', paddingTop: '8px' }}>
+                        <strong style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Confirmation Requirements</strong>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                          <span className="text-muted">Can Confirm Allocation:</span>
+                          <strong style={{ color: previewData.confirmation_contract.can_confirm_allocation ? 'var(--success)' : 'var(--danger)' }}>
+                            {previewData.confirmation_contract.can_confirm_allocation ? 'YES' : 'NO'}
+                          </strong>
+                        </div>
+
+                        <div style={{ marginBottom: '4px' }}>
+                          <span className="text-muted">Required Confirmation Text:</span>{' '}
+                          <code style={{ padding: '2px 4px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '3px', color: 'var(--primary)' }}>
+                            {previewData.confirmation_contract.required_confirmation_text}
+                          </code>
+                        </div>
+
+                        {previewData.confirmation_contract.blocking_reasons && previewData.confirmation_contract.blocking_reasons.length > 0 && (
+                          <div style={{ marginTop: '4px', padding: '6px 8px', backgroundColor: 'rgba(244, 67, 54, 0.05)', border: '1px solid var(--danger)', borderRadius: '4px' }}>
+                            <span style={{ fontWeight: '700', color: 'var(--danger)', display: 'block', marginBottom: '2px', fontSize: '9.5px' }}>Blocking Reasons:</span>
+                            <ul style={{ margin: 0, paddingLeft: '14px', fontSize: '9.5px', color: 'var(--text-primary)' }}>
+                              {previewData.confirmation_contract.blocking_reasons.map((reason, rIdx) => (
+                                <li key={rIdx}>{reason}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        <div style={{
+                          marginTop: '6px',
+                          padding: '6px 8px',
+                          backgroundColor: 'var(--bg-surface-elevated)',
+                          borderRadius: '4px',
+                          fontSize: '9px',
+                          color: 'var(--text-muted)'
+                        }}>
+                          <strong>Contract Security Notice:</strong> {previewData.confirmation_contract.safety_message}
+                        </div>
+                      </div>
+                    )}
+
                     <div style={{
                       marginTop: '6px',
                       padding: '8px',
