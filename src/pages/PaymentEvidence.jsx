@@ -61,6 +61,8 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [previewData, setPreviewData] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [previewError, setPreviewError] = useState('');
+  const [typedConfirmationText, setTypedConfirmationText] = useState('');
+  const [confirmingAllocation, setConfirmingAllocation] = useState(false);
 
   const fetchAllocationPreview = async (id) => {
     setLoadingPreview(true);
@@ -140,6 +142,8 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     setRejectedReasonText('');
     setReviewNotesText('');
     setSavingReview(false);
+    setTypedConfirmationText('');
+    setConfirmingAllocation(false);
 
     if (selectedRow && (role === 'landlord' || role === 'super_admin')) {
       fetchAuditLogs(selectedRow.id);
@@ -639,6 +643,55 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           notifyError('Error', err.message || 'Failed to save review decision.');
         } finally {
           setSavingReview(false);
+        }
+      }
+    );
+  };
+
+  const handleConfirmAllocation = async () => {
+    if (!selectedRow || !previewData?.confirmation_contract?.can_confirm_allocation) return;
+
+    if (typedConfirmationText !== 'CONFIRM ALLOCATION PREVIEW') {
+      const { notifyError } = getBrandedConfirmAndNotify();
+      notifyError('Validation Error', 'Please type the confirmation text exactly.');
+      return;
+    }
+
+    const { showConfirm, notifySuccess, notifyError } = getBrandedConfirmAndNotify();
+
+    showConfirm(
+      "Confirm Allocation Execution",
+      "Are you sure you want to execute this payment allocation? This will decrease the invoice balance and cannot be undone.",
+      async () => {
+        setConfirmingAllocation(true);
+        try {
+          const res = await fetch(`/api/payment-evidence/${selectedRow.id}/confirm-allocation`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              confirmation_text: typedConfirmationText
+            })
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.message || data.error || 'Failed to execute allocation');
+          }
+
+          notifySuccess('Allocation Executed', data.message || 'Payment evidence allocated successfully.');
+          setTypedConfirmationText('');
+
+          setSelectedRow(prev => prev ? { ...prev, status: 'manually_reconciled' } : null);
+          fetchAuditLogs(selectedRow.id);
+          fetchAllocationPreview(selectedRow.id);
+          await fetchEvidenceRows();
+        } catch (err) {
+          console.error(err);
+          notifyError('Error', err.message || 'Failed to execute allocation.');
+        } finally {
+          setConfirmingAllocation(false);
         }
       }
     );
@@ -1436,6 +1489,34 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                         }}>
                           <strong>Contract Security Notice:</strong> {previewData.confirmation_contract.safety_message}
                         </div>
+
+                        {previewData.confirmation_contract.can_confirm_allocation && (role === 'landlord' || role === 'super_admin') && (
+                          <div style={{ marginTop: '10px', borderTop: '1px dashed var(--border)', paddingTop: '8px' }}>
+                            <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', marginBottom: '4px', color: 'var(--text-primary)' }}>
+                              Type <strong>CONFIRM ALLOCATION PREVIEW</strong> to enable execution:
+                            </label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              value={typedConfirmationText}
+                              onChange={(e) => setTypedConfirmationText(e.target.value)}
+                              placeholder="CONFIRM ALLOCATION PREVIEW"
+                              disabled={confirmingAllocation}
+                              style={{ fontSize: '11px', padding: '6px', height: 'auto', marginBottom: '8px' }}
+                            />
+                            {typedConfirmationText === 'CONFIRM ALLOCATION PREVIEW' && (
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm w-100"
+                                onClick={handleConfirmAllocation}
+                                disabled={confirmingAllocation}
+                                style={{ fontSize: '11px', fontWeight: '700', padding: '8px' }}
+                              >
+                                {confirmingAllocation ? 'Confirming Allocation...' : 'Confirm Allocation'}
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 

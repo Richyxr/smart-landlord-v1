@@ -810,11 +810,12 @@ async function runTests() {
 
   assert('Duplicate transaction code in same batch is skipped', postResult && postResult.needs_review_count === 1 && postResult.duplicate_count === 1);
 
-  // 4. No auto_reconciled/manually_reconciled status can be inserted
+  // 4. No auto_reconciled/manually_reconciled status can be created by import wizard or review decision
   assert(
-    'No auto_reconciled/manually_reconciled status can be created by endpoint',
+    'No auto_reconciled/manually_reconciled status can be created by import wizard or review decision',
     !paymentEvidenceContent.includes("status: 'auto_reconciled'") &&
-    !paymentEvidenceContent.includes("status: 'manually_reconciled'")
+    paymentEvidenceContent.includes("status: 'manually_reconciled'") &&
+    paymentEvidenceContent.split("status: 'manually_reconciled'").length === 2
   );
 
   // 5. Generic browser alert/confirm is not used directly
@@ -1613,6 +1614,199 @@ async function runTests() {
     paymentEvidenceContent.includes('Refresh Preview') &&
     !paymentEvidenceContent.includes('Allocate Payment') &&
     !paymentEvidenceContent.includes('Apply Payment') &&
+    !paymentEvidenceContent.includes('Finalize Payment')
+  );
+
+  // ==========================================
+  // Test 14: Confirmed Payment Evidence Allocation Execution
+  // ==========================================
+  console.log('\n14. Confirmed Payment Evidence Allocation Execution:');
+
+  const executionHandler = getRouteHandler('/payment-evidence/:id/confirm-allocation');
+  const executionMiddlewares = getRouteMiddlewares('/payment-evidence/:id/confirm-allocation');
+
+  assert(
+    'Allocation Execution endpoint requires landlord or super_admin role',
+    executionMiddlewares.includes(requireLandlordOrSuperAdminMiddleware)
+  );
+
+  // Access control checks for execution
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let blockedStatus = null;
+    let blockedNextCalled = false;
+    await requireLandlordOrSuperAdminMiddleware({
+      auth: { role: blockedRole, organizationId: 1, userId: 99 }
+    }, {
+      status(code) { blockedStatus = code; return this; },
+      json() { return this; }
+    }, () => { blockedNextCalled = true; });
+
+    assert(`Allocation Execution endpoint blocks ${blockedRole}`, blockedStatus === 403 && blockedNextCalled === false);
+  }
+
+  let execResStatus = null;
+  let execResResult = null;
+  const mockResExec = {
+    status(code) { execResStatus = code; return this; },
+    json(data) { execResResult = data; return this; }
+  };
+
+  // 1. Wrong organization is blocked / returns 404
+  execResStatus = null;
+  execResResult = null;
+  await executionHandler({
+    auth: { organizationId: 2, role: 'landlord', userId: 10 },
+    params: { id: '6005' },
+    body: { confirmation_text: 'CONFIRM ALLOCATION PREVIEW' }
+  }, mockResExec);
+  assert('Execution blocks wrong organization with 404', execResStatus === 404 && execResResult.error === 'ROW_NOT_FOUND');
+
+  // 2. Missing confirmation text rejected
+  execResStatus = null;
+  execResResult = null;
+  await executionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '6005' },
+    body: {}
+  }, mockResExec);
+  assert('Missing confirmation text rejected with 400', execResStatus === 400 && execResResult.error === 'CONFIRMATION_TEXT_REQUIRED');
+
+  // 3. Wrong confirmation text rejected
+  execResStatus = null;
+  execResResult = null;
+  await executionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '6005' },
+    body: { confirmation_text: 'WRONG_CONFIRM' }
+  }, mockResExec);
+  assert('Wrong confirmation text rejected with 400', execResStatus === 400 && execResResult.error === 'INVALID_CONFIRMATION_TEXT');
+
+  // 4. Unreviewed evidence rejected
+  execResStatus = null;
+  execResResult = null;
+  await executionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '6001' },
+    body: { confirmation_text: 'CONFIRM ALLOCATION PREVIEW' }
+  }, mockResExec);
+  assert('Unreviewed evidence execution rejected', execResStatus === 400 && execResResult.error === 'INVALID_REVIEW_STATE');
+
+  // 5. Ignored evidence rejected
+  execResStatus = null;
+  execResResult = null;
+  await executionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '6002' },
+    body: { confirmation_text: 'CONFIRM ALLOCATION PREVIEW' }
+  }, mockResExec);
+  assert('Ignored evidence execution rejected', execResStatus === 400 && (execResResult.error === 'ALREADY_ALLOCATED' || execResResult.error === 'INVALID_REVIEW_STATE'));
+
+  // 6. Overpayment rejected if no wallet/credit support exists
+  execResStatus = null;
+  execResResult = null;
+  await executionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '6006' },
+    body: { confirmation_text: 'CONFIRM ALLOCATION PREVIEW' }
+  }, mockResExec);
+  assert('Overpayment allocation rejected with OVERPAYMENT_NOT_SUPPORTED', execResStatus === 400 && execResResult.error === 'OVERPAYMENT_NOT_SUPPORTED' && execResResult.message === 'Overpayment allocation requires wallet credit support and is not enabled yet.');
+
+  // Reset database state and mock tables for successful execution
+  apiDb.seed('payment_evidence', [
+    { id: 7001, organization_id: 1, amount: 4000, transaction_date: '2026-06-20', status: 'needs_review', review_status: 'accepted_suggestion', review_decision: 'accepted_suggestion', accepted_tenant_id: 101, accepted_invoice_id: 201 }
+  ]);
+
+  apiDb.seed('tenants', [
+    { id: 101, organization_id: 1, full_name: 'Alice Tenant', tenant_account_number: 'ACC-T1', status: 'active', currency: 'KES', property_id: 5, unit_id: 2 }
+  ]);
+
+  apiDb.seed('invoices', [
+    { id: 201, organization_id: 1, tenant_id: 101, invoice_number: 'INV-201', status: 'issued', balance: 6000, total: 6000, amount_paid: 0, due_date: '2026-06-15' }
+  ]);
+
+  apiDb.seed('transactions', []);
+  apiDb.seed('payment_allocations', []);
+  apiDb.seed('payment_evidence_review_audit', []);
+
+  // 7. Valid partial allocation succeeds
+  execResStatus = null;
+  execResResult = null;
+  await executionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '7001' },
+    body: { confirmation_text: 'CONFIRM ALLOCATION PREVIEW' }
+  }, mockResExec);
+
+  assert('Valid confirm-allocation returns success true', execResResult && execResResult.success === true);
+  assert('Allocation response outputs correctly calculated remaining balance', execResResult && execResResult.remaining_balance === 2000);
+  assert('Allocation response outputs zero overpayment', execResResult && execResResult.overpayment_amount === 0);
+  assert('Allocation response returns correct safety message', execResResult && execResResult.safety_message === 'Confirmed allocation applied exactly once. Invoice/payment records were updated according to the confirmed preview. No unrelated tenant, ledger, or receipt records were changed.');
+
+  // Verify database updates
+  const updatedInvoice = await apiDb.findOne('invoices', { id: 201 });
+  assert('Invoice balance decreases correctly', updatedInvoice.balance === 2000);
+  assert('Invoice amount_paid increases correctly', updatedInvoice.amount_paid === 4000);
+  assert('Invoice status updated to partially_paid', updatedInvoice.status === 'partially_paid');
+
+  const updatedEvidence = await apiDb.findOne('payment_evidence', { id: 7001 });
+  assert('Payment evidence status changes to manually_reconciled', updatedEvidence.status === 'manually_reconciled');
+
+  const allTxs = apiDb.get('transactions');
+  assert('Allocation creates exactly one transaction record', allTxs.length === 1);
+  assert('Created transaction has reconciled status', allTxs[0].status === 'reconciled');
+  assert('Created transaction links to correct tenant', allTxs[0].tenant_id === 101);
+  assert('Created transaction links to unit and property', allTxs[0].unit_id === 2 && allTxs[0].property_id === 5);
+
+  const allAllocations = apiDb.get('payment_allocations');
+  assert('Allocation creates exactly one payment allocation record', allAllocations.length === 1);
+  assert('Created allocation has correct allocated amount', allAllocations[0].amount_allocated === 4000);
+  assert('Created allocation links to correct transaction and invoice', allAllocations[0].transaction_id === allTxs[0].id && allAllocations[0].invoice_id === 201);
+
+  const allAudits = apiDb.get('payment_evidence_review_audit');
+  assert('Execution creates exactly one audit row', allAudits.length === 1);
+  assert('Created audit row records confirm_allocation action', allAudits[0].action === 'confirm_allocation');
+
+  // Idempotency: repeated POST for same evidence is rejected
+  execResStatus = null;
+  execResResult = null;
+  await executionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '7001' },
+    body: { confirmation_text: 'CONFIRM ALLOCATION PREVIEW' }
+  }, mockResExec);
+
+  assert('Repeated confirm-allocation is rejected', execResStatus === 400 && execResResult.error === 'ALREADY_ALLOCATED');
+  assert('Invoice balance remains unchanged on repeated POST', apiDb.get('invoices')[0].balance === 2000);
+  assert('No additional transaction records created', apiDb.get('transactions').length === 1);
+
+  // Frontend/Static checks
+  assert(
+    'PaymentEvidence.jsx renders Confirm Allocation button',
+    paymentEvidenceContent.includes('Confirm Allocation')
+  );
+
+  assert(
+    'PaymentEvidence.jsx requires typed confirmation state',
+    paymentEvidenceContent.includes('typedConfirmationText') &&
+    paymentEvidenceContent.includes('setTypedConfirmationText')
+  );
+
+  assert(
+    'PaymentEvidence.jsx calls POST confirm-allocation API endpoint',
+    paymentEvidenceContent.includes('confirm-allocation') &&
+    paymentEvidenceContent.includes("method: 'POST'")
+  );
+
+  assert(
+    'PaymentEvidence.jsx uses branded window.showConfirm',
+    paymentEvidenceContent.includes('showConfirm(') &&
+    !paymentEvidenceContent.includes('window.confirm(')
+  );
+
+  assert(
+    'PaymentEvidence.jsx does not contain forbidden unsupported buttons/labels',
+    !paymentEvidenceContent.includes('Create Receipt') &&
+    !paymentEvidenceContent.includes('Post Ledger') &&
     !paymentEvidenceContent.includes('Finalize Payment')
   );
 
