@@ -936,8 +936,32 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             <input type="number" className="form-control" placeholder="100k" value={maxAmount} onChange={e => setMaxAmount(e.target.value)} />
           </div>
 
+          {/* Imported From */}
+          <div style={{ flex: '1 1 140px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>Imported From:</span>
+            <input type="date" className="form-control" value={importedFrom} onChange={e => setImportedFrom(e.target.value)} />
+          </div>
+
+          {/* Imported To */}
+          <div style={{ flex: '1 1 140px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>Imported To:</span>
+            <input type="date" className="form-control" value={importedTo} onChange={e => setImportedTo(e.target.value)} />
+          </div>
+
+          {/* Reviewed From */}
+          <div style={{ flex: '1 1 140px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>Reviewed From:</span>
+            <input type="date" className="form-control" value={reviewedFrom} onChange={e => setReviewedFrom(e.target.value)} />
+          </div>
+
+          {/* Reviewed To */}
+          <div style={{ flex: '1 1 140px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '11px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>Reviewed To:</span>
+            <input type="date" className="form-control" value={reviewedTo} onChange={e => setReviewedTo(e.target.value)} />
+          </div>
+
           {/* Clear Filters Button */}
-          {(status || strength || channel || startDate || endDate || minAmount || maxAmount || selectedBatchId || search) && (
+          {(status || strength || channel || startDate || endDate || minAmount || maxAmount || selectedBatchId || reviewStatusFilter || reviewDecisionFilter || suggestionFilter || matchConfidenceFilter || auditHistoryFilter || reviewedFrom || reviewedTo || importedFrom || importedTo || search) && (
             <button
               type="button"
               className="btn btn-secondary btn-sm"
@@ -950,6 +974,15 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                 setMinAmount('');
                 setMaxAmount('');
                 setSelectedBatchId('');
+                setReviewStatusFilter('');
+                setReviewDecisionFilter('');
+                setSuggestionFilter('');
+                setMatchConfidenceFilter('');
+                setAuditHistoryFilter('');
+                setReviewedFrom('');
+                setReviewedTo('');
+                setImportedFrom('');
+                setImportedTo('');
                 setSearch('');
               }}
               style={{ padding: '6px 12px', fontSize: '11px', marginLeft: 'auto' }}

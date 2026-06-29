@@ -1306,6 +1306,64 @@ async function runTests() {
   );
   assert('Review Decision History renders per-entry safety message', paymentEvidenceContent.includes('log.safety_message'));
 
+  // ==========================================
+  // Test 11: Polish Date Filters & Reset UX Static Checks
+  // ==========================================
+  console.log('\n11. Polish Date Filters & Reset UX Static Checks:');
+
+  assert(
+    'Payment Evidence UI renders new date filter labels',
+    paymentEvidenceContent.includes('Imported From:') &&
+    paymentEvidenceContent.includes('Imported To:') &&
+    paymentEvidenceContent.includes('Reviewed From:') &&
+    paymentEvidenceContent.includes('Reviewed To:')
+  );
+
+  assert(
+    'Payment Evidence UI sends date filter query parameters to backend',
+    paymentEvidenceContent.includes("queryParams.append('imported_from', importedFrom)") &&
+    paymentEvidenceContent.includes("queryParams.append('imported_to', importedTo)") &&
+    paymentEvidenceContent.includes("queryParams.append('reviewed_from', reviewedFrom)") &&
+    paymentEvidenceContent.includes("queryParams.append('reviewed_to', reviewedTo)")
+  );
+
+  assert(
+    'Reset Filters onClick handler clears all filter states',
+    paymentEvidenceContent.includes("setStatus('')") &&
+    paymentEvidenceContent.includes("setStrength('')") &&
+    paymentEvidenceContent.includes("setChannel('')") &&
+    paymentEvidenceContent.includes("setStartDate('')") &&
+    paymentEvidenceContent.includes("setEndDate('')") &&
+    paymentEvidenceContent.includes("setMinAmount('')") &&
+    paymentEvidenceContent.includes("setMaxAmount('')") &&
+    paymentEvidenceContent.includes("setSelectedBatchId('')") &&
+    paymentEvidenceContent.includes("setReviewStatusFilter('')") &&
+    paymentEvidenceContent.includes("setReviewDecisionFilter('')") &&
+    paymentEvidenceContent.includes("setSuggestionFilter('')") &&
+    paymentEvidenceContent.includes("setMatchConfidenceFilter('')") &&
+    paymentEvidenceContent.includes("setAuditHistoryFilter('')") &&
+    paymentEvidenceContent.includes("setReviewedFrom('')") &&
+    paymentEvidenceContent.includes("setReviewedTo('')") &&
+    paymentEvidenceContent.includes("setImportedFrom('')") &&
+    paymentEvidenceContent.includes("setImportedTo('')") &&
+    paymentEvidenceContent.includes("setSearch('')")
+  );
+
+  assert(
+    'No forbidden financial-final labels or buttons exist in PaymentEvidence.jsx',
+    ![
+      /\bReconcile\b/,
+      /\bAllocate\b/,
+      /\bMark Paid\b/,
+      /\bCreate Receipt\b/,
+      /\bApply Payment\b/,
+      /\bConfirm Payment\b/,
+      /\bPost Payment\b/,
+      /\bApprove Payment\b/,
+      /\bReconcile Payment\b/
+    ].some(pattern => pattern.test(paymentEvidenceContent))
+  );
+
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
   if (failures > 0) {
     process.exit(1);
