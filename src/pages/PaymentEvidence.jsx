@@ -15,7 +15,8 @@ import {
   Upload,
   ArrowLeft,
   ArrowRight,
-  Check
+  Check,
+  Info
 } from 'lucide-react';
 
 export default function PaymentEvidence({ organization, refreshTrigger }) {
@@ -744,6 +745,23 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       {/* ERROR DISPLAY */}
       {error && <div className="alert alert-danger">{error}</div>}
 
+      {/* SAFETY WARNING NOTICE */}
+      <div style={{
+        padding: '12px 16px',
+        backgroundColor: 'var(--info-glow)',
+        border: '1px solid var(--info)',
+        borderRadius: '8px',
+        fontSize: '11.5px',
+        color: 'var(--text-primary)',
+        marginBottom: '16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px'
+      }}>
+        <Info size={14} style={{ color: 'var(--info)', flexShrink: 0 }} />
+        <span><strong>Notice:</strong> These are matching suggestions only. No payment has been reconciled, allocated, or applied to an invoice.</span>
+      </div>
+
       {/* TABLE OR EMPTY STATE */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
@@ -800,19 +818,55 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                       </span>
                     </td>
                     <td style={{ padding: '12px' }}>
-                      {row.suggested_tenant ? (
+                      {row.status === 'ignored' ? (
+                        <span style={{ color: 'var(--text-muted)' }}>N/A (Ignored)</span>
+                      ) : row.suggestions && row.suggestions.length > 0 ? (
                         <div>
-                          <div className="badge badge-info" style={{ fontSize: '10px' }}>
-                            {row.suggested_tenant.full_name}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '4px' }}>
+                            <span style={{
+                              fontSize: '9px',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontWeight: '700',
+                              textTransform: 'uppercase',
+                              backgroundColor: row.suggestions[0].match_confidence === 'high' ? 'rgba(76, 175, 80, 0.15)' : row.suggestions[0].match_confidence === 'medium' ? 'rgba(255, 152, 0, 0.15)' : 'rgba(33, 150, 243, 0.15)',
+                              color: row.suggestions[0].match_confidence === 'high' ? 'var(--success)' : row.suggestions[0].match_confidence === 'medium' ? 'var(--warning)' : 'var(--info)',
+                              border: row.suggestions[0].match_confidence === 'high' ? '1px solid var(--success)' : row.suggestions[0].match_confidence === 'medium' ? '1px solid var(--warning)' : '1px solid var(--info)'
+                            }}>
+                              {row.suggestions[0].match_confidence} Confidence
+                            </span>
+                            <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+                              Score: {row.suggestions[0].match_score}
+                            </span>
                           </div>
-                          {row.suggested_invoice && (
-                            <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                              Invoice: {row.suggested_invoice.invoice_number}
+                          <div style={{ fontWeight: '600' }}>{row.suggestions[0].tenant_name}</div>
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                            Unit: {row.suggestions[0].unit_label}
+                          </div>
+                          {row.suggestions[0].invoice_number && (
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                              Invoice: {row.suggestions[0].invoice_number} ({formatCurrency(row.suggestions[0].invoice_balance)})
                             </div>
                           )}
                         </div>
                       ) : (
-                        <span style={{ color: 'var(--text-muted)' }}>None</span>
+                        <div>
+                          <span style={{
+                            fontSize: '9px',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontWeight: '700',
+                            textTransform: 'uppercase',
+                            backgroundColor: 'rgba(158, 158, 158, 0.15)',
+                            color: 'var(--text-muted)',
+                            border: '1px solid var(--border)',
+                            display: 'inline-block',
+                            marginBottom: '4px'
+                          }}>
+                            No suggestion
+                          </span>
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>No safe match suggestion found.</div>
+                        </div>
                       )}
                     </td>
                     <td style={{ padding: '12px' }}>
@@ -924,6 +978,82 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* Suggested Match Candidates Section */}
+            {selectedRow.status !== 'ignored' && (
+              <div style={{ marginBottom: '16px' }}>
+                <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '700' }}>Suggested Match Candidates</h4>
+                <div style={{
+                  padding: '10px 12px',
+                  backgroundColor: 'var(--info-glow)',
+                  border: '1px solid var(--info)',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  color: 'var(--text-primary)',
+                  marginBottom: '12px'
+                }}>
+                  These are matching suggestions only. No payment has been reconciled, allocated, or applied to an invoice.
+                </div>
+                {selectedRow.suggestions && selectedRow.suggestions.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {selectedRow.suggestions.map((s, idx) => (
+                      <div key={idx} style={{
+                        border: '1px solid var(--border)',
+                        padding: '12px',
+                        borderRadius: '8px',
+                        backgroundColor: 'var(--bg-surface-elevated)',
+                        fontSize: '12px'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <span style={{
+                            fontSize: '9px',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontWeight: '700',
+                            textTransform: 'uppercase',
+                            backgroundColor: s.match_confidence === 'high' ? 'rgba(76, 175, 80, 0.15)' : s.match_confidence === 'medium' ? 'rgba(255, 152, 0, 0.15)' : 'rgba(33, 150, 243, 0.15)',
+                            color: s.match_confidence === 'high' ? 'var(--success)' : s.match_confidence === 'medium' ? 'var(--warning)' : 'var(--info)',
+                            border: s.match_confidence === 'high' ? '1px solid var(--success)' : s.match_confidence === 'medium' ? '1px solid var(--warning)' : '1px solid var(--info)'
+                          }}>
+                            {s.match_confidence} Confidence (Score: {s.match_score})
+                          </span>
+                          {idx === 0 && <span style={{ fontSize: '9px', fontWeight: '700', color: 'var(--success)' }}>BEST MATCH</span>}
+                        </div>
+                        <div>Tenant: <strong>{s.tenant_name}</strong> (Phone: {s.tenant_phone})</div>
+                        <div>Unit/Property: <strong>{s.unit_label}</strong></div>
+                        {s.invoice_number && (
+                          <div style={{ marginTop: '4px', paddingLeft: '8px', borderLeft: '2px solid var(--border)' }}>
+                            <div>Invoice: <strong>{s.invoice_number}</strong> • Status: <span style={{ textTransform: 'capitalize' }}>{s.invoice_status}</span></div>
+                            <div>Outstanding Balance: <strong style={{ color: 'var(--danger)' }}>{formatCurrency(s.invoice_balance)}</strong></div>
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Due Date: {new Date(s.invoice_due_date).toLocaleDateString()}</div>
+                          </div>
+                        )}
+                        {s.match_reasons && s.match_reasons.length > 0 && (
+                          <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                            <strong>Reasons:</strong>
+                            <ul style={{ margin: '2px 0 0 0', paddingLeft: '16px' }}>
+                              {s.match_reasons.map((r, rIdx) => <li key={rIdx}>{r}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                        {s.match_warnings && s.match_warnings.length > 0 && (
+                          <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--warning)' }}>
+                            <strong>Warnings:</strong>
+                            <ul style={{ margin: '2px 0 0 0', paddingLeft: '16px' }}>
+                              {s.match_warnings.map((w, wIdx) => <li key={wIdx}>{w}</li>)}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                    No safe match suggestion found.
+                  </div>
+                )}
               </div>
             )}
 

@@ -9,6 +9,181 @@ function asyncHandler(handler) {
   };
 }
 
+const normalizePhone = (phone) => {
+  if (!phone) return '';
+  const digits = String(phone).replace(/\D/g, '');
+  return digits.slice(-9);
+};
+
+const getDaysDifference = (date1, date2) => {
+  const d1 = new Date(date1);
+  const d2 = new Date(date2);
+  if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return Infinity;
+  const diffTime = Math.abs(d1.getTime() - d2.getTime());
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+};
+
+function calculateCandidateScore(row, tenant, invoice, unit, property) {
+  const reasons = [];
+  const warnings = [];
+  let score = 0;
+  let confidence = 'low';
+
+  const amount = Number(row.amount);
+  const invBalance = Number(invoice.balance);
+  const invTotal = Number(invoice.total);
+  const isAmountMatch = (amount === invBalance || amount === invTotal);
+
+  // 1. Reference Account / Tenant Account Number Match
+  let refAccMatch = false;
+  if (row.reference_account && tenant.tenant_account_number) {
+    if (row.reference_account.trim().toLowerCase() === tenant.tenant_account_number.trim().toLowerCase()) {
+      refAccMatch = true;
+    }
+  }
+
+  // 2. Invoice Number Match
+  let invNumMatch = false;
+  const invNum = String(invoice.invoice_number || '').trim().toLowerCase();
+  if (invNum) {
+    if (row.transaction_code && String(row.transaction_code).trim().toLowerCase() === invNum) {
+      invNumMatch = true;
+    }
+    if (row.paybill_reference && String(row.paybill_reference).trim().toLowerCase() === invNum) {
+      invNumMatch = true;
+    }
+    if (row.invoice_reference && String(row.invoice_reference).trim().toLowerCase() === invNum) {
+      invNumMatch = true;
+    }
+    if (row.description && String(row.description).trim().toLowerCase().includes(invNum)) {
+      invNumMatch = true;
+    }
+  }
+
+  // 3. Phone Match
+  let phoneMatch = false;
+  if (row.payer_phone && tenant.phone_number) {
+    const p1 = normalizePhone(row.payer_phone);
+    const p2 = normalizePhone(tenant.phone_number);
+    if (p1 && p2 && p1 === p2) {
+      phoneMatch = true;
+    }
+  }
+
+  // 4. Name Match
+  let nameMatch = false;
+  if (row.payer_name && tenant.full_name) {
+    const n1 = row.payer_name.trim().toLowerCase();
+    const n2 = tenant.full_name.trim().toLowerCase();
+    if (n1.includes(n2) || n2.includes(n1)) {
+      nameMatch = true;
+    }
+  }
+
+  // 5. Unit Match
+  let unitMatch = false;
+  if (unit && unit.unit_code) {
+    const uc = unit.unit_code.trim().toLowerCase();
+    if (row.description && row.description.toLowerCase().includes(uc)) {
+      unitMatch = true;
+    }
+    if (row.reference_account && row.reference_account.toLowerCase().includes(uc)) {
+      unitMatch = true;
+    }
+    if (row.payer_name && row.payer_name.toLowerCase().includes(uc)) {
+      unitMatch = true;
+    }
+  }
+
+  // Determine score and confidence
+  if (refAccMatch) {
+    if (isAmountMatch) {
+      score = 95;
+      confidence = 'high';
+      reasons.push('Reference account matches tenant account number and amount matches invoice balance.');
+    } else {
+      score = 75;
+      confidence = 'medium';
+      reasons.push('Reference account matches tenant account number but amount does not match invoice balance.');
+      warnings.push('Amount mismatch with matching tenant account reference.');
+    }
+  } else if (invNumMatch) {
+    if (isAmountMatch) {
+      score = 95;
+      confidence = 'high';
+      reasons.push('Invoice number matches payment evidence reference and amount matches invoice balance.');
+    } else {
+      score = 75;
+      confidence = 'medium';
+      reasons.push('Invoice number matches payment evidence reference but amount does not match invoice balance.');
+      warnings.push('Amount mismatch with matching invoice number reference.');
+    }
+  } else if (phoneMatch && isAmountMatch) {
+    const diffDays = getDaysDifference(row.transaction_date, invoice.due_date);
+    if (diffDays <= 30) {
+      score = 90;
+      confidence = 'high';
+      reasons.push('Tenant phone matches payer phone and amount matches invoice balance within date window.');
+    } else {
+      score = 70;
+      confidence = 'medium';
+      reasons.push('Tenant phone matches payer phone and amount matches invoice balance outside date window.');
+      warnings.push('Date difference between payment and invoice exceeds 30 days.');
+    }
+  } else if (phoneMatch) {
+    score = 65;
+    confidence = 'medium';
+    reasons.push('Tenant phone matches payer phone but amount does not match invoice balance.');
+    warnings.push('Amount mismatch with matching phone number.');
+  } else if (nameMatch && isAmountMatch) {
+    score = 70;
+    confidence = 'medium';
+    reasons.push('Payer name is similar to tenant full name and amount matches invoice balance.');
+  } else if (unitMatch && isAmountMatch) {
+    score = 70;
+    confidence = 'medium';
+    reasons.push('Unit code matches payment narration / reference and amount matches invoice balance.');
+  } else if (nameMatch) {
+    score = 40;
+    confidence = 'low';
+    reasons.push('Payer name is similar to tenant full name but amount does not match invoice balance.');
+    warnings.push('Name similarity match only (amount mismatch).');
+  } else if (unitMatch) {
+    score = 35;
+    confidence = 'low';
+    reasons.push('Unit code is mentioned in payment narration / reference but amount does not match invoice balance.');
+    warnings.push('Unit code match only (amount mismatch).');
+  } else if (isAmountMatch) {
+    score = 50;
+    confidence = 'low';
+    reasons.push('Amount matches invoice balance exactly (no other matching signals).');
+    warnings.push('Amount-only match; high risk of false positive.');
+  }
+
+  if (score === 0) {
+    return null;
+  }
+
+  const propertyPrefix = property ? `${property.name} - ` : '';
+  const unitLabel = unit ? `${propertyPrefix}${unit.unit_code}` : 'N/A';
+
+  return {
+    tenant_id: tenant.id,
+    tenant_name: tenant.full_name,
+    tenant_phone: tenant.phone_number || 'N/A',
+    unit_label: unitLabel,
+    invoice_id: invoice.id,
+    invoice_number: invoice.invoice_number,
+    invoice_status: invoice.status,
+    invoice_balance: Number(invoice.balance),
+    invoice_due_date: invoice.due_date,
+    match_score: score,
+    match_confidence: confidence,
+    match_reasons: reasons,
+    match_warnings: warnings
+  };
+}
+
 function getContext(req) {
   return {
     orgId: req.auth?.organizationId,
@@ -78,9 +253,17 @@ export function createPaymentEvidenceRoutes(pgDb) {
     // Preload active tenants and invoices for metadata injection
     const allTenants = await activeDb.find('tenants', { organization_id: orgId });
     const allInvoices = await activeDb.find('invoices', { organization_id: orgId });
+    const allProperties = await activeDb.find('properties', { organization_id: orgId }) || [];
+    const allUnits = await activeDb.find('units', { organization_id: orgId }) || [];
 
     const tenantMap = new Map(allTenants.map(t => [t.id, t]));
     const invoiceMap = new Map(allInvoices.map(i => [i.id, i]));
+    const propertiesMap = new Map(allProperties.map(p => [p.id, p]));
+    const unitsMap = new Map(allUnits.map(u => [u.id, u]));
+
+    const activeTenants = allTenants.filter(t => t.status !== 'deleted' && t.status !== 'inactive');
+    const activeTenantMap = new Map(activeTenants.map(t => [t.id, t]));
+    const eligibleInvoices = allInvoices.filter(inv => inv.status !== 'paid' && inv.status !== 'void');
 
     // Filter by batch_id
     if (batch_id) {
@@ -141,10 +324,49 @@ export function createPaymentEvidenceRoutes(pgDb) {
       return b.id - a.id;
     });
 
-    // Map rows to include preloaded tenant/invoice metadata
+    // Map rows to include preloaded tenant/invoice metadata and matching suggestions
     const enrichedRows = rows.map(r => {
       const tenant = r.suggested_tenant_id ? tenantMap.get(r.suggested_tenant_id) : null;
       const invoice = r.suggested_invoice_id ? invoiceMap.get(r.suggested_invoice_id) : null;
+
+      let suggestions = [];
+      if (r.status !== 'ignored') {
+        for (const inv of eligibleInvoices) {
+          const activeTenant = activeTenantMap.get(inv.tenant_id);
+          if (!activeTenant) continue;
+          const unit = activeTenant.unit_id ? unitsMap.get(activeTenant.unit_id) : null;
+          const property = unit ? propertiesMap.get(unit.property_id) : null;
+
+          const match = calculateCandidateScore(r, activeTenant, inv, unit, property);
+          if (match) {
+            suggestions.push(match);
+          }
+        }
+
+        // Sort suggestions:
+        // 1. match_score descending
+        // 2. confidence high -> medium -> low
+        // 3. newest/open invoice priority (newest due date, then newest invoice id)
+        suggestions.sort((a, b) => {
+          if (b.match_score !== a.match_score) {
+            return b.match_score - a.match_score;
+          }
+          const confWeight = { high: 3, medium: 2, low: 1 };
+          const weightA = confWeight[a.match_confidence] || 0;
+          const weightB = confWeight[b.match_confidence] || 0;
+          if (weightB !== weightA) {
+            return weightB - weightA;
+          }
+          if (a.invoice_due_date !== b.invoice_due_date) {
+            return b.invoice_due_date.localeCompare(a.invoice_due_date);
+          }
+          return b.invoice_id - a.invoice_id;
+        });
+
+        // Limit to maximum 5 suggestions
+        suggestions = suggestions.slice(0, 5);
+      }
+
       return {
         ...r,
         suggested_tenant: tenant ? {
@@ -157,7 +379,8 @@ export function createPaymentEvidenceRoutes(pgDb) {
           invoice_number: invoice.invoice_number,
           total: invoice.total,
           balance: invoice.balance
-        } : null
+        } : null,
+        suggestions
       };
     });
 

@@ -775,6 +775,89 @@ async function runTests() {
     paymentEvidenceContent.includes("window.showConfirm ||")
   );
 
+  // Verify Suggestions GET logic
+  apiDb.seed('payment_evidence', [
+    { id: 3001, organization_id: 1, amount: 5000, transaction_date: '2026-06-25', status: 'imported', collection_channel: 'MPESA_PAYBILL', row_hash: 'HASH-SUGG-1' },
+    { id: 3002, organization_id: 1, amount: 12000, transaction_date: '2026-06-26', status: 'needs_review', reference_account: 'ACC-REF-1', collection_channel: 'BANK_TRANSFER', row_hash: 'HASH-SUGG-2' },
+    { id: 3003, organization_id: 1, amount: 15000, transaction_date: '2026-06-27', status: 'ignored', reference_account: 'ACC-REF-1', collection_channel: 'BANK_TRANSFER', row_hash: 'HASH-SUGG-3' }
+  ]);
+  apiDb.seed('tenants', [
+    { id: 101, organization_id: 1, tenant_account_number: 'ACC-REF-1', full_name: 'Alpha Tenant', phone_number: '254711223344', status: 'active', unit_id: 401 }
+  ]);
+  apiDb.seed('invoices', [
+    { id: 201, organization_id: 1, tenant_id: 101, invoice_number: 'INV-001', status: 'issued', balance: 12000, total: 12000, due_date: '2026-06-20' },
+    { id: 203, organization_id: 1, tenant_id: 101, invoice_number: 'INV-003', status: 'issued', balance: 5000, total: 5000, due_date: '2026-06-20' }
+  ]);
+  apiDb.seed('properties', [
+    { id: 301, name: 'Sunset Apartments', organization_id: 1 }
+  ]);
+  apiDb.seed('units', [
+    { id: 401, property_id: 301, unit_code: 'A10', organization_id: 1 }
+  ]);
+
+  rowsResult = null;
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: {}
+  }, mockResList);
+
+  assert('Enriched response returns suggestions field on rows', rowsResult && rowsResult.every(r => Array.isArray(r.suggestions)));
+
+  const row3001 = rowsResult.find(r => r.id === 3001);
+  const row3002 = rowsResult.find(r => r.id === 3002);
+  const row3003 = rowsResult.find(r => r.id === 3003);
+
+  assert('Imported evidence row returns suggestions', row3001 && row3001.suggestions.length > 0);
+  assert('Needs review evidence row returns suggestions', row3002 && row3002.suggestions.length > 0);
+  assert('Ignored evidence row does NOT produce suggestions', row3003 && row3003.suggestions.length === 0);
+
+  const sugg3001 = row3001.suggestions[0];
+  const sugg3002 = row3002.suggestions[0];
+
+  assert('Amount-only match is never high confidence (marked low)', sugg3001 && sugg3001.match_confidence === 'low' && sugg3001.match_score === 50);
+  assert('Reference account + amount match is high confidence', sugg3002 && sugg3002.match_confidence === 'high' && sugg3002.match_score === 95);
+
+  assert('Suggestion unit_label includes property and unit code details', sugg3002 && sugg3002.unit_label === 'Sunset Apartments - A10');
+  assert('Suggestion contains invoice status, balance and due date', sugg3002 && sugg3002.invoice_status === 'issued' && sugg3002.invoice_balance === 12000 && sugg3002.invoice_due_date === '2026-06-20');
+
+  apiDb.seed('invoices', [
+    { id: 201, organization_id: 1, tenant_id: 101, invoice_number: 'INV-001', status: 'issued', balance: 5000, total: 5000, due_date: '2026-06-20' },
+    { id: 202, organization_id: 1, tenant_id: 101, invoice_number: 'INV-002', status: 'issued', balance: 5000, total: 5000, due_date: '2026-06-20' },
+    { id: 203, organization_id: 1, tenant_id: 101, invoice_number: 'INV-003', status: 'issued', balance: 5000, total: 5000, due_date: '2026-06-20' },
+    { id: 204, organization_id: 1, tenant_id: 101, invoice_number: 'INV-004', status: 'issued', balance: 5000, total: 5000, due_date: '2026-06-20' },
+    { id: 205, organization_id: 1, tenant_id: 101, invoice_number: 'INV-005', status: 'issued', balance: 5000, total: 5000, due_date: '2026-06-20' },
+    { id: 206, organization_id: 1, tenant_id: 101, invoice_number: 'INV-006', status: 'issued', balance: 5000, total: 5000, due_date: '2026-06-20' }
+  ]);
+
+  rowsResult = null;
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: {}
+  }, mockResList);
+
+  const row3001Cap = rowsResult.find(r => r.id === 3001);
+  assert('Suggestions are limited to maximum 5 per row', row3001Cap && row3001Cap.suggestions.length === 5);
+
+  assert('No evidence status is changed by suggestion fetch', row3001Cap.status === 'imported' && row3002.status === 'needs_review');
+
+  assert(
+    'Review Queue renders safety copy notice warning',
+    paymentEvidenceContent.includes("These are matching suggestions only. No payment has been reconciled, allocated, or applied to an invoice.")
+  );
+  assert(
+    'Review Queue renders Suggested Match section and confidence level badges',
+    paymentEvidenceContent.includes("s.match_confidence") &&
+    paymentEvidenceContent.includes("s.match_score") &&
+    paymentEvidenceContent.includes("s.tenant_name") &&
+    paymentEvidenceContent.includes("s.unit_label")
+  );
+  assert(
+    'No reconcile/approve/allocate/mark paid buttons are defined for matching actions',
+    !paymentEvidenceContent.includes('Reconcile Payment') &&
+    !paymentEvidenceContent.includes('Approve Reconciliation') &&
+    !paymentEvidenceContent.includes('Allocate Payment')
+  );
+
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
   if (failures > 0) {
     process.exit(1);
