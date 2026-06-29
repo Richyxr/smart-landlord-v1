@@ -64,6 +64,30 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [typedConfirmationText, setTypedConfirmationText] = useState('');
   const [confirmingAllocation, setConfirmingAllocation] = useState(false);
 
+  // Allocation Result States
+  const [allocationResultData, setAllocationResultData] = useState(null);
+  const [loadingResult, setLoadingResult] = useState(false);
+  const [resultError, setResultError] = useState('');
+
+  const fetchAllocationResult = async (id) => {
+    setLoadingResult(true);
+    setResultError('');
+    try {
+      const res = await fetch(`/api/payment-evidence/${id}/allocation-result`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to fetch allocation result');
+      }
+      setAllocationResultData(data);
+    } catch (err) {
+      console.error(err);
+      setResultError(err.message || 'Failed to fetch allocation result');
+      setAllocationResultData(null);
+    } finally {
+      setLoadingResult(false);
+    }
+  };
+
   const fetchAllocationPreview = async (id) => {
     setLoadingPreview(true);
     setPreviewError('');
@@ -147,11 +171,21 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
 
     if (selectedRow && (role === 'landlord' || role === 'super_admin')) {
       fetchAuditLogs(selectedRow.id);
-      fetchAllocationPreview(selectedRow.id);
+      if (selectedRow.status === 'manually_reconciled' || selectedRow.status === 'auto_reconciled') {
+        fetchAllocationResult(selectedRow.id);
+        setPreviewData(null);
+        setPreviewError('');
+      } else {
+        fetchAllocationPreview(selectedRow.id);
+        setAllocationResultData(null);
+        setResultError('');
+      }
     } else {
       setAuditLogs([]);
       setPreviewData(null);
       setPreviewError('');
+      setAllocationResultData(null);
+      setResultError('');
     }
   }, [selectedRow, role]);
 
@@ -1380,7 +1414,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             </div>
 
             {/* Draft Allocation Preview Section */}
-            {(role === 'landlord' || role === 'super_admin') && (
+            {(role === 'landlord' || role === 'super_admin') && (selectedRow?.status !== 'manually_reconciled' && selectedRow?.status !== 'auto_reconciled' && !allocationResultData?.allocation_result?.allocated) && (
               <div style={{ marginBottom: '16px', border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-surface)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-primary)', margin: 0, fontWeight: '700' }}>Draft Allocation Preview</h4>
@@ -1534,6 +1568,97 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                   </div>
                 ) : (
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>No readiness data loaded.</div>
+                )}
+              </div>
+            )}
+
+            {/* Allocation Result Section */}
+            {(role === 'landlord' || role === 'super_admin') && (selectedRow?.status === 'manually_reconciled' || selectedRow?.status === 'auto_reconciled' || allocationResultData?.allocation_result?.allocated) && (
+              <div style={{ marginBottom: '16px', border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-surface)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-primary)', margin: 0, fontWeight: '700' }}>Allocation Result</h4>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => selectedRow && fetchAllocationResult(selectedRow.id)}
+                    disabled={loadingResult}
+                    style={{ padding: '2px 8px', fontSize: '10px', height: 'auto', marginLeft: 'auto' }}
+                  >
+                    Refresh Allocation Result
+                  </button>
+                </div>
+
+                {loadingResult ? (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Loading allocation result...</div>
+                ) : resultError ? (
+                  <div style={{ fontSize: '11px', color: 'var(--danger)' }}>{resultError}</div>
+                ) : allocationResultData?.allocation_result ? (
+                  <div style={{ fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                      <div>
+                        <span className="text-muted">Transaction ID:</span> <strong>{allocationResultData.allocation_result.transaction_id || 'N/A'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-muted">Allocation ID:</span> <strong>{allocationResultData.allocation_result.payment_allocation_id || 'N/A'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-muted">Tenant:</span> <strong>{allocationResultData.allocation_result.tenant_name || 'N/A'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-muted">Invoice:</span> <strong>{allocationResultData.allocation_result.invoice_number || 'N/A'}</strong> ({allocationResultData.allocation_result.invoice_status})
+                      </div>
+                      <div>
+                        <span className="text-muted">Allocation Amount:</span> <strong style={{ color: 'var(--success)' }}>{formatCurrency(allocationResultData.allocation_result.allocation_amount)}</strong>
+                      </div>
+                      <div>
+                        <span className="text-muted">Invoice Balance After:</span> <strong>{formatCurrency(allocationResultData.allocation_result.invoice_balance_after)}</strong>
+                      </div>
+                      <div>
+                        <span className="text-muted">Evidence Status:</span> <strong style={{ textTransform: 'capitalize' }}>{allocationResultData.allocation_result.payment_evidence_status.replace(/_/g, ' ')}</strong>
+                      </div>
+                      {allocationResultData.allocation_result.audit_reference && (
+                        <div>
+                          <span className="text-muted">Audit Reference:</span> <strong>{allocationResultData.allocation_result.audit_reference}</strong>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Reversal Readiness Subsection */}
+                    {allocationResultData.reversal_readiness && (
+                      <div style={{ marginTop: '6px', paddingTop: '6px' }}>
+                        <strong style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Reversal Readiness</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                          <span className="text-muted">Can Request Reversal:</span>
+                          <strong style={{ color: 'var(--danger)' }}>NO</strong>
+                        </div>
+                        <div style={{ marginBottom: '4px' }}>
+                          <span className="text-muted">Future Confirmation Text:</span>{' '}
+                          <code style={{ padding: '2px 4px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '3px', color: 'var(--primary)' }}>
+                            {allocationResultData.reversal_readiness.required_future_confirmation_text || 'CONFIRM ALLOCATION REVERSAL'}
+                          </code>
+                        </div>
+                        {allocationResultData.reversal_readiness.blocking_reasons && (
+                          <div style={{ marginTop: '4px', padding: '6px 8px', backgroundColor: 'rgba(244, 67, 54, 0.05)', border: '1px solid var(--danger)', borderRadius: '4px' }}>
+                            <span style={{ fontWeight: '700', color: 'var(--danger)', display: 'block', marginBottom: '2px', fontSize: '9.5px' }}>Blocking Reasons:</span>
+                            <ul style={{ margin: 0, paddingLeft: '14px', fontSize: '9.5px', color: 'var(--text-primary)' }}>
+                              {allocationResultData.reversal_readiness.blocking_reasons.map((reason, rIdx) => (
+                                <li key={rIdx}>{reason}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <div style={{ marginTop: '6px', padding: '6px 8px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '4px', fontSize: '9px', color: 'var(--text-muted)' }}>
+                          <strong>Safety Notice:</strong> {allocationResultData.reversal_readiness.safety_message}
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: '6px', padding: '6px 8px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '4px', fontSize: '9px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                      {allocationResultData.safety_message}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>No allocation result data available.</div>
                 )}
               </div>
             )}

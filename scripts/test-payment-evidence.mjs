@@ -1810,6 +1810,152 @@ async function runTests() {
     !paymentEvidenceContent.includes('Finalize Payment')
   );
 
+  // ==========================================
+  // Test 15: Payment Evidence Allocation Result Visibility + Reversal Readiness
+  // ==========================================
+  console.log('\n15. Payment Evidence Allocation Result Visibility + Reversal Readiness:');
+
+  const resultHandler = getRouteHandler('/payment-evidence/:id/allocation-result');
+  const resultMiddlewares = getRouteMiddlewares('/payment-evidence/:id/allocation-result');
+
+  assert(
+    'Allocation Result endpoint requires landlord or super_admin role',
+    resultMiddlewares.includes(requireLandlordOrSuperAdminMiddleware)
+  );
+
+  // Access control checks for result lookup
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let blockedStatus = null;
+    let blockedNextCalled = false;
+    await requireLandlordOrSuperAdminMiddleware({
+      auth: { role: blockedRole, organizationId: 1, userId: 99 }
+    }, {
+      status(code) { blockedStatus = code; return this; },
+      json() { return this; }
+    }, () => { blockedNextCalled = true; });
+
+    assert(`Allocation Result endpoint blocks ${blockedRole}`, blockedStatus === 403 && blockedNextCalled === false);
+  }
+
+  let resultResStatus = null;
+  let resultResResult = null;
+  const mockResResult = {
+    status(code) { resultResStatus = code; return this; },
+    json(data) { resultResResult = data; return this; }
+  };
+
+  // 1. Wrong organization is blocked / returns 404
+  resultResStatus = null;
+  resultResResult = null;
+  await resultHandler({
+    auth: { organizationId: 2, role: 'landlord', userId: 10 },
+    params: { id: '7001' }
+  }, mockResResult);
+  assert('Result lookup blocks wrong organization with 404', resultResStatus === 404 && resultResResult.error === 'ROW_NOT_FOUND');
+
+  // 2. Unallocated evidence returns allocated: false
+  apiDb.seed('payment_evidence', [
+    { id: 8001, organization_id: 1, amount: 5000, transaction_date: '2026-06-21', status: 'needs_review', review_status: null }
+  ]);
+
+  resultResStatus = null;
+  resultResResult = null;
+  await resultHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '8001' }
+  }, mockResResult);
+
+  assert('Unallocated evidence returns allocated false', resultResResult && resultResResult.allocation_result.allocated === false);
+  assert('Unallocated evidence returns state not_allocated', resultResResult && resultResResult.allocation_result.state === 'not_allocated');
+  assert('Unallocated evidence returns reversal contract as false', resultResResult && resultResResult.reversal_readiness.can_request_reversal === false);
+
+  // 3. Allocated evidence returns allocated: true and all linked details
+  apiDb.seed('payment_evidence', [
+    { id: 8002, organization_id: 1, amount: 5000, transaction_date: '2026-06-21', status: 'manually_reconciled', review_status: 'accepted_suggestion', accepted_tenant_id: 102, accepted_invoice_id: 202 }
+  ]);
+  apiDb.seed('tenants', [
+    { id: 102, organization_id: 1, full_name: 'Bob Tenant', tenant_account_number: 'ACC-T2', status: 'active', currency: 'KES' }
+  ]);
+  apiDb.seed('invoices', [
+    { id: 202, organization_id: 1, tenant_id: 102, invoice_number: 'INV-202', status: 'paid', balance: 0, total: 5000, amount_paid: 5000 }
+  ]);
+  apiDb.seed('transactions', [
+    { id: 501, organization_id: 1, tenant_id: 102, amount: 5000, transaction_type: 'payment', status: 'reconciled', raw_payload: JSON.stringify({ evidence_id: 8002, source: 'payment_evidence_allocation' }) }
+  ]);
+  apiDb.seed('payment_allocations', [
+    { id: 601, organization_id: 1, transaction_id: 501, invoice_id: 202, amount_allocated: 5000, allocated_at: '2026-06-21T12:00:00.000Z' }
+  ]);
+  apiDb.seed('payment_evidence_review_audit', [
+    { id: 901, organization_id: 1, payment_evidence_id: 8002, action: 'confirm_allocation', safety_message: 'test' }
+  ]);
+
+  resultResStatus = null;
+  resultResResult = null;
+  await resultHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '8002' }
+  }, mockResResult);
+
+  assert('Allocated evidence returns allocated true', resultResResult && resultResResult.allocation_result.allocated === true);
+  assert('Allocated result contains transaction_id', resultResResult && resultResResult.allocation_result.transaction_id === 501);
+  assert('Allocated result contains payment_allocation_id', resultResResult && resultResResult.allocation_result.payment_allocation_id === 601);
+  assert('Allocated result contains tenant_name', resultResResult && resultResResult.allocation_result.tenant_name === 'Bob Tenant');
+  assert('Allocated result contains invoice_number', resultResResult && resultResResult.allocation_result.invoice_number === 'INV-202');
+  assert('Allocated result contains allocation_amount', resultResResult && resultResResult.allocation_result.allocation_amount === 5000);
+  assert('Allocated result contains invoice_balance_after', resultResResult && resultResResult.allocation_result.invoice_balance_after === 0);
+  assert('Allocated result contains audit_reference', resultResResult && resultResResult.allocation_result.audit_reference === '901');
+
+  // 4. Reversal readiness checks
+  assert('Reversal readiness shows can_request_reversal false', resultResResult && resultResResult.reversal_readiness.can_request_reversal === false);
+  assert('Reversal readiness returns state reversal_not_enabled', resultResResult && resultResResult.reversal_readiness.state === 'reversal_not_enabled');
+  assert('Reversal readiness contains blocking reason', resultResResult && resultResResult.reversal_readiness.blocking_reasons[0] === 'Reversal execution is not enabled in this release.');
+  assert('Reversal readiness future confirmation text is CONFIRM ALLOCATION REVERSAL', resultResResult && resultResResult.reversal_readiness.required_future_confirmation_text === 'CONFIRM ALLOCATION REVERSAL');
+  assert('Reversal readiness has safety message', resultResResult && resultResResult.reversal_readiness.safety_message === 'This is reversal readiness only. No allocation, invoice, transaction, ledger, receipt, or tenant record has been changed.');
+
+  // 5. Immutability checks: confirm lookup causes zero mutations
+  assert('Result lookup has read-only safety message', resultResResult && resultResResult.safety_message === 'Allocation result is read-only. No financial records were changed by this lookup.');
+  assert('Invoices count unchanged', apiDb.get('invoices').length === 1);
+  assert('Tenants count unchanged', apiDb.get('tenants').length === 1);
+  assert('Transactions count unchanged', apiDb.get('transactions').length === 1);
+  assert('Payment allocations count unchanged', apiDb.get('payment_allocations').length === 1);
+  assert('Payment evidence count unchanged', apiDb.get('payment_evidence').length === 1);
+  assert('No ledger records created', apiDb.get('transactions').filter(t => t.ledger).length === 0);
+
+  // Frontend/Static checks
+  assert(
+    'PaymentEvidence.jsx renders Allocation Result',
+    paymentEvidenceContent.includes('Allocation Result')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders Reversal Readiness',
+    paymentEvidenceContent.includes('Reversal Readiness')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders CONFIRM ALLOCATION REVERSAL',
+    paymentEvidenceContent.includes('CONFIRM ALLOCATION REVERSAL')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders read-only safety notice',
+    paymentEvidenceContent.includes('reversal_readiness.safety_message')
+  );
+
+  assert(
+    'PaymentEvidence.jsx fetches allocation-result via GET',
+    paymentEvidenceContent.includes('allocation-result') &&
+    paymentEvidenceContent.includes('fetchAllocationResult')
+  );
+
+  assert(
+    'PaymentEvidence.jsx has no unsupported final action buttons',
+    !paymentEvidenceContent.includes('Reverse Allocation') &&
+    !paymentEvidenceContent.includes('Void Payment') &&
+    !paymentEvidenceContent.includes('Refund') &&
+    !paymentEvidenceContent.includes('Delete Allocation')
+  );
+
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
   if (failures > 0) {
     process.exit(1);

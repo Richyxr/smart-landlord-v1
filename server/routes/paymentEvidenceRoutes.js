@@ -1375,5 +1375,100 @@ export function createPaymentEvidenceRoutes(pgDb) {
     });
   }));
 
+  // GET /api/payment-evidence/:id/allocation-result
+  router.get('/payment-evidence/:id/allocation-result', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
+    const rowId = Number(req.params.id);
+
+    const row = await activeDb.findOne('payment_evidence', { id: rowId, organization_id: orgId });
+    if (!row) {
+      return res.status(404).json({
+        error: 'ROW_NOT_FOUND',
+        message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    const isAllocated = row.status === 'manually_reconciled' || row.status === 'auto_reconciled';
+    if (!isAllocated) {
+      return res.json({
+        success: true,
+        payment_evidence_id: row.id,
+        allocation_result: {
+          allocated: false,
+          state: 'not_allocated',
+          message: 'This payment evidence row has not been allocated or reconciled yet.'
+        },
+        reversal_readiness: {
+          can_request_reversal: false,
+          state: 'reversal_not_enabled',
+          blocking_reasons: [
+            'Reversal execution is not enabled in this release.'
+          ],
+          required_future_confirmation_text: 'CONFIRM ALLOCATION REVERSAL',
+          safety_message: 'This is reversal readiness only. No allocation, invoice, transaction, ledger, receipt, or tenant record has been changed.'
+        },
+        safety_message: 'Allocation result is read-only. No financial records were changed by this lookup.'
+      });
+    }
+
+    const txs = await activeDb.find('transactions', { organization_id: orgId });
+    const transaction = txs.find(t => {
+      try {
+        const payload = typeof t.raw_payload === 'string' ? JSON.parse(t.raw_payload) : t.raw_payload;
+        return payload && Number(payload.evidence_id) === Number(rowId);
+      } catch (e) {
+        return false;
+      }
+    });
+
+    let allocation = null;
+    if (transaction) {
+      allocation = await activeDb.findOne('payment_allocations', { transaction_id: transaction.id, organization_id: orgId });
+    }
+
+    const tenant = row.accepted_tenant_id
+      ? await activeDb.findOne('tenants', { id: Number(row.accepted_tenant_id), organization_id: orgId })
+      : null;
+
+    const invoice = row.accepted_invoice_id
+      ? await activeDb.findOne('invoices', { id: Number(row.accepted_invoice_id), organization_id: orgId })
+      : null;
+
+    const audits = await activeDb.find('payment_evidence_review_audit', { payment_evidence_id: rowId, action: 'confirm_allocation', organization_id: orgId });
+    audits.sort((a, b) => b.id - a.id);
+    const auditRow = audits[0];
+
+    res.json({
+      success: true,
+      payment_evidence_id: row.id,
+      allocation_result: {
+        allocated: true,
+        state: 'allocated',
+        transaction_id: transaction ? transaction.id : null,
+        payment_allocation_id: allocation ? allocation.id : null,
+        tenant_id: tenant ? tenant.id : null,
+        tenant_name: tenant ? tenant.full_name : null,
+        invoice_id: invoice ? invoice.id : null,
+        invoice_number: invoice ? invoice.invoice_number : null,
+        invoice_status: invoice ? invoice.status : null,
+        allocation_amount: allocation ? Number(allocation.amount_allocated) : (transaction ? Number(transaction.amount) : 0),
+        invoice_balance_after: invoice ? Number(invoice.balance) : 0,
+        payment_evidence_status: row.status,
+        allocated_at: allocation ? allocation.allocated_at : (transaction ? transaction.created_at : null),
+        audit_reference: auditRow ? String(auditRow.id) : null
+      },
+      reversal_readiness: {
+        can_request_reversal: false,
+        state: 'reversal_not_enabled',
+        blocking_reasons: [
+          'Reversal execution is not enabled in this release.'
+        ],
+        required_future_confirmation_text: 'CONFIRM ALLOCATION REVERSAL',
+        safety_message: 'This is reversal readiness only. No allocation, invoice, transaction, ledger, receipt, or tenant record has been changed.'
+      },
+      safety_message: 'Allocation result is read-only. No financial records were changed by this lookup.'
+    });
+  }));
+
   return router;
 }
