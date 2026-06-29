@@ -45,6 +45,24 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [rejectedReasonText, setRejectedReasonText] = useState('');
   const [reviewNotesText, setReviewNotesText] = useState('');
   const [savingReview, setSavingReview] = useState(false);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+
+  const fetchAuditLogs = async (id) => {
+    setLoadingAudit(true);
+    try {
+      const res = await fetch(`/api/payment-evidence/${id}/review-audit`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to fetch audit log');
+      }
+      setAuditLogs(data.audit || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingAudit(false);
+    }
+  };
 
   const getBrandedConfirmAndNotify = () => {
     const showConfirm = window.showConfirm;
@@ -89,7 +107,13 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     setRejectedReasonText('');
     setReviewNotesText('');
     setSavingReview(false);
-  }, [selectedRow]);
+
+    if (selectedRow && (role === 'landlord' || role === 'super_admin')) {
+      fetchAuditLogs(selectedRow.id);
+    } else {
+      setAuditLogs([]);
+    }
+  }, [selectedRow, role]);
 
   const parseCSV = (text) => {
     /*
@@ -562,6 +586,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
 
           notifySuccess('Decision Saved', data.message || 'Review decision updated.');
           setSelectedRow(data.row);
+          fetchAuditLogs(data.row.id);
           await fetchEvidenceRows();
         } catch (err) {
           console.error(err);
@@ -1149,6 +1174,93 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               </div>
               <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '6px' }}>
                 Manual review decisions are audit notes only. They do not reconcile, allocate, or apply payments.
+              </div>
+            </div>
+
+            {/* Review Decision History Section */}
+            <div style={{ marginBottom: '16px', border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-surface)' }}>
+              <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-primary)', marginBottom: '8px', fontWeight: '700' }}>Review Decision History</h4>
+
+              {loadingAudit ? (
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '4px 0' }}>Loading history...</div>
+              ) : auditLogs.length === 0 ? (
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '4px 0' }}>No review decision history yet.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '200px', overflowY: 'auto', paddingRight: '4px' }}>
+                  {auditLogs.map((log, index) => (
+                    <div key={`${log.created_at}-${log.action}-${index}`} style={{ fontSize: '11px', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '2px' }}>
+                        <span style={{ fontWeight: '700', textTransform: 'uppercase', color: log.action.includes('create') ? 'var(--primary)' : 'var(--warning)' }}>
+                          {log.action.replace('_', ' ')}
+                        </span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>
+                          {new Date(log.created_at).toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div style={{ color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                        By <strong>{log.actor_name}</strong> ({log.actor_role})
+                      </div>
+
+                      {/* Status changes */}
+                      {(log.previous_review_status !== log.new_review_status || log.previous_review_decision !== log.new_review_decision) && (
+                        <div style={{ marginBottom: '2px' }}>
+                          <span className="text-muted">Decision:</span>{' '}
+                          <span style={{ textDecoration: 'line-through', color: 'var(--danger)' }}>{getReviewStatusLabel(log.previous_review_status) || 'None'}</span>
+                          {' -> '}
+                          <span style={{ color: 'var(--success)', fontWeight: '700' }}>{getReviewStatusLabel(log.new_review_status)}</span>
+                        </div>
+                      )}
+
+                      {/* Tenant/Invoice references changes */}
+                      {log.new_review_status === 'accepted_suggestion' && (log.previous_accepted_tenant_id !== log.new_accepted_tenant_id || log.previous_accepted_invoice_id !== log.new_accepted_invoice_id) && (
+                        <div style={{ paddingLeft: '6px', borderLeft: '2px solid var(--success)', margin: '4px 0' }}>
+                          <div>
+                            Tenant ID: <span style={{ color: 'var(--text-muted)' }}>{log.previous_accepted_tenant_id || 'None'}</span>
+                            {' -> '}
+                            <strong>{log.new_accepted_tenant_id || 'None'}</strong>
+                          </div>
+                          <div>
+                            Invoice ID: <span style={{ color: 'var(--text-muted)' }}>{log.previous_accepted_invoice_id || 'None'}</span>
+                            {' -> '}
+                            <strong>{log.new_accepted_invoice_id || 'None'}</strong>
+                          </div>
+                          {(log.previous_accepted_match_score !== log.new_accepted_match_score || log.previous_accepted_match_confidence !== log.new_accepted_match_confidence) && (
+                            <div>
+                              Match: <span style={{ color: 'var(--text-muted)' }}>{log.previous_accepted_match_score || 'None'} {log.previous_accepted_match_confidence || ''}</span>
+                              {' -> '}
+                              <strong>{log.new_accepted_match_score || 'None'} {log.new_accepted_match_confidence || ''}</strong>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Rejection reason changes */}
+                      {log.previous_rejected_reason !== log.new_rejected_reason && (log.previous_rejected_reason || log.new_rejected_reason) && (
+                        <div style={{ color: 'var(--danger)', fontStyle: 'italic', marginBottom: '2px' }}>
+                          Reason: "{log.previous_rejected_reason || 'None'}" {' -> '} "{log.new_rejected_reason || 'None'}"
+                        </div>
+                      )}
+
+                      {/* Notes changes */}
+                      {log.previous_review_notes !== log.new_review_notes && (log.previous_review_notes || log.new_review_notes) && (
+                        <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '6px', borderRadius: '4px', fontStyle: 'italic', marginTop: '4px' }}>
+                          Notes: "{log.previous_review_notes || 'None'}" {' -> '} "{log.new_review_notes || 'None'}"
+                        </div>
+                      )}
+
+                      {log.safety_message && (
+                        <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                          {log.safety_message}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ fontSize: '9.5px', color: 'var(--text-muted)', marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '6px' }}>
+                Review history is an audit trail only. It does not reconcile, allocate, or apply payments.
               </div>
             </div>
 

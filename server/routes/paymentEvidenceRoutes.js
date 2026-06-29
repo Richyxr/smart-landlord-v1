@@ -653,7 +653,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
   //   or perform any write operations on financial ledgers/transactions.
   // - Access is restricted to authenticated Landlord or Super Admin roles only.
   router.post('/payment-evidence/:id/review-decision', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
-    const { orgId, userId } = getContext(req);
+    const { orgId, userId, role } = getContext(req);
     const rowId = Number(req.params.id);
 
     const row = await activeDb.findOne('payment_evidence', { id: rowId, organization_id: orgId });
@@ -753,7 +753,75 @@ export function createPaymentEvidenceRoutes(pgDb) {
       rejected_reason: (decision === 'rejected_suggestion' || decision === 'marked_irrelevant') ? (rejected_reason || null) : null
     };
 
-    const [updatedRow] = await activeDb.update('payment_evidence', rowId, updates);
+    const previousReviewMetadata = {
+      review_status: row.review_status ?? null,
+      review_decision: row.review_decision ?? null,
+      reviewed_by: row.reviewed_by ?? null,
+      reviewed_at: row.reviewed_at ?? null,
+      review_notes: row.review_notes ?? null,
+      accepted_tenant_id: row.accepted_tenant_id ?? null,
+      accepted_invoice_id: row.accepted_invoice_id ?? null,
+      accepted_match_score: row.accepted_match_score ?? null,
+      accepted_match_confidence: row.accepted_match_confidence ?? null,
+      rejected_reason: row.rejected_reason ?? null
+    };
+
+    const auditRow = {
+      organization_id: orgId,
+      payment_evidence_id: rowId,
+      action: row.review_status ? 'update_decision' : 'create_decision',
+      previous_review_status: row.review_status || null,
+      new_review_status: updates.review_status,
+      previous_review_decision: row.review_decision || null,
+      new_review_decision: updates.review_decision,
+      previous_accepted_tenant_id: row.accepted_tenant_id == null ? null : Number(row.accepted_tenant_id),
+      new_accepted_tenant_id: updates.accepted_tenant_id,
+      previous_accepted_invoice_id: row.accepted_invoice_id == null ? null : Number(row.accepted_invoice_id),
+      new_accepted_invoice_id: updates.accepted_invoice_id,
+      previous_accepted_match_score: row.accepted_match_score == null ? null : Number(row.accepted_match_score),
+      new_accepted_match_score: updates.accepted_match_score,
+      previous_accepted_match_confidence: row.accepted_match_confidence || null,
+      new_accepted_match_confidence: updates.accepted_match_confidence,
+      previous_rejected_reason: row.rejected_reason || null,
+      new_rejected_reason: updates.rejected_reason,
+      previous_review_notes: row.review_notes || null,
+      new_review_notes: updates.review_notes,
+      actor_user_id: userId,
+      actor_role: role,
+      actor_ip: req.ip || (req.headers && req.headers['x-forwarded-for']) || '127.0.0.1',
+      user_agent: (req.headers && req.headers['user-agent']) || 'Unknown',
+      safety_message: 'Manual review audit only. No payment has been reconciled, allocated, or applied.'
+    };
+
+    // TODO: PostgreSQL production should wrap the review metadata update and audit insert in a single real transaction.
+    // The current generic DB wrapper exposes CRUD helpers but no same-client transaction helper.
+    let updatedRow;
+    let reviewMetadataUpdated = false;
+
+    try {
+      const rows = await activeDb.update('payment_evidence', rowId, updates);
+      updatedRow = rows[0];
+      if (!updatedRow) {
+        throw new Error('Target payment evidence row was not updated.');
+      }
+      reviewMetadataUpdated = true;
+
+      await activeDb.insert('payment_evidence_review_audit', auditRow);
+    } catch (err) {
+      if (reviewMetadataUpdated) {
+        try {
+          await activeDb.update('payment_evidence', rowId, previousReviewMetadata);
+        } catch (rollbackErr) {
+          console.error('Failed to restore review metadata after audit write failure:', rollbackErr);
+        }
+      }
+
+      console.error('Failed to save payment evidence review audit:', err);
+      return res.status(500).json({
+        error: 'AUDIT_WRITE_FAILED',
+        message: 'Review decision was not saved because the audit history could not be written. No payment has been reconciled, allocated, or applied.'
+      });
+    }
 
     const tenant = updatedRow.suggested_tenant_id ? (await activeDb.findOne('tenants', { id: updatedRow.suggested_tenant_id })) : null;
     const invoice = updatedRow.suggested_invoice_id ? (await activeDb.findOne('invoices', { id: updatedRow.suggested_invoice_id })) : null;
@@ -834,6 +902,62 @@ export function createPaymentEvidenceRoutes(pgDb) {
       success: true,
       message: 'Review decision saved. No payment has been reconciled or applied.',
       row: finalRow
+    });
+  }));
+
+  // GET /api/payment-evidence/:id/review-audit
+  router.get('/payment-evidence/:id/review-audit', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
+    const rowId = Number(req.params.id);
+
+    const row = await activeDb.findOne('payment_evidence', { id: rowId, organization_id: orgId });
+    if (!row) {
+      return res.status(404).json({
+        error: 'ROW_NOT_FOUND',
+        message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    const auditRows = await activeDb.find('payment_evidence_review_audit', {
+      organization_id: orgId,
+      payment_evidence_id: rowId
+    });
+
+    // Resolve user names using users table mapping for actor_name
+    const allUsers = await activeDb.find('users', {}) || [];
+    const userMap = new Map(allUsers.map(u => [u.id, u.name]));
+
+    const enrichedAudit = auditRows.map(item => ({
+      action: item.action,
+      previous_review_status: item.previous_review_status,
+      new_review_status: item.new_review_status,
+      previous_review_decision: item.previous_review_decision,
+      new_review_decision: item.new_review_decision,
+      previous_accepted_tenant_id: item.previous_accepted_tenant_id,
+      new_accepted_tenant_id: item.new_accepted_tenant_id,
+      previous_accepted_invoice_id: item.previous_accepted_invoice_id,
+      new_accepted_invoice_id: item.new_accepted_invoice_id,
+      previous_accepted_match_score: item.previous_accepted_match_score,
+      new_accepted_match_score: item.new_accepted_match_score,
+      previous_accepted_match_confidence: item.previous_accepted_match_confidence,
+      new_accepted_match_confidence: item.new_accepted_match_confidence,
+      previous_rejected_reason: item.previous_rejected_reason,
+      new_rejected_reason: item.new_rejected_reason,
+      previous_review_notes: item.previous_review_notes,
+      new_review_notes: item.new_review_notes,
+      actor_user_id: item.actor_user_id,
+      actor_name: item.actor_user_id ? (userMap.get(item.actor_user_id) || 'Unknown') : 'Unknown',
+      actor_role: item.actor_role,
+      created_at: item.created_at,
+      safety_message: item.safety_message
+    }));
+
+    // Sort newest first
+    enrichedAudit.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    res.json({
+      success: true,
+      audit: enrichedAudit
     });
   }));
 

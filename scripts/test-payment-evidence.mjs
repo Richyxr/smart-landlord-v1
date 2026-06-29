@@ -66,7 +66,12 @@ class MockDb {
     if (!this.tables[table]) this.tables[table] = [];
     const maxId = this.tables[table].reduce((max, r) => (r.id > max ? r.id : max), 0);
     const newId = maxId + 1;
-    const newRow = { id: newId, ...rowData };
+    const newRow = {
+      id: newId,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      ...rowData
+    };
     this.tables[table].push(newRow);
     return newRow;
   }
@@ -1037,6 +1042,187 @@ async function runTests() {
     'Route does not include status field inside its update payload',
     updatesStart !== -1 && !/\bstatus\s*:/.test(updatesBlock)
   );
+
+  // ==========================================
+  // Test 10: Review Decision Audit Trail Hardening
+  // ==========================================
+  console.log('\n10. Review Decision Audit Trail Hardening:');
+
+  const reviewAuditHandler = getRouteHandler('/payment-evidence/:id/review-audit');
+  const reviewAuditMiddlewares = getRouteMiddlewares('/payment-evidence/:id/review-audit');
+
+  assert(
+    'Audit read endpoint is landlord/super_admin only',
+    reviewAuditMiddlewares.includes(requireLandlordOrSuperAdminMiddleware)
+  );
+
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let blockedStatus = null;
+    let blockedNextCalled = false;
+    await requireLandlordOrSuperAdminMiddleware({
+      auth: { role: blockedRole, organizationId: 1, userId: 99 }
+    }, {
+      status(code) { blockedStatus = code; return this; },
+      json() { return this; }
+    }, () => { blockedNextCalled = true; });
+
+    assert(`Audit read endpoint blocks ${blockedRole}`, blockedStatus === 403 && blockedNextCalled === false);
+  }
+
+  // Setup audit test data
+  apiDb.seed('payment_evidence_review_audit', []);
+  apiDb.seed('payment_evidence', [
+    { id: 5001, organization_id: 1, amount: 5000, transaction_date: '2026-06-19', status: 'needs_review', collection_channel: 'MPESA_PAYBILL', row_hash: 'HASH-AUDIT-1', payer_phone: '254722334455', review_status: null, review_decision: null }
+  ]);
+
+  // 1. Save decision creates audit row
+  let mockResPostAudit = {
+    status(code) { return this; },
+    json(data) { return this; }
+  };
+
+  await reviewDecisionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '5001' },
+    headers: { 'user-agent': 'Chrome-Test' },
+    ip: '192.168.1.1',
+    body: {
+      decision: 'accepted_suggestion',
+      accepted_tenant_id: 101,
+      accepted_invoice_id: 201,
+      review_notes: 'Initial audit trace check.'
+    }
+  }, mockResPostAudit);
+
+  const auditsAfterFirst = apiDb.get('payment_evidence_review_audit');
+  assert('Saving review decision creates one audit row', auditsAfterFirst.length === 1);
+  assert('Audit row stores new review status', auditsAfterFirst[0].new_review_status === 'accepted_suggestion');
+  assert('Audit row stores previous and new accepted tenant/invoice ids', auditsAfterFirst[0].previous_accepted_tenant_id === null && auditsAfterFirst[0].new_accepted_tenant_id === 101 && auditsAfterFirst[0].previous_accepted_invoice_id === null && auditsAfterFirst[0].new_accepted_invoice_id === 201);
+  assert('Audit row stores actor user id and actor role', auditsAfterFirst[0].actor_user_id === 10 && auditsAfterFirst[0].actor_role === 'landlord');
+  assert('Audit row stores request metadata (IP and User-Agent)', auditsAfterFirst[0].actor_ip === '192.168.1.1' && auditsAfterFirst[0].user_agent === 'Chrome-Test');
+  assert('Audit row includes correct safety message', auditsAfterFirst[0].safety_message === 'Manual review audit only. No payment has been reconciled, allocated, or applied.');
+
+  // 2. Second review decision creates second audit row
+  await new Promise(resolve => setTimeout(resolve, 15));
+  await reviewDecisionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '5001' },
+    headers: { 'user-agent': 'Chrome-Test' },
+    ip: '192.168.1.1',
+    body: {
+      decision: 'marked_irrelevant',
+      rejected_reason: 'Non-rent payment.'
+    }
+  }, mockResPostAudit);
+
+  const auditsAfterSecond = apiDb.get('payment_evidence_review_audit');
+  assert('Second review decision creates second audit row', auditsAfterSecond.length === 2);
+  assert('Audit row stores previous and new review status', auditsAfterSecond[1].previous_review_status === 'accepted_suggestion' && auditsAfterSecond[1].new_review_status === 'marked_irrelevant');
+  assert('Audit row stores previous accepted tenant/invoice ids on later decisions', auditsAfterSecond[1].previous_accepted_tenant_id === 101 && auditsAfterSecond[1].new_accepted_tenant_id === null && auditsAfterSecond[1].previous_accepted_invoice_id === 201 && auditsAfterSecond[1].new_accepted_invoice_id === null);
+  assert('Audit row stores new rejected reason', auditsAfterSecond[1].new_rejected_reason === 'Non-rent payment.');
+
+  // 3. Read audit endpoint scoped by organization_id and sorted newest first
+  let auditGetStatus = null;
+  let auditGetResult = null;
+  const mockResGet = {
+    status(code) { auditGetStatus = code; return this; },
+    json(data) { auditGetResult = data; return this; }
+  };
+
+  await reviewAuditHandler({
+    auth: { organizationId: 1, role: 'landlord' },
+    params: { id: '5001' }
+  }, mockResGet);
+
+  assert('Audit read endpoint returns success', auditGetResult && auditGetResult.success === true);
+  assert('Audit rows are returned', auditGetResult.audit && auditGetResult.audit.length === 2);
+  assert('Audit rows are sorted newest first', new Date(auditGetResult.audit[0].created_at) >= new Date(auditGetResult.audit[1].created_at));
+
+  // 4. Audit read endpoint checks organization scoping
+  let badAuditGetStatus = null;
+  const mockResGetBad = {
+    status(code) { badAuditGetStatus = code; return this; },
+    json(data) { return this; }
+  };
+  await reviewAuditHandler({
+    auth: { organizationId: 999, role: 'landlord' },
+    params: { id: '5001' }
+  }, mockResGetBad);
+  assert('Audit read endpoint is organization-scoped (returns 404 for wrong org)', badAuditGetStatus === 404);
+
+  // 5. Test that if audit insert fails, the review decision fails safely
+  const rowBeforeAuditFailure = JSON.stringify(apiDb.get('payment_evidence').find(r => r.id === 5001));
+  const failingDb = {
+    ...apiDb,
+    get: apiDb.get.bind(apiDb),
+    find: apiDb.find.bind(apiDb),
+    findOne: apiDb.findOne.bind(apiDb),
+    update: apiDb.update.bind(apiDb),
+    insert(table, data) {
+      if (table === 'payment_evidence_review_audit') {
+        throw new Error('Simulated insert failure');
+      }
+      return apiDb.insert(table, data);
+    }
+  };
+  const routerFailing = createPaymentEvidenceRoutes(failingDb);
+  const getFailingHandler = (path) => {
+    const layer = routerFailing.stack.find(l => l.route && l.route.path === path);
+    return layer.route.stack[layer.route.stack.length - 1].handle;
+  };
+  const failingDecisionHandler = getFailingHandler('/payment-evidence/:id/review-decision');
+
+  let failedPostStatus = null;
+  let failedPostResult = null;
+  const mockResFailed = {
+    status(code) { failedPostStatus = code; return this; },
+    json(data) { failedPostResult = data; return this; }
+  };
+
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    await failingDecisionHandler({
+      auth: { organizationId: 1, role: 'landlord', userId: 10 },
+      params: { id: '5001' },
+      body: {
+        decision: 'needs_more_evidence',
+        review_notes: 'Must fail.'
+      }
+    }, mockResFailed);
+  } finally {
+    console.error = originalConsoleError;
+  }
+  assert('If audit insert fails, the review decision returns a safe error', failedPostStatus === 500 && failedPostResult && failedPostResult.error === 'AUDIT_WRITE_FAILED');
+  assert('If audit insert fails, review metadata is restored in JSON fallback', JSON.stringify(apiDb.get('payment_evidence').find(r => r.id === 5001)) === rowBeforeAuditFailure);
+
+  // 6. Immutability checks: confirm no invoice/tenant balance updates or ledger/receipt records are created
+  assert('No invoice status/balance changes', apiDb.get('invoices').every(inv => inv.status === 'issued' && inv.balance === 5000));
+  assert('No tenant balance changes', apiDb.get('tenants').every(t => t.status === 'active'));
+  assert('No payment allocation records created', apiDb.get('payment_allocations').length === 0);
+  assert('No ledger records created', apiDb.get('transactions').length === 0);
+  assert('No receipt records created', apiDb.get('receipts').length === 0);
+  assert('payment_evidence.status is unchanged', apiDb.get('payment_evidence')[0].status === 'needs_review');
+  assert('No auto_reconciled/manually_reconciled status created by review decisions', !apiDb.get('payment_evidence').some(r => r.status === 'auto_reconciled' || r.status === 'manually_reconciled'));
+
+  // 7. Verify frontend history section rendering logic
+  assert('Review Decision History section renders in frontend page', paymentEvidenceContent.includes('Review Decision History'));
+  assert('Audit safety copy renders in frontend page', paymentEvidenceContent.includes('Review history is an audit trail only. It does not reconcile, allocate, or apply payments.'));
+  assert('Fetch call to review-audit endpoint exists', paymentEvidenceContent.includes('/api/payment-evidence/${id}/review-audit') || paymentEvidenceContent.includes('review-audit'));
+  assert('Empty history state renders in frontend page', paymentEvidenceContent.includes('No review decision history yet.'));
+  assert(
+    'Forbidden financial-final labels do not exist in PaymentEvidence.jsx',
+    ![
+      /\bReconcile\b/,
+      /\bAllocate\b/,
+      /\bMark Paid\b/,
+      /\bCreate Receipt\b/,
+      /\bApply Payment\b/,
+      /\bConfirm Payment\b/,
+      /\bPost Payment\b/
+    ].some(pattern => pattern.test(paymentEvidenceContent))
+  );
+  assert('Review Decision History renders per-entry safety message', paymentEvidenceContent.includes('log.safety_message'));
 
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
   if (failures > 0) {
