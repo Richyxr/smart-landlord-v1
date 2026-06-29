@@ -35,6 +35,15 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [minAmount, setMinAmount] = useState('');
   const [maxAmount, setMaxAmount] = useState('');
   const [selectedBatchId, setSelectedBatchId] = useState('');
+  const [reviewStatusFilter, setReviewStatusFilter] = useState('');
+  const [reviewDecisionFilter, setReviewDecisionFilter] = useState('');
+  const [suggestionFilter, setSuggestionFilter] = useState('');
+  const [matchConfidenceFilter, setMatchConfidenceFilter] = useState('');
+  const [auditHistoryFilter, setAuditHistoryFilter] = useState('');
+  const [reviewedFrom, setReviewedFrom] = useState('');
+  const [reviewedTo, setReviewedTo] = useState('');
+  const [importedFrom, setImportedFrom] = useState('');
+  const [importedTo, setImportedTo] = useState('');
 
   // Selected row for Detail Drawer
   const [selectedRow, setSelectedRow] = useState(null);
@@ -91,7 +100,7 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   useEffect(() => {
     fetchBatches();
     fetchEvidenceRows();
-  }, [refreshTrigger, status, strength, channel, startDate, endDate, minAmount, maxAmount, selectedBatchId]);
+  }, [refreshTrigger, status, strength, channel, startDate, endDate, minAmount, maxAmount, selectedBatchId, reviewStatusFilter, reviewDecisionFilter, suggestionFilter, matchConfidenceFilter, auditHistoryFilter, reviewedFrom, reviewedTo, importedFrom, importedTo]);
 
   // Debounced search trigger
   useEffect(() => {
@@ -508,6 +517,15 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       if (minAmount) queryParams.append('min_amount', minAmount);
       if (maxAmount) queryParams.append('max_amount', maxAmount);
       if (selectedBatchId) queryParams.append('batch_id', selectedBatchId);
+      if (reviewStatusFilter) queryParams.append('review_status', reviewStatusFilter);
+      if (reviewDecisionFilter) queryParams.append('review_decision', reviewDecisionFilter);
+      if (suggestionFilter) queryParams.append('has_suggestions', suggestionFilter);
+      if (matchConfidenceFilter) queryParams.append('match_confidence', matchConfidenceFilter);
+      if (auditHistoryFilter) queryParams.append('has_audit_history', auditHistoryFilter);
+      if (reviewedFrom) queryParams.append('reviewed_from', reviewedFrom);
+      if (reviewedTo) queryParams.append('reviewed_to', reviewedTo);
+      if (importedFrom) queryParams.append('imported_from', importedFrom);
+      if (importedTo) queryParams.append('imported_to', importedTo);
       if (search) queryParams.append('search', search);
 
       const res = await fetch(`/api/payment-evidence/rows?${queryParams.toString()}`);
@@ -850,6 +868,46 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               ))}
             </select>
           </div>
+
+          {/* Review status filter */}
+          <div style={{ flex: '1 1 180px' }}>
+            <select className="form-control" value={reviewStatusFilter} onChange={e => setReviewStatusFilter(e.target.value)}>
+              <option value="">All Review States</option>
+              <option value="unreviewed">Unreviewed</option>
+              <option value="accepted_suggestion">Accepted Suggestion</option>
+              <option value="rejected_suggestion">Rejected Suggestion</option>
+              <option value="needs_more_evidence">Needs More Evidence</option>
+              <option value="marked_irrelevant">Marked Irrelevant</option>
+            </select>
+          </div>
+
+          {/* Suggestions filter */}
+          <div style={{ flex: '1 1 170px' }}>
+            <select className="form-control" value={suggestionFilter} onChange={e => setSuggestionFilter(e.target.value)}>
+              <option value="">All Suggestion States</option>
+              <option value="true">Has Suggestions</option>
+              <option value="false">No Suggestions</option>
+            </select>
+          </div>
+
+          {/* Match confidence filter */}
+          <div style={{ flex: '1 1 170px' }}>
+            <select className="form-control" value={matchConfidenceFilter} onChange={e => setMatchConfidenceFilter(e.target.value)}>
+              <option value="">All Match Confidence</option>
+              <option value="high">High Confidence</option>
+              <option value="medium">Medium Confidence</option>
+              <option value="low">Low Confidence</option>
+            </select>
+          </div>
+
+          {/* Audit history filter */}
+          <div style={{ flex: '1 1 160px' }}>
+            <select className="form-control" value={auditHistoryFilter} onChange={e => setAuditHistoryFilter(e.target.value)}>
+              <option value="">All Audit States</option>
+              <option value="true">Has Audit Trail</option>
+              <option value="false">No Audit Trail</option>
+            </select>
+          </div>
         </div>
 
         {/* Extended filters */}
@@ -953,6 +1011,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                   <th style={{ padding: '12px' }}>Strength</th>
                   <th style={{ padding: '12px' }}>Status</th>
                   <th style={{ padding: '12px' }}>Review</th>
+                  <th style={{ padding: '12px' }}>Audit</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>Amount</th>
                   <th style={{ padding: '12px', textAlign: 'center' }}>Action</th>
                 </tr>
@@ -1048,6 +1107,11 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                     <td style={{ padding: '12px' }}>
                       <span className={`badge ${getReviewStatusBadgeClass(row.review_status)}`} style={{ textTransform: 'capitalize', fontSize: '9px' }}>
                         {getReviewStatusLabel(row.review_status)}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      <span className={'badge ' + (row.has_audit_history ? 'badge-info' : 'badge-secondary')} style={{ fontSize: '9px' }}>
+                        {row.audit_count || 0} audit
                       </span>
                     </td>
                     <td style={{ padding: '12px', textAlign: 'right', fontWeight: '800', color: 'var(--success)' }}>

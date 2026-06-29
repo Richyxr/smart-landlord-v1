@@ -238,7 +238,18 @@ export function createPaymentEvidenceRoutes(pgDb) {
       min_amount,
       max_amount,
       search,
-      batch_id
+      batch_id,
+      review_status,
+      review_decision,
+      has_suggestions,
+      match_confidence,
+      has_audit_history,
+      min_match_score,
+      max_match_score,
+      reviewed_from,
+      reviewed_to,
+      imported_from,
+      imported_to
     } = req.query;
 
     /*
@@ -256,12 +267,18 @@ export function createPaymentEvidenceRoutes(pgDb) {
     const allProperties = await activeDb.find('properties', { organization_id: orgId }) || [];
     const allUnits = await activeDb.find('units', { organization_id: orgId }) || [];
     const allUsers = await activeDb.find('users', {}) || [];
+    const allAuditRows = await activeDb.find('payment_evidence_review_audit', { organization_id: orgId }) || [];
 
     const tenantMap = new Map(allTenants.map(t => [t.id, t]));
     const invoiceMap = new Map(allInvoices.map(i => [i.id, i]));
     const propertiesMap = new Map(allProperties.map(p => [p.id, p]));
     const unitsMap = new Map(allUnits.map(u => [u.id, u]));
     const userMap = new Map(allUsers.map(u => [u.id, u.name]));
+    const auditCountMap = new Map();
+    allAuditRows.forEach(a => {
+      const key = Number(a.payment_evidence_id);
+      auditCountMap.set(key, (auditCountMap.get(key) || 0) + 1);
+    });
 
     const activeTenants = allTenants.filter(t => t.status !== 'deleted' && t.status !== 'inactive');
     const activeTenantMap = new Map(activeTenants.map(t => [t.id, t]));
@@ -288,12 +305,40 @@ export function createPaymentEvidenceRoutes(pgDb) {
       rows = rows.filter(r => r.collection_channel === collection_channel);
     }
 
+    // Filter by manual review metadata. Null/empty review status means "unreviewed".
+    if (review_status) {
+      rows = rows.filter(r => {
+        const normalizedReviewStatus = r.review_status || 'unreviewed';
+        return normalizedReviewStatus === review_status;
+      });
+    }
+
+    if (review_decision) {
+      rows = rows.filter(r => r.review_decision === review_decision);
+    }
+
     // Filter by date range (transaction_date format: YYYY-MM-DD)
     if (start_date) {
       rows = rows.filter(r => r.transaction_date >= start_date);
     }
     if (end_date) {
       rows = rows.filter(r => r.transaction_date <= end_date);
+    }
+
+    // Filter by imported date range. TODO: move this to SQL WHERE clauses for production scale.
+    if (imported_from) {
+      rows = rows.filter(r => (r.created_at || r.imported_at || r.transaction_date) >= imported_from);
+    }
+    if (imported_to) {
+      rows = rows.filter(r => (r.created_at || r.imported_at || r.transaction_date) <= imported_to);
+    }
+
+    // Filter by reviewed date range. TODO: move this to SQL WHERE clauses for production scale.
+    if (reviewed_from) {
+      rows = rows.filter(r => r.reviewed_at && r.reviewed_at >= reviewed_from);
+    }
+    if (reviewed_to) {
+      rows = rows.filter(r => r.reviewed_at && r.reviewed_at <= reviewed_to);
     }
 
     // Filter by amount
@@ -397,11 +442,49 @@ export function createPaymentEvidenceRoutes(pgDb) {
           balance: acceptedInvoice.balance
         } : null,
         reviewer_name: r.reviewed_by ? (userMap.get(r.reviewed_by) || 'Unknown') : null,
+        audit_count: auditCountMap.get(Number(r.id)) || 0,
+        has_audit_history: (auditCountMap.get(Number(r.id)) || 0) > 0,
         suggestions
       };
     });
 
-    res.json(enrichedRows);
+    let filteredEnrichedRows = enrichedRows;
+
+    // Enriched filters that depend on suggestions/audit metadata.
+    // TODO: move suggestion/audit filters to SQL/materialized summaries for production-scale datasets.
+    if (has_suggestions === 'true') {
+      filteredEnrichedRows = filteredEnrichedRows.filter(r => r.suggestions && r.suggestions.length > 0);
+    } else if (has_suggestions === 'false') {
+      filteredEnrichedRows = filteredEnrichedRows.filter(r => !r.suggestions || r.suggestions.length === 0);
+    }
+
+    if (has_audit_history === 'true') {
+      filteredEnrichedRows = filteredEnrichedRows.filter(r => r.has_audit_history === true);
+    } else if (has_audit_history === 'false') {
+      filteredEnrichedRows = filteredEnrichedRows.filter(r => r.has_audit_history !== true);
+    }
+
+    if (match_confidence) {
+      filteredEnrichedRows = filteredEnrichedRows.filter(r =>
+        r.suggestions && r.suggestions.some(s => s.match_confidence === match_confidence)
+      );
+    }
+
+    if (min_match_score) {
+      const minScore = Number(min_match_score);
+      filteredEnrichedRows = filteredEnrichedRows.filter(r =>
+        r.suggestions && r.suggestions.some(s => Number(s.match_score) >= minScore)
+      );
+    }
+
+    if (max_match_score) {
+      const maxScore = Number(max_match_score);
+      filteredEnrichedRows = filteredEnrichedRows.filter(r =>
+        r.suggestions && r.suggestions.some(s => Number(s.match_score) <= maxScore)
+      );
+    }
+
+    res.json(filteredEnrichedRows);
   }));
 
   // POST /api/payment-evidence/import-csv-preview

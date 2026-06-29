@@ -359,12 +359,15 @@ async function runTests() {
 
   const apiDb = new MockDb();
   apiDb.seed('payment_evidence', [
-    { id: 1001, organization_id: 1, transaction_code: 'TX1001', amount: 5000, transaction_date: '2026-06-25', status: 'needs_review', evidence_strength: 'high', collection_channel: 'MPESA_PAYBILL', payer_name: 'Alpha' },
-    { id: 1002, organization_id: 1, transaction_code: 'TX1002', amount: 12000, transaction_date: '2026-06-26', status: 'auto_reconciled', evidence_strength: 'verified', collection_channel: 'BANK_TRANSFER', payer_name: 'Beta' },
-    { id: 1003, organization_id: 2, transaction_code: 'TX1003', amount: 15000, transaction_date: '2026-06-27', status: 'needs_review', evidence_strength: 'high', collection_channel: 'MPESA_PAYBILL', payer_name: 'Gamma' }
+    { id: 1001, organization_id: 1, transaction_code: 'TX1001', amount: 5000, transaction_date: '2026-06-25', status: 'needs_review', evidence_strength: 'high', collection_channel: 'MPESA_PAYBILL', payer_name: 'Alpha', review_status: 'accepted_suggestion', review_decision: 'accepted_suggestion', reviewed_by: 10, reviewed_at: '2026-06-29T08:00:00.000Z', created_at: '2026-06-25T08:00:00.000Z' },
+    { id: 1002, organization_id: 1, transaction_code: 'TX1002', amount: 12000, transaction_date: '2026-06-26', status: 'auto_reconciled', evidence_strength: 'verified', collection_channel: 'BANK_TRANSFER', payer_name: 'Beta', review_status: null, review_decision: null, reviewed_at: null, created_at: '2026-06-26T08:00:00.000Z' },
+    { id: 1003, organization_id: 2, transaction_code: 'TX1003', amount: 15000, transaction_date: '2026-06-27', status: 'needs_review', evidence_strength: 'high', collection_channel: 'MPESA_PAYBILL', payer_name: 'Gamma', review_status: 'rejected_suggestion', review_decision: 'rejected_suggestion', reviewed_at: '2026-06-29T09:00:00.000Z', created_at: '2026-06-27T08:00:00.000Z' }
   ]);
   apiDb.seed('payment_evidence_batches', [
     { id: 50, organization_id: 1, upload_filename: 'statement1.csv' }
+  ]);
+  apiDb.seed('payment_evidence_review_audit', [
+    { id: 9001, organization_id: 1, payment_evidence_id: 1001, action: 'create_decision', created_at: '2026-06-29T08:01:00.000Z' }
   ]);
   apiDb.seed('tenants', []);
   apiDb.seed('invoices', []);
@@ -434,6 +437,47 @@ async function runTests() {
     query: { search: 'alpha' }
   }, mockResList);
   assert('Filters rows by search keyword successfully', rowsResult.length === 1 && rowsResult[0].payer_name === 'Alpha');
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { review_status: 'accepted_suggestion' }
+  }, mockResList);
+  assert('Filters rows by review_status successfully', rowsResult.length === 1 && rowsResult[0].id === 1001);
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { review_status: 'unreviewed' }
+  }, mockResList);
+  assert('Filters rows by unreviewed review_status successfully', rowsResult.length === 1 && rowsResult[0].id === 1002);
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { review_decision: 'accepted_suggestion' }
+  }, mockResList);
+  assert('Filters rows by review_decision successfully', rowsResult.length === 1 && rowsResult[0].id === 1001);
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { has_audit_history: 'true' }
+  }, mockResList);
+  assert('Filters rows with audit history successfully', rowsResult.length === 1 && rowsResult[0].id === 1001 && rowsResult[0].audit_count === 1 && rowsResult[0].has_audit_history === true);
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { has_audit_history: 'false' }
+  }, mockResList);
+  assert('Filters rows without audit history successfully', rowsResult.length === 1 && rowsResult[0].id === 1002 && rowsResult[0].has_audit_history === false);
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { reviewed_from: '2026-06-29T00:00:00.000Z', reviewed_to: '2026-06-29T23:59:59.999Z' }
+  }, mockResList);
+  assert('Filters rows by reviewed_from/reviewed_to successfully', rowsResult.length === 1 && rowsResult[0].id === 1001);
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { imported_from: '2026-06-26T00:00:00.000Z', imported_to: '2026-06-26T23:59:59.999Z' }
+  }, mockResList);
+  assert('Filters rows by imported_from/imported_to successfully', rowsResult.length === 1 && rowsResult[0].id === 1002);
 
   // Verify navigation updates via file analysis
   const bottomNavContent = fs.readFileSync('src/components/BottomNav.jsx', 'utf8');
@@ -807,6 +851,44 @@ async function runTests() {
   }, mockResList);
 
   assert('Enriched response returns suggestions field on rows', rowsResult && rowsResult.every(r => Array.isArray(r.suggestions)));
+  assert('Enriched response returns audit visibility fields on rows', rowsResult && rowsResult.every(r => typeof r.audit_count === 'number' && typeof r.has_audit_history === 'boolean'));
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { has_suggestions: 'true' }
+  }, mockResList);
+  assert('Filters rows with suggestions successfully', rowsResult.length === 2 && rowsResult.every(r => r.suggestions.length > 0));
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { has_suggestions: 'false' }
+  }, mockResList);
+  assert('Filters rows without suggestions successfully', rowsResult.length === 1 && rowsResult[0].id === 3003);
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { match_confidence: 'high' }
+  }, mockResList);
+  assert('Filters rows by match_confidence successfully', rowsResult.length >= 1 && rowsResult.every(r => r.suggestions.some(s => s.match_confidence === 'high')));
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { min_match_score: '90' }
+  }, mockResList);
+  assert('Filters rows by min_match_score successfully', rowsResult.length >= 1 && rowsResult.every(r => r.suggestions.some(s => Number(s.match_score) >= 90)));
+
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: { max_match_score: '60' }
+  }, mockResList);
+  assert('Filters rows by max_match_score successfully', rowsResult.length >= 1 && rowsResult.every(r => r.suggestions.some(s => Number(s.match_score) <= 60)));
+
+  rowsResult = null;
+  await listRowsHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    query: {}
+  }, mockResList);
+
 
   const row3001 = rowsResult.find(r => r.id === 3001);
   const row3002 = rowsResult.find(r => r.id === 3002);
