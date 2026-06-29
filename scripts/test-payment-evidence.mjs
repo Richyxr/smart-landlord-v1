@@ -1956,6 +1956,174 @@ async function runTests() {
     !paymentEvidenceContent.includes('Delete Allocation')
   );
 
+  // ==========================================
+  // Test 16: Payment Evidence Receipt Readiness + Draft Receipt Preview
+  // ==========================================
+  console.log('\n16. Payment Evidence Receipt Readiness + Draft Receipt Preview:');
+
+  const receiptPreviewHandler = getRouteHandler('/payment-evidence/:id/receipt-preview');
+  const receiptPreviewMiddlewares = getRouteMiddlewares('/payment-evidence/:id/receipt-preview');
+
+  assert(
+    'Receipt Preview endpoint requires landlord or super_admin role',
+    receiptPreviewMiddlewares.includes(requireLandlordOrSuperAdminMiddleware)
+  );
+
+  // Access control checks for preview lookup
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let blockedStatus = null;
+    let blockedNextCalled = false;
+    await requireLandlordOrSuperAdminMiddleware({
+      auth: { role: blockedRole, organizationId: 1, userId: 99 }
+    }, {
+      status(code) { blockedStatus = code; return this; },
+      json() { return this; }
+    }, () => { blockedNextCalled = true; });
+
+    assert(`Receipt Preview endpoint blocks ${blockedRole}`, blockedStatus === 403 && blockedNextCalled === false);
+  }
+
+  let receiptPreviewResponseStatus = null;
+  let receiptPreviewResponse = null;
+  const mockResReceiptPreview = {
+    status(code) { receiptPreviewResponseStatus = code; return this; },
+    json(data) { receiptPreviewResponse = data; return this; }
+  };
+
+  apiDb.seed('payment_evidence', [
+    { id: 8001, organization_id: 1, amount: 5000, transaction_date: '2026-06-21', status: 'needs_review', review_status: null }
+  ]);
+
+  // 1. Wrong organization is blocked / returns 404
+  receiptPreviewResponseStatus = null;
+  receiptPreviewResponse = null;
+  await receiptPreviewHandler({
+    auth: { organizationId: 2, role: 'landlord', userId: 10 },
+    params: { id: '8003' }
+  }, mockResReceiptPreview);
+  assert('Receipt preview blocks wrong organization with 404', receiptPreviewResponseStatus === 404 && receiptPreviewResponse.error === 'ROW_NOT_FOUND');
+
+  // 2. Unallocated evidence returns eligible: false
+  receiptPreviewResponseStatus = null;
+  receiptPreviewResponse = null;
+  await receiptPreviewHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '8001' }
+  }, mockResReceiptPreview);
+
+  assert('Unallocated evidence returns eligible false', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.eligible === false);
+  assert('Unallocated evidence returns state not_allocated', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.state === 'not_allocated');
+  assert('Unallocated evidence returns can_issue_receipt as false', receiptPreviewResponse && receiptPreviewResponse.issuance_readiness.can_issue_receipt === false);
+
+  // 3. Allocated evidence returns eligible: true and all resolved details
+  apiDb.seed('properties', [
+    { id: 301, organization_id: 1, name: 'Premium Heights' }
+  ]);
+  apiDb.seed('units', [
+    { id: 401, organization_id: 1, unit_code: 'U-401' }
+  ]);
+  apiDb.seed('tenants', [
+    { id: 102, organization_id: 1, full_name: 'Bob Tenant', tenant_account_number: 'ACC-T2', status: 'active', currency: 'KES', property_id: 301, unit_id: 401 }
+  ]);
+  apiDb.seed('payment_evidence', [
+    { id: 8001, organization_id: 1, amount: 5000, transaction_date: '2026-06-21', status: 'needs_review', review_status: null },
+    { id: 8003, organization_id: 1, amount: 5000, transaction_date: '2026-06-21', status: 'manually_reconciled', review_status: 'accepted_suggestion', accepted_tenant_id: 102, accepted_invoice_id: 202, collection_channel: 'mpesa', transaction_code: 'MPESA123' }
+  ]);
+  apiDb.seed('invoices', [
+    { id: 202, organization_id: 1, tenant_id: 102, invoice_number: 'INV-202', status: 'paid', balance: 0, total: 5000, amount_paid: 5000 }
+  ]);
+  apiDb.seed('transactions', [
+    { id: 501, organization_id: 1, tenant_id: 102, amount: 5000, transaction_type: 'payment', status: 'reconciled', raw_payload: JSON.stringify({ evidence_id: 8003, source: 'payment_evidence_allocation' }) }
+  ]);
+  apiDb.seed('payment_allocations', [
+    { id: 601, organization_id: 1, transaction_id: 501, invoice_id: 202, amount_allocated: 5000, allocated_at: '2026-06-21T12:00:00.000Z' }
+  ]);
+
+  receiptPreviewResponseStatus = null;
+  receiptPreviewResponse = null;
+  await receiptPreviewHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '8003' }
+  }, mockResReceiptPreview);
+
+  assert('Allocated evidence returns eligible true', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.eligible === true);
+  assert('Allocated evidence returns state ready_for_receipt_preview', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.state === 'ready_for_receipt_preview');
+  assert('Receipt preview contains tenant id/name', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.tenant_id === 102 && receiptPreviewResponse.receipt_preview.tenant_name === 'Bob Tenant');
+  assert('Receipt preview contains invoice id/number', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.invoice_id === 202 && receiptPreviewResponse.receipt_preview.invoice_number === 'INV-202');
+  assert('Receipt preview contains transaction_id', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.transaction_id === 501);
+  assert('Receipt preview contains payment_allocation_id', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.payment_allocation_id === 601);
+  assert('Receipt preview contains payment date', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.payment_date === '2026-06-21');
+  assert('Receipt preview contains payment method', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.payment_method === 'mpesa');
+  assert('Receipt preview contains amount paid', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.amount_paid === 5000);
+  assert('Receipt preview contains invoice balance after', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.invoice_balance_after === 0);
+  assert('Receipt preview contains invoice status', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.invoice_status === 'paid');
+  assert('Receipt preview contains property name', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.property_name === 'Premium Heights');
+  assert('Receipt preview contains unit label', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.unit_label === 'U-401');
+  assert('Receipt preview contains draft receipt number preview beginning with DRAFT-', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.receipt_number_preview === 'DRAFT-MPESA123');
+  assert('Receipt preview has correct line item amount', receiptPreviewResponse && receiptPreviewResponse.receipt_preview.receipt_lines[0].amount === 5000);
+
+  // 4. Issuance readiness checks
+  assert('Receipt issuance readiness shows can_issue_receipt false', receiptPreviewResponse && receiptPreviewResponse.issuance_readiness.can_issue_receipt === false);
+  assert('Receipt issuance readiness returns state receipt_issuance_not_enabled', receiptPreviewResponse && receiptPreviewResponse.issuance_readiness.state === 'receipt_issuance_not_enabled');
+  assert('Receipt issuance readiness contains blocking reason', receiptPreviewResponse && receiptPreviewResponse.issuance_readiness.blocking_reasons[0] === 'Receipt issuance is not enabled in this release.');
+  assert('Receipt issuance readiness future confirmation text is CONFIRM RECEIPT ISSUANCE', receiptPreviewResponse && receiptPreviewResponse.issuance_readiness.required_future_confirmation_text === 'CONFIRM RECEIPT ISSUANCE');
+  assert('Receipt issuance readiness has safety message', receiptPreviewResponse && receiptPreviewResponse.issuance_readiness.safety_message === 'This is a receipt preview only. No receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.');
+
+  // 5. Immutability checks: confirm lookup causes zero mutations
+  assert('Receipt preview has read-only safety message', receiptPreviewResponse && receiptPreviewResponse.safety_message === 'Receipt preview is read-only. No financial or receipt records were changed by this lookup.');
+  assert('Invoices count unchanged', apiDb.get('invoices').length === 1);
+  assert('Tenants count unchanged', apiDb.get('tenants').length === 1);
+  assert('Transactions count unchanged', apiDb.get('transactions').length === 1);
+  assert('Payment allocations count unchanged', apiDb.get('payment_allocations').length === 1);
+  assert('Payment evidence count unchanged', apiDb.get('payment_evidence').length === 2);
+  assert('No ledger records created', apiDb.get('transactions').filter(t => t.ledger).length === 0);
+  assert('No receipt records created', apiDb.get('receipts').length === 0);
+
+  // Frontend/Static checks
+  assert(
+    'PaymentEvidence.jsx renders Receipt Preview',
+    paymentEvidenceContent.includes('Receipt Preview')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders Receipt Issuance Readiness',
+    paymentEvidenceContent.includes('Receipt Issuance Readiness')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders CONFIRM RECEIPT ISSUANCE',
+    paymentEvidenceContent.includes('CONFIRM RECEIPT ISSUANCE')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders Refresh Receipt Preview',
+    paymentEvidenceContent.includes('Refresh Receipt Preview')
+  );
+
+  assert(
+    'PaymentEvidence.jsx fetches receipt-preview via GET only',
+    paymentEvidenceContent.includes('receipt-preview') &&
+    paymentEvidenceContent.includes('fetchReceiptPreview')
+  );
+
+  assert(
+    'PaymentEvidence.jsx has no receipt or ledger issuance API calls',
+    !paymentEvidenceContent.includes('/api/receipts') &&
+    !paymentEvidenceContent.includes('/api/ledger')
+  );
+
+  assert(
+    'PaymentEvidence.jsx has no unsupported final action labels for receipts',
+    !paymentEvidenceContent.includes('Issue Receipt') &&
+    !paymentEvidenceContent.includes('Create Receipt') &&
+    !paymentEvidenceContent.includes('Send Receipt') &&
+    !paymentEvidenceContent.includes('Download Receipt') &&
+    !paymentEvidenceContent.includes('Print Receipt') &&
+    !paymentEvidenceContent.includes('Post Ledger') &&
+    !paymentEvidenceContent.includes('Finalize Receipt') &&
+    !paymentEvidenceContent.includes('Void Receipt')
+  );
+
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
   if (failures > 0) {
     process.exit(1);

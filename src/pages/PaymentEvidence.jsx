@@ -88,6 +88,30 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     }
   };
 
+  // Receipt Preview States
+  const [receiptPreviewData, setReceiptPreviewData] = useState(null);
+  const [loadingReceiptPreview, setLoadingReceiptPreview] = useState(false);
+  const [receiptPreviewError, setReceiptPreviewError] = useState('');
+
+  const fetchReceiptPreview = async (id) => {
+    setLoadingReceiptPreview(true);
+    setReceiptPreviewError('');
+    try {
+      const res = await fetch(`/api/payment-evidence/${id}/receipt-preview`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to fetch receipt preview');
+      }
+      setReceiptPreviewData(data);
+    } catch (err) {
+      console.error(err);
+      setReceiptPreviewError(err.message || 'Failed to fetch receipt preview');
+      setReceiptPreviewData(null);
+    } finally {
+      setLoadingReceiptPreview(false);
+    }
+  };
+
   const fetchAllocationPreview = async (id) => {
     setLoadingPreview(true);
     setPreviewError('');
@@ -173,12 +197,15 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       fetchAuditLogs(selectedRow.id);
       if (selectedRow.status === 'manually_reconciled' || selectedRow.status === 'auto_reconciled') {
         fetchAllocationResult(selectedRow.id);
+        fetchReceiptPreview(selectedRow.id);
         setPreviewData(null);
         setPreviewError('');
       } else {
         fetchAllocationPreview(selectedRow.id);
         setAllocationResultData(null);
         setResultError('');
+        setReceiptPreviewData(null);
+        setReceiptPreviewError('');
       }
     } else {
       setAuditLogs([]);
@@ -186,6 +213,8 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       setPreviewError('');
       setAllocationResultData(null);
       setResultError('');
+      setReceiptPreviewData(null);
+      setReceiptPreviewError('');
     }
   }, [selectedRow, role]);
 
@@ -1659,6 +1688,131 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                   </div>
                 ) : (
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>No allocation result data available.</div>
+                )}
+              </div>
+            )}
+
+            {/* Receipt Preview Section */}
+            {(role === 'landlord' || role === 'super_admin') && (selectedRow?.status === 'manually_reconciled' || selectedRow?.status === 'auto_reconciled' || allocationResultData?.allocation_result?.allocated) && (
+              <div style={{ marginBottom: '16px', border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-surface)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-primary)', margin: 0, fontWeight: '700' }}>Receipt Preview</h4>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => selectedRow && fetchReceiptPreview(selectedRow.id)}
+                    disabled={loadingReceiptPreview}
+                    style={{ padding: '2px 8px', fontSize: '10px', height: 'auto', marginLeft: 'auto' }}
+                  >
+                    Refresh Receipt Preview
+                  </button>
+                </div>
+
+                {loadingReceiptPreview ? (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Loading receipt preview...</div>
+                ) : receiptPreviewError ? (
+                  <div style={{ fontSize: '11px', color: 'var(--danger)' }}>{receiptPreviewError}</div>
+                ) : receiptPreviewData?.receipt_preview ? (
+                  <div style={{ fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                      <strong style={{ fontSize: '12px', display: 'block', marginBottom: '4px', color: 'var(--primary)' }}>{receiptPreviewData.receipt_preview.receipt_title}</strong>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                        <div>
+                          <span className="text-muted">Draft Receipt #:</span> <strong>{receiptPreviewData.receipt_preview.receipt_number_preview}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Tenant:</span> <strong>{receiptPreviewData.receipt_preview.tenant_name || 'N/A'}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Invoice:</span> <strong>{receiptPreviewData.receipt_preview.invoice_number || 'N/A'}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Transaction ID:</span> <strong>{receiptPreviewData.receipt_preview.transaction_id || 'N/A'}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Allocation ID:</span> <strong>{receiptPreviewData.receipt_preview.payment_allocation_id || 'N/A'}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Payment Date:</span> <strong>{new Date(receiptPreviewData.receipt_preview.payment_date).toLocaleDateString()}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Payment Method:</span> <strong style={{ textTransform: 'uppercase' }}>{receiptPreviewData.receipt_preview.payment_method}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Amount Paid:</span> <strong style={{ color: 'var(--success)' }}>{formatCurrency(receiptPreviewData.receipt_preview.amount_paid)}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Invoice Status:</span> <strong style={{ textTransform: 'capitalize' }}>{receiptPreviewData.receipt_preview.invoice_status}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Invoice Balance After:</span> <strong>{formatCurrency(receiptPreviewData.receipt_preview.invoice_balance_after)}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Property:</span> <strong>{receiptPreviewData.receipt_preview.property_name}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Unit:</span> <strong>{receiptPreviewData.receipt_preview.unit_label}</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Receipt Line Items */}
+                    <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>
+                      <span className="text-muted" style={{ display: 'block', fontSize: '10px', fontWeight: '700', marginBottom: '4px' }}>Receipt Items:</span>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                            <th style={{ textAlign: 'left', padding: '2px 0', fontSize: '9.5px', color: 'var(--text-muted)' }}>Item Description</th>
+                            <th style={{ textAlign: 'right', padding: '2px 0', fontSize: '9.5px', color: 'var(--text-muted)' }}>Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {receiptPreviewData.receipt_preview.receipt_lines.map((line, idx) => (
+                            <tr key={idx}>
+                              <td style={{ padding: '4px 0', fontSize: '10px' }}>{line.label}</td>
+                              <td style={{ padding: '4px 0', textAlign: 'right', fontSize: '10px', fontWeight: '700' }}>{formatCurrency(line.amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Receipt Issuance Readiness Subsection */}
+                    {receiptPreviewData.issuance_readiness && (
+                      <div style={{ marginTop: '6px' }}>
+                        <strong style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Receipt Issuance Readiness</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                          <span className="text-muted">Issuance Enabled:</span>
+                          <strong style={{ color: 'var(--danger)' }}>NO</strong>
+                        </div>
+                        <div style={{ marginBottom: '4px' }}>
+                          <span className="text-muted">Future Confirmation Text:</span>{' '}
+                          <code style={{ padding: '2px 4px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '3px', color: 'var(--primary)' }}>
+                            {receiptPreviewData.issuance_readiness.required_future_confirmation_text || 'CONFIRM RECEIPT ISSUANCE'}
+                          </code>
+                        </div>
+                        {receiptPreviewData.issuance_readiness.blocking_reasons && (
+                          <div style={{ marginTop: '4px', padding: '6px 8px', backgroundColor: 'rgba(244, 67, 54, 0.05)', border: '1px solid var(--danger)', borderRadius: '4px' }}>
+                            <span style={{ fontWeight: '700', color: 'var(--danger)', display: 'block', marginBottom: '2px', fontSize: '9.5px' }}>Blocking Reasons:</span>
+                            <ul style={{ margin: 0, paddingLeft: '14px', fontSize: '9.5px', color: 'var(--text-primary)' }}>
+                              {receiptPreviewData.issuance_readiness.blocking_reasons.map((reason, rIdx) => (
+                                <li key={rIdx}>{reason}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <div style={{ marginTop: '6px', padding: '6px 8px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '4px', fontSize: '9px', color: 'var(--text-muted)' }}>
+                          <strong>Safety Notice:</strong> {receiptPreviewData.issuance_readiness.safety_message}
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: '6px', padding: '6px 8px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '4px', fontSize: '9px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                      {receiptPreviewData.safety_message}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>No receipt preview data available.</div>
                 )}
               </div>
             )}

@@ -1470,5 +1470,115 @@ export function createPaymentEvidenceRoutes(pgDb) {
     });
   }));
 
+  // GET /api/payment-evidence/:id/receipt-preview
+  router.get('/payment-evidence/:id/receipt-preview', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
+    const rowId = Number(req.params.id);
+
+    const row = await activeDb.findOne('payment_evidence', { id: rowId, organization_id: orgId });
+    if (!row) {
+      return res.status(404).json({
+        error: 'ROW_NOT_FOUND',
+        message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    const isAllocated = row.status === 'manually_reconciled' || row.status === 'auto_reconciled';
+    if (!isAllocated) {
+      return res.json({
+        success: true,
+        payment_evidence_id: row.id,
+        receipt_preview: {
+          eligible: false,
+          state: 'not_allocated',
+          message: 'This payment evidence row has not been allocated or reconciled yet.'
+        },
+        issuance_readiness: {
+          can_issue_receipt: false,
+          state: 'receipt_issuance_not_enabled',
+          blocking_reasons: [
+            'Receipt issuance is not enabled in this release.'
+          ],
+          required_future_confirmation_text: 'CONFIRM RECEIPT ISSUANCE',
+          safety_message: 'This is a receipt preview only. No receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.'
+        },
+        safety_message: 'Receipt preview is read-only. No financial or receipt records were changed by this lookup.'
+      });
+    }
+
+    const txs = await activeDb.find('transactions', { organization_id: orgId });
+    const transaction = txs.find(t => {
+      try {
+        const payload = typeof t.raw_payload === 'string' ? JSON.parse(t.raw_payload) : t.raw_payload;
+        return payload && Number(payload.evidence_id) === Number(rowId);
+      } catch (e) {
+        return false;
+      }
+    });
+
+    let allocation = null;
+    if (transaction) {
+      allocation = await activeDb.findOne('payment_allocations', { transaction_id: transaction.id, organization_id: orgId });
+    }
+
+    const tenant = row.accepted_tenant_id
+      ? await activeDb.findOne('tenants', { id: Number(row.accepted_tenant_id), organization_id: orgId })
+      : null;
+
+    const invoice = row.accepted_invoice_id
+      ? await activeDb.findOne('invoices', { id: Number(row.accepted_invoice_id), organization_id: orgId })
+      : null;
+
+    const property = tenant && tenant.property_id
+      ? await activeDb.findOne('properties', { id: Number(tenant.property_id), organization_id: orgId })
+      : null;
+
+    const unit = tenant && tenant.unit_id
+      ? await activeDb.findOne('units', { id: Number(tenant.unit_id), organization_id: orgId })
+      : null;
+
+    const amountPaid = allocation ? Number(allocation.amount_allocated) : (transaction ? Number(transaction.amount) : 0);
+
+    res.json({
+      success: true,
+      payment_evidence_id: row.id,
+      receipt_preview: {
+        eligible: true,
+        state: 'ready_for_receipt_preview',
+        tenant_id: tenant ? tenant.id : null,
+        tenant_name: tenant ? tenant.full_name : null,
+        invoice_id: invoice ? invoice.id : null,
+        invoice_number: invoice ? invoice.invoice_number : null,
+        transaction_id: transaction ? transaction.id : null,
+        payment_allocation_id: allocation ? allocation.id : null,
+        payment_date: row.transaction_date,
+        payment_method: row.collection_channel || 'other',
+        amount_paid: amountPaid,
+        invoice_balance_after: invoice ? Number(invoice.balance) : 0,
+        invoice_status: invoice ? invoice.status : null,
+        property_name: property ? property.name : 'N/A',
+        unit_label: unit ? unit.unit_code : 'N/A',
+        receipt_number_preview: 'DRAFT-' + (row.transaction_code || `TX-${rowId}`),
+        receipt_title: 'Payment Receipt Preview',
+        receipt_lines: [
+          {
+            label: 'Rent payment allocation',
+            amount: amountPaid
+          }
+        ]
+      },
+      issuance_readiness: {
+        can_issue_receipt: false,
+        state: 'receipt_issuance_not_enabled',
+        blocking_reasons: [
+          'Receipt issuance is not enabled in this release.'
+        ],
+        required_future_confirmation_text: 'CONFIRM RECEIPT ISSUANCE',
+        safety_message: 'This is a receipt preview only. No receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.'
+      },
+      safety_message: 'Receipt preview is read-only. No financial or receipt records were changed by this lookup.'
+    });
+  }));
+
   return router;
 }
