@@ -1291,7 +1291,7 @@ async function runTests() {
   assert('Review Decision History section renders in frontend page', paymentEvidenceContent.includes('Review Decision History'));
   assert('Audit safety copy renders in frontend page', paymentEvidenceContent.includes('Review history is an audit trail only. It does not reconcile, allocate, or apply payments.'));
   assert('Fetch call to review-audit endpoint exists', paymentEvidenceContent.includes('/api/payment-evidence/${id}/review-audit') || paymentEvidenceContent.includes('review-audit'));
-  assert('Empty history state renders in frontend page', paymentEvidenceContent.includes('No review decision history yet.'));
+  assert('Empty history state renders in frontend page', paymentEvidenceContent.includes('No audit history yet.'));
   assert(
     'Forbidden financial-final labels do not exist in PaymentEvidence.jsx',
     ![
@@ -1362,6 +1362,51 @@ async function runTests() {
       /\bApprove Payment\b/,
       /\bReconcile Payment\b/
     ].some(pattern => pattern.test(paymentEvidenceContent))
+  );
+
+  // ==========================================
+  // Test 12: Review Workspace & Detail Confidence Panel Polish
+  // ==========================================
+  console.log('\n12. Review Workspace & Detail Confidence Panel Polish Static Checks:');
+
+  assert(
+    'Payment Evidence UI renders Evidence Facts header and fields',
+    paymentEvidenceContent.includes('Evidence Facts') &&
+    paymentEvidenceContent.includes('Transaction Date:') &&
+    paymentEvidenceContent.includes('Amount:') &&
+    paymentEvidenceContent.includes('Transaction Code:') &&
+    paymentEvidenceContent.includes('Reference Account:') &&
+    paymentEvidenceContent.includes('Payer Name:') &&
+    paymentEvidenceContent.includes('Payer Phone:') &&
+    paymentEvidenceContent.includes('Collection Channel:') &&
+    paymentEvidenceContent.includes('Evidence Status:') &&
+    paymentEvidenceContent.includes('Evidence Strength:') &&
+    paymentEvidenceContent.includes('Import Batch Filename:')
+  );
+
+  assert(
+    'Payment Evidence UI renders Suggested Match Explanation header',
+    paymentEvidenceContent.includes('Suggested Match Explanation')
+  );
+
+  assert(
+    'Payment Evidence UI renders Safety Disclaimer copy',
+    paymentEvidenceContent.includes('Review decisions are audit notes only. No invoice is marked paid from this screen, and no payment is allocated from this screen.')
+  );
+
+  assert(
+    'Payment Evidence UI renders empty states correctly',
+    paymentEvidenceContent.includes('No suggestions available.') &&
+    paymentEvidenceContent.includes('No audit history yet.') &&
+    paymentEvidenceContent.includes('Ignored evidence cannot accept match suggestions.')
+  );
+
+  assert(
+    'No unauthorized allocation/reconciliation write API endpoints are called',
+    !paymentEvidenceContent.includes('/api/reconcile') &&
+    !paymentEvidenceContent.includes('/api/allocate') &&
+    !paymentEvidenceContent.includes('/api/receipts') &&
+    !paymentEvidenceContent.includes('/api/ledger')
   );
 
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);

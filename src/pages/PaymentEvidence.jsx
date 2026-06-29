@@ -1188,46 +1188,70 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               Payment Evidence Details
             </h3>
 
-            {/* Normalized Details Panel */}
-            <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '700' }}>Normalized Data</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', backgroundColor: 'var(--bg-surface-elevated)', padding: '12px', borderRadius: '8px', fontSize: '12px', marginBottom: '16px' }}>
-              <div>
-                <span className="text-muted">Transaction Date:</span> <strong>{new Date(selectedRow.transaction_date).toLocaleDateString()}</strong>
+            {/* Safety & Reconciliation Disclaimer Banner */}
+            <div style={{
+              padding: '12px 16px',
+              backgroundColor: 'rgba(255, 152, 0, 0.05)',
+              border: '1px solid var(--warning)',
+              borderRadius: '8px',
+              fontSize: '11.5px',
+              color: 'var(--text-primary)',
+              marginBottom: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px'
+            }}>
+              <div style={{ fontWeight: '700', color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <ShieldAlert size={14} />
+                Safety Disclaimer
               </div>
-              <div>
-                <span className="text-muted">Normalized Amount:</span> <strong style={{ color: 'var(--success)' }}>{formatCurrency(selectedRow.amount)}</strong>
-              </div>
-              <div>
-                <span className="text-muted">Transaction Code:</span> <strong>{selectedRow.transaction_code || 'N/A'}</strong>
-              </div>
-              <div>
-                <span className="text-muted">Reference Account:</span> <strong>{selectedRow.reference_account || 'N/A'}</strong>
-              </div>
-              <div>
-                <span className="text-muted">Payer Name:</span> <strong>{selectedRow.payer_name || 'N/A'}</strong>
-              </div>
-              <div>
-                <span className="text-muted">Payer Phone:</span> <strong>{selectedRow.payer_phone || 'N/A'}</strong>
-              </div>
-              <div>
-                <span className="text-muted">Collection Channel:</span> <span style={{ textTransform: 'capitalize' }}>{selectedRow.collection_channel.replace('_', ' ').toLowerCase()}</span>
-              </div>
-              <div>
-                <span className="text-muted">Source Perspective:</span> <span style={{ textTransform: 'capitalize' }}>{selectedRow.source_perspective}</span>
-              </div>
-              <div>
-                <span className="text-muted">Evidence Strength:</span> <span className={`badge ${getStrengthBadgeClass(selectedRow.evidence_strength)}`} style={{ fontSize: '9px', textTransform: 'capitalize' }}>{selectedRow.evidence_strength}</span>
-              </div>
-              <div>
-                <span className="text-muted">Engine Status:</span> <span className={`badge ${getStatusBadgeClass(selectedRow.status)}`} style={{ fontSize: '9px', textTransform: 'capitalize' }}>{selectedRow.status.replace('_', ' ')}</span>
-              </div>
-              <div>
-                <span className="text-muted">Confidence Score:</span> <strong>{selectedRow.confidence}%</strong>
-              </div>
-              <div>
-                <span className="text-muted">Document Source:</span> <strong>{selectedRow.document_source || 'N/A'}</strong>
-              </div>
+              <p style={{ margin: 0, color: 'var(--text-secondary)', lineHeight: '1.4' }}>
+                Review decisions are audit notes only. No invoice is marked paid from this screen, and no payment is allocated from this screen.
+              </p>
             </div>
+
+            {/* Evidence Facts Panel */}
+            {(() => {
+              const assocBatch = batches.find(b => Number(b.id) === Number(selectedRow.batch_id));
+              const batchFileName = assocBatch ? assocBatch.upload_filename : 'N/A';
+              return (
+                <>
+                  <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '700' }}>Evidence Facts</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', backgroundColor: 'var(--bg-surface-elevated)', padding: '12px', borderRadius: '8px', fontSize: '12px', marginBottom: '16px' }}>
+                    <div>
+                      <span className="text-muted">Transaction Date:</span> <strong>{new Date(selectedRow.transaction_date).toLocaleDateString()}</strong>
+                    </div>
+                    <div>
+                      <span className="text-muted">Amount:</span> <strong style={{ color: 'var(--success)' }}>{formatCurrency(selectedRow.amount)}</strong>
+                    </div>
+                    <div>
+                      <span className="text-muted">Transaction Code:</span> <strong>{selectedRow.transaction_code || 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-muted">Reference Account:</span> <strong>{selectedRow.reference_account || 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-muted">Payer Name:</span> <strong>{selectedRow.payer_name || 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-muted">Payer Phone:</span> <strong>{selectedRow.payer_phone || 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-muted">Collection Channel:</span> <span style={{ textTransform: 'capitalize' }}>{selectedRow.collection_channel.replace('_', ' ').toLowerCase()}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted">Evidence Status:</span> <span className={`badge ${getStatusBadgeClass(selectedRow.status)}`} style={{ fontSize: '9px', textTransform: 'capitalize' }}>{selectedRow.status.replace('_', ' ')}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted">Evidence Strength:</span> <span className={`badge ${getStrengthBadgeClass(selectedRow.evidence_strength)}`} style={{ fontSize: '9px', textTransform: 'capitalize' }}>{selectedRow.evidence_strength}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted">Import Batch Filename:</span> <strong>{batchFileName}</strong>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
 
             {/* Review Decision Audit Trail */}
             <div style={{ marginBottom: '16px', border: '1px dashed var(--border)', padding: '12px', borderRadius: '8px' }}>
@@ -1281,7 +1305,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               {loadingAudit ? (
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', padding: '4px 0' }}>Loading history...</div>
               ) : auditLogs.length === 0 ? (
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '4px 0' }}>No review decision history yet.</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '4px 0' }}>No audit history yet.</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '200px', overflowY: 'auto', paddingRight: '4px' }}>
                   {auditLogs.map((log, index) => (
@@ -1376,81 +1400,83 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               </div>
             )}
 
-            {/* Suggested Match Candidates Section */}
-            {selectedRow.status !== 'ignored' && (
-              <div style={{ marginBottom: '16px' }}>
-                <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '700' }}>Suggested Match Candidates</h4>
-                <div style={{
-                  padding: '10px 12px',
-                  backgroundColor: 'var(--info-glow)',
-                  border: '1px solid var(--info)',
-                  borderRadius: '6px',
-                  fontSize: '11px',
-                  color: 'var(--text-primary)',
-                  marginBottom: '12px'
-                }}>
-                  These are matching suggestions only. No payment has been reconciled, allocated, or applied to an invoice.
-                </div>
-                {selectedRow.suggestions && selectedRow.suggestions.length > 0 ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {selectedRow.suggestions.map((s, idx) => (
-                      <div key={idx} style={{
-                        border: '1px solid var(--border)',
-                        padding: '12px',
-                        borderRadius: '8px',
-                        backgroundColor: 'var(--bg-surface-elevated)',
-                        fontSize: '12px'
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <span style={{
-                            fontSize: '9px',
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            fontWeight: '700',
-                            textTransform: 'uppercase',
-                            backgroundColor: s.match_confidence === 'high' ? 'rgba(76, 175, 80, 0.15)' : s.match_confidence === 'medium' ? 'rgba(255, 152, 0, 0.15)' : 'rgba(33, 150, 243, 0.15)',
-                            color: s.match_confidence === 'high' ? 'var(--success)' : s.match_confidence === 'medium' ? 'var(--warning)' : 'var(--info)',
-                            border: s.match_confidence === 'high' ? '1px solid var(--success)' : s.match_confidence === 'medium' ? '1px solid var(--warning)' : '1px solid var(--info)'
-                          }}>
-                            {s.match_confidence} Confidence (Score: {s.match_score})
-                          </span>
-                          {idx === 0 && <span style={{ fontSize: '9px', fontWeight: '700', color: 'var(--success)' }}>BEST MATCH</span>}
-                        </div>
-                        <div>Tenant: <strong>{s.tenant_name}</strong> (Phone: {s.tenant_phone})</div>
-                        <div>Unit/Property: <strong>{s.unit_label}</strong></div>
-                        {s.invoice_number && (
-                          <div style={{ marginTop: '4px', paddingLeft: '8px', borderLeft: '2px solid var(--border)' }}>
-                            <div>Invoice: <strong>{s.invoice_number}</strong> • Status: <span style={{ textTransform: 'capitalize' }}>{s.invoice_status}</span></div>
-                            <div>Outstanding Balance: <strong style={{ color: 'var(--danger)' }}>{formatCurrency(s.invoice_balance)}</strong></div>
-                            <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Due Date: {new Date(s.invoice_due_date).toLocaleDateString()}</div>
-                          </div>
-                        )}
-                        {s.match_reasons && s.match_reasons.length > 0 && (
-                          <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                            <strong>Reasons:</strong>
-                            <ul style={{ margin: '2px 0 0 0', paddingLeft: '16px' }}>
-                              {s.match_reasons.map((r, rIdx) => <li key={rIdx}>{r}</li>)}
-                            </ul>
-                          </div>
-                        )}
-                        {s.match_warnings && s.match_warnings.length > 0 && (
-                          <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--warning)' }}>
-                            <strong>Warnings:</strong>
-                            <ul style={{ margin: '2px 0 0 0', paddingLeft: '16px' }}>
-                              {s.match_warnings.map((w, wIdx) => <li key={wIdx}>{w}</li>)}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div style={{ border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                    No safe match suggestion found.
-                  </div>
-                )}
+            {/* Suggested Match Explanation Section */}
+            <div style={{ marginBottom: '16px' }}>
+              <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '700' }}>Suggested Match Explanation</h4>
+              <div style={{
+                padding: '10px 12px',
+                backgroundColor: 'var(--info-glow)',
+                border: '1px solid var(--info)',
+                borderRadius: '6px',
+                fontSize: '11px',
+                color: 'var(--text-primary)',
+                marginBottom: '12px'
+              }}>
+                These are matching suggestions only. No payment has been reconciled, allocated, or applied to an invoice.
               </div>
-            )}
+              {selectedRow.status === 'ignored' ? (
+                <div style={{ border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Ignored evidence cannot accept match suggestions.
+                </div>
+              ) : selectedRow.suggestions && selectedRow.suggestions.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {selectedRow.suggestions.map((s, idx) => (
+                    <div key={idx} style={{
+                      border: '1px solid var(--border)',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      backgroundColor: 'var(--bg-surface-elevated)',
+                      fontSize: '12px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <span style={{
+                          fontSize: '9px',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          backgroundColor: s.match_confidence === 'high' ? 'rgba(76, 175, 80, 0.15)' : s.match_confidence === 'medium' ? 'rgba(255, 152, 0, 0.15)' : 'rgba(33, 150, 243, 0.15)',
+                          color: s.match_confidence === 'high' ? 'var(--success)' : s.match_confidence === 'medium' ? 'var(--warning)' : 'var(--info)',
+                          border: s.match_confidence === 'high' ? '1px solid var(--success)' : s.match_confidence === 'medium' ? '1px solid var(--warning)' : '1px solid var(--info)'
+                        }}>
+                          {s.match_confidence} Confidence (Score: {s.match_score})
+                        </span>
+                        {idx === 0 && <span style={{ fontSize: '9px', fontWeight: '700', color: 'var(--success)' }}>BEST MATCH</span>}
+                      </div>
+                      <div>Tenant: <strong>{s.tenant_name}</strong> (Phone: {s.tenant_phone})</div>
+                      <div>Unit/Property: <strong>{s.unit_label}</strong></div>
+                      {s.invoice_number && (
+                        <div style={{ marginTop: '4px', paddingLeft: '8px', borderLeft: '2px solid var(--border)' }}>
+                          <div>Invoice: <strong>{s.invoice_number}</strong> • Status: <span style={{ textTransform: 'capitalize' }}>{s.invoice_status}</span></div>
+                          <div>Outstanding Balance: <strong style={{ color: 'var(--danger)' }}>{formatCurrency(s.invoice_balance)}</strong></div>
+                          <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Due Date: {new Date(s.invoice_due_date).toLocaleDateString()}</div>
+                        </div>
+                      )}
+                      {s.match_reasons && s.match_reasons.length > 0 && (
+                        <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                          <strong>Reasons:</strong>
+                          <ul style={{ margin: '2px 0 0 0', paddingLeft: '16px' }}>
+                            {s.match_reasons.map((r, rIdx) => <li key={rIdx}>{r}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      {s.match_warnings && s.match_warnings.length > 0 && (
+                        <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--warning)' }}>
+                          <strong>Warnings:</strong>
+                          <ul style={{ margin: '2px 0 0 0', paddingLeft: '16px' }}>
+                            {s.match_warnings.map((w, wIdx) => <li key={wIdx}>{w}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  No suggestions available.
+                </div>
+              )}
+            </div>
 
             {/* Raw Text line */}
             {selectedRow.raw_text && (
