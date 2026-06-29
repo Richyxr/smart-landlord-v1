@@ -250,16 +250,18 @@ export function createPaymentEvidenceRoutes(pgDb) {
      */
     let rows = await activeDb.find('payment_evidence', { organization_id: orgId });
 
-    // Preload active tenants and invoices for metadata injection
+    // Preload active tenants, invoices, properties, units, and users for metadata injection
     const allTenants = await activeDb.find('tenants', { organization_id: orgId });
     const allInvoices = await activeDb.find('invoices', { organization_id: orgId });
     const allProperties = await activeDb.find('properties', { organization_id: orgId }) || [];
     const allUnits = await activeDb.find('units', { organization_id: orgId }) || [];
+    const allUsers = await activeDb.find('users', {}) || [];
 
     const tenantMap = new Map(allTenants.map(t => [t.id, t]));
     const invoiceMap = new Map(allInvoices.map(i => [i.id, i]));
     const propertiesMap = new Map(allProperties.map(p => [p.id, p]));
     const unitsMap = new Map(allUnits.map(u => [u.id, u]));
+    const userMap = new Map(allUsers.map(u => [u.id, u.name]));
 
     const activeTenants = allTenants.filter(t => t.status !== 'deleted' && t.status !== 'inactive');
     const activeTenantMap = new Map(activeTenants.map(t => [t.id, t]));
@@ -367,6 +369,9 @@ export function createPaymentEvidenceRoutes(pgDb) {
         suggestions = suggestions.slice(0, 5);
       }
 
+      const acceptedTenant = r.accepted_tenant_id ? tenantMap.get(r.accepted_tenant_id) : null;
+      const acceptedInvoice = r.accepted_invoice_id ? invoiceMap.get(r.accepted_invoice_id) : null;
+
       return {
         ...r,
         suggested_tenant: tenant ? {
@@ -380,6 +385,18 @@ export function createPaymentEvidenceRoutes(pgDb) {
           total: invoice.total,
           balance: invoice.balance
         } : null,
+        accepted_tenant: acceptedTenant ? {
+          id: acceptedTenant.id,
+          full_name: acceptedTenant.full_name,
+          tenant_account_number: acceptedTenant.tenant_account_number
+        } : null,
+        accepted_invoice: acceptedInvoice ? {
+          id: acceptedInvoice.id,
+          invoice_number: acceptedInvoice.invoice_number,
+          total: acceptedInvoice.total,
+          balance: acceptedInvoice.balance
+        } : null,
+        reviewer_name: r.reviewed_by ? (userMap.get(r.reviewed_by) || 'Unknown') : null,
         suggestions
       };
     });
@@ -626,6 +643,197 @@ export function createPaymentEvidenceRoutes(pgDb) {
       needs_review_count,
       failed_validation_count,
       rows: insertedRows
+    });
+  }));
+
+  // POST /api/payment-evidence/:id/review-decision
+  // HARDENING REVIEW & SECURITY BOUNDARY:
+  // - This endpoint is strictly for logging manual review decisions (metadata-only audit trail).
+  // - It does NOT reconcile payments, allocate funds, mark invoices as paid, create receipts,
+  //   or perform any write operations on financial ledgers/transactions.
+  // - Access is restricted to authenticated Landlord or Super Admin roles only.
+  router.post('/payment-evidence/:id/review-decision', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+    const { orgId, userId } = getContext(req);
+    const rowId = Number(req.params.id);
+
+    const row = await activeDb.findOne('payment_evidence', { id: rowId, organization_id: orgId });
+    if (!row) {
+      return res.status(404).json({
+        error: 'ROW_NOT_FOUND',
+        message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    const { decision, review_notes, rejected_reason, accepted_tenant_id, accepted_invoice_id } = req.body;
+
+    const allowedDecisions = ['accepted_suggestion', 'rejected_suggestion', 'needs_more_evidence', 'marked_irrelevant'];
+    if (!decision || !allowedDecisions.includes(decision)) {
+      return res.status(400).json({
+        error: 'INVALID_DECISION',
+        message: `The decision must be one of: ${allowedDecisions.join(', ')}`
+      });
+    }
+
+    if (row.status === 'ignored' && decision === 'accepted_suggestion') {
+      return res.status(400).json({
+        error: 'IGNORED_ROW_BLOCKED',
+        message: 'Ignored payment evidence rows cannot accept match suggestions.'
+      });
+    }
+
+    let acceptedScore = null;
+    let acceptedConf = null;
+    if (decision === 'accepted_suggestion') {
+      if (!accepted_tenant_id || !accepted_invoice_id) {
+        return res.status(400).json({
+          error: 'MISSING_ACCEPTED_REFS',
+          message: 'Both accepted_tenant_id and accepted_invoice_id are required for accepting a suggestion.'
+        });
+      }
+
+      const allTenants = await activeDb.find('tenants', { organization_id: orgId });
+      const allInvoices = await activeDb.find('invoices', { organization_id: orgId });
+      const allProperties = await activeDb.find('properties', { organization_id: orgId }) || [];
+      const allUnits = await activeDb.find('units', { organization_id: orgId }) || [];
+
+      const propertiesMap = new Map(allProperties.map(p => [p.id, p]));
+      const unitsMap = new Map(allUnits.map(u => [u.id, u]));
+
+      const activeTenants = allTenants.filter(t => t.status !== 'deleted' && t.status !== 'inactive');
+      const eligibleInvoices = allInvoices.filter(inv => inv.status !== 'paid' && inv.status !== 'void');
+
+      let suggestions = [];
+      for (const inv of eligibleInvoices) {
+        const activeTenant = activeTenants.find(t => t.id === inv.tenant_id);
+        if (!activeTenant) continue;
+        const unit = activeTenant.unit_id ? unitsMap.get(activeTenant.unit_id) : null;
+        const property = unit ? propertiesMap.get(unit.property_id) : null;
+
+        const match = calculateCandidateScore(row, activeTenant, inv, unit, property);
+        if (match) {
+          suggestions.push(match);
+        }
+      }
+
+      const matchingSugg = suggestions.find(s => s.tenant_id === Number(accepted_tenant_id) && s.invoice_id === Number(accepted_invoice_id));
+      if (!matchingSugg) {
+        return res.status(400).json({
+          error: 'SUGGESTION_NOT_FOUND',
+          message: 'The selected tenant and invoice combination is not among the suggested match candidates for this row.'
+        });
+      }
+
+      acceptedScore = matchingSugg.match_score;
+      acceptedConf = matchingSugg.match_confidence;
+    }
+
+    if (review_notes && String(review_notes).length > 1000) {
+      return res.status(400).json({
+        error: 'NOTES_TOO_LONG',
+        message: 'Review notes must not exceed 1000 characters.'
+      });
+    }
+    if (rejected_reason && String(rejected_reason).length > 500) {
+      return res.status(400).json({
+        error: 'REASON_TOO_LONG',
+        message: 'Rejected reason must not exceed 500 characters.'
+      });
+    }
+
+    const updates = {
+      review_status: decision,
+      review_decision: decision,
+      reviewed_by: userId,
+      reviewed_at: new Date().toISOString(),
+      review_notes: review_notes || null,
+      accepted_tenant_id: decision === 'accepted_suggestion' ? Number(accepted_tenant_id) : null,
+      accepted_invoice_id: decision === 'accepted_suggestion' ? Number(accepted_invoice_id) : null,
+      accepted_match_score: acceptedScore,
+      accepted_match_confidence: acceptedConf,
+      rejected_reason: (decision === 'rejected_suggestion' || decision === 'marked_irrelevant') ? (rejected_reason || null) : null
+    };
+
+    const [updatedRow] = await activeDb.update('payment_evidence', rowId, updates);
+
+    const tenant = updatedRow.suggested_tenant_id ? (await activeDb.findOne('tenants', { id: updatedRow.suggested_tenant_id })) : null;
+    const invoice = updatedRow.suggested_invoice_id ? (await activeDb.findOne('invoices', { id: updatedRow.suggested_invoice_id })) : null;
+
+    const allTenants = await activeDb.find('tenants', { organization_id: orgId });
+    const allInvoices = await activeDb.find('invoices', { organization_id: orgId });
+    const allProperties = await activeDb.find('properties', { organization_id: orgId }) || [];
+    const allUnits = await activeDb.find('units', { organization_id: orgId }) || [];
+
+    const propertiesMap = new Map(allProperties.map(p => [p.id, p]));
+    const unitsMap = new Map(allUnits.map(u => [u.id, u]));
+
+    const activeTenants = allTenants.filter(t => t.status !== 'deleted' && t.status !== 'inactive');
+    const eligibleInvoices = allInvoices.filter(inv => inv.status !== 'paid' && inv.status !== 'void');
+
+    let suggestions = [];
+    if (updatedRow.status !== 'ignored') {
+      for (const inv of eligibleInvoices) {
+        const activeTenant = activeTenants.find(t => t.id === inv.tenant_id);
+        if (!activeTenant) continue;
+        const unit = activeTenant.unit_id ? unitsMap.get(activeTenant.unit_id) : null;
+        const property = unit ? propertiesMap.get(unit.property_id) : null;
+
+        const match = calculateCandidateScore(updatedRow, activeTenant, inv, unit, property);
+        if (match) {
+          suggestions.push(match);
+        }
+      }
+      suggestions.sort((a, b) => {
+        if (b.match_score !== a.match_score) return b.match_score - a.match_score;
+        const confWeight = { high: 3, medium: 2, low: 1 };
+        const weightA = confWeight[a.match_confidence] || 0;
+        const weightB = confWeight[b.match_confidence] || 0;
+        if (weightB !== weightA) return weightB - weightA;
+        if (a.invoice_due_date !== b.invoice_due_date) return b.invoice_due_date.localeCompare(a.invoice_due_date);
+        return b.invoice_id - a.invoice_id;
+      });
+      suggestions = suggestions.slice(0, 5);
+    }
+
+    const tenantMap = new Map(allTenants.map(t => [t.id, t]));
+    const invoiceMap = new Map(allInvoices.map(i => [i.id, i]));
+
+    const acceptedTenant = updatedRow.accepted_tenant_id ? tenantMap.get(updatedRow.accepted_tenant_id) : null;
+    const acceptedInvoice = updatedRow.accepted_invoice_id ? invoiceMap.get(updatedRow.accepted_invoice_id) : null;
+
+    const reviewUser = await activeDb.findOne('users', { id: userId });
+
+    const finalRow = {
+      ...updatedRow,
+      suggested_tenant: tenant ? {
+        id: tenant.id,
+        full_name: tenant.full_name,
+        tenant_account_number: tenant.tenant_account_number
+      } : null,
+      suggested_invoice: invoice ? {
+        id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        total: invoice.total,
+        balance: invoice.balance
+      } : null,
+      accepted_tenant: acceptedTenant ? {
+        id: acceptedTenant.id,
+        full_name: acceptedTenant.full_name,
+        tenant_account_number: acceptedTenant.tenant_account_number
+      } : null,
+      accepted_invoice: acceptedInvoice ? {
+        id: acceptedInvoice.id,
+        invoice_number: acceptedInvoice.invoice_number,
+        total: acceptedInvoice.total,
+        balance: acceptedInvoice.balance
+      } : null,
+      suggestions,
+      reviewer_name: reviewUser ? reviewUser.name : 'Unknown Reviewer'
+    };
+
+    res.json({
+      success: true,
+      message: 'Review decision saved. No payment has been reconciled or applied.',
+      row: finalRow
     });
   }));
 

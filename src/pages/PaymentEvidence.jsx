@@ -19,7 +19,7 @@ import {
   Info
 } from 'lucide-react';
 
-export default function PaymentEvidence({ organization, refreshTrigger }) {
+export default function PaymentEvidence({ organization, refreshTrigger, user, role }) {
   const [evidenceRows, setEvidenceRows] = useState([]);
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -38,6 +38,27 @@ export default function PaymentEvidence({ organization, refreshTrigger }) {
 
   // Selected row for Detail Drawer
   const [selectedRow, setSelectedRow] = useState(null);
+
+  // Manual Review Decision States
+  const [reviewDecisionType, setReviewDecisionType] = useState('');
+  const [acceptedCandidateIndex, setAcceptedCandidateIndex] = useState(-1);
+  const [rejectedReasonText, setRejectedReasonText] = useState('');
+  const [reviewNotesText, setReviewNotesText] = useState('');
+  const [savingReview, setSavingReview] = useState(false);
+
+  const getBrandedConfirmAndNotify = () => {
+    const showConfirm = window.showConfirm;
+    const notifySuccess = window.notifySuccess;
+    const notifyError = window.notifyError;
+    const notifyWarning = window.notifyWarning;
+
+    if (!showConfirm || !notifySuccess || !notifyError || !notifyWarning) {
+      console.warn("Branded notification/confirmation system is unavailable.");
+      return null;
+    }
+
+    return { showConfirm, notifySuccess, notifyError, notifyWarning };
+  };
 
   // Import Wizard State
   const [showImportWizard, setShowImportWizard] = useState(false);
@@ -61,6 +82,14 @@ export default function PaymentEvidence({ organization, refreshTrigger }) {
     }, 400);
     return () => clearTimeout(timer);
   }, [search]);
+
+  useEffect(() => {
+    setReviewDecisionType(selectedRow?.status === 'ignored' ? 'marked_irrelevant' : '');
+    setAcceptedCandidateIndex(-1);
+    setRejectedReasonText('');
+    setReviewNotesText('');
+    setSavingReview(false);
+  }, [selectedRow]);
 
   const parseCSV = (text) => {
     /*
@@ -371,10 +400,12 @@ Please split the file into smaller batches or wait for the upcoming server-side 
     !wizardError;
 
   const handleImportCSV = () => {
-    const showConfirm = window.showConfirm || ((title, msg, cb) => { if (window.confirm(msg)) cb(); });
-    const notifySuccess = window.notifySuccess || ((title, msg) => alert(msg));
-    const notifyError = window.notifyError || ((title, msg) => alert(msg));
-    const notifyWarning = window.notifyWarning || ((title, msg) => alert(msg));
+    const system = getBrandedConfirmAndNotify();
+    if (!system) {
+      setError("Notification system is unavailable. Please refresh and try again.");
+      return;
+    }
+    const { showConfirm, notifySuccess, notifyError } = system;
 
     showConfirm(
       "Import CSV Records",
@@ -469,6 +500,79 @@ Please split the file into smaller batches or wait for the upcoming server-side 
     }
   };
 
+  const handleSaveReviewDecision = async (decision, acceptedTenantId = null, acceptedInvoiceId = null) => {
+    if (!selectedRow) return;
+
+    const system = getBrandedConfirmAndNotify();
+    if (!system) {
+      setError("Notification system is unavailable. Please refresh and try again.");
+      return;
+    }
+    const { showConfirm, notifySuccess, notifyError } = system;
+
+    const notes = reviewNotesText.trim();
+    const reason = rejectedReasonText.trim();
+
+    if (notes.length > 1000) {
+      notifyError('Validation Error', 'Review notes must not exceed 1000 characters.');
+      return;
+    }
+    if (reason.length > 500) {
+      notifyError('Validation Error', 'Rejected/irrelevant reason must not exceed 500 characters.');
+      return;
+    }
+
+    const payload = {
+      decision,
+      review_notes: notes || null,
+      rejected_reason: (decision === 'rejected_suggestion' || decision === 'marked_irrelevant') ? (reason || null) : null,
+      accepted_tenant_id: acceptedTenantId,
+      accepted_invoice_id: acceptedInvoiceId
+    };
+
+    let confirmMsg = 'Save this review decision? This will not reconcile, allocate, or apply the payment.';
+    if (decision === 'accepted_suggestion') {
+      confirmMsg = 'Save this accepted suggestion? This will not reconcile, allocate, or apply the payment.';
+    } else if (decision === 'rejected_suggestion') {
+      confirmMsg = 'Save this rejection decision? This will not reconcile, allocate, or apply the payment.';
+    } else if (decision === 'needs_more_evidence') {
+      confirmMsg = 'Save this needs more evidence decision? This will not reconcile, allocate, or apply the payment.';
+    } else if (decision === 'marked_irrelevant') {
+      confirmMsg = 'Mark this evidence row irrelevant? This will not reconcile, allocate, or apply the payment.';
+    }
+
+    showConfirm(
+      "Save Review Decision",
+      confirmMsg,
+      async () => {
+        setSavingReview(true);
+        try {
+          const res = await fetch(`/api/payment-evidence/${selectedRow.id}/review-decision`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.message || data.error || 'Failed to save review decision');
+          }
+
+          notifySuccess('Decision Saved', data.message || 'Review decision updated.');
+          setSelectedRow(data.row);
+          await fetchEvidenceRows();
+        } catch (err) {
+          console.error(err);
+          notifyError('Error', err.message || 'Failed to save review decision.');
+        } finally {
+          setSavingReview(false);
+        }
+      }
+    );
+  };
+
   // Helper to format currency
   const formatCurrency = (val) => {
     return new Intl.NumberFormat('en-KE', {
@@ -511,6 +615,37 @@ Please split the file into smaller batches or wait for the upcoming server-side 
         return 'badge-secondary';
       default:
         return 'badge-secondary';
+    }
+  };
+
+  // Helper to resolve Badge Styles for Review Status
+  const getReviewStatusBadgeClass = (status) => {
+    switch (status) {
+      case 'accepted_suggestion':
+        return 'badge-success';
+      case 'rejected_suggestion':
+        return 'badge-danger';
+      case 'needs_more_evidence':
+        return 'badge-warning';
+      case 'marked_irrelevant':
+        return 'badge-secondary';
+      default:
+        return 'badge-secondary';
+    }
+  };
+
+  const getReviewStatusLabel = (status) => {
+    switch (status) {
+      case 'accepted_suggestion':
+        return 'Accepted Suggestion';
+      case 'rejected_suggestion':
+        return 'Rejected Suggestion';
+      case 'needs_more_evidence':
+        return 'Needs More Evidence';
+      case 'marked_irrelevant':
+        return 'Marked Irrelevant';
+      default:
+        return 'Not Reviewed';
     }
   };
 
@@ -792,6 +927,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                   <th style={{ padding: '12px' }}>Suggested Match</th>
                   <th style={{ padding: '12px' }}>Strength</th>
                   <th style={{ padding: '12px' }}>Status</th>
+                  <th style={{ padding: '12px' }}>Review</th>
                   <th style={{ padding: '12px', textAlign: 'right' }}>Amount</th>
                   <th style={{ padding: '12px', textAlign: 'center' }}>Action</th>
                 </tr>
@@ -884,6 +1020,11 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                         </div>
                       )}
                     </td>
+                    <td style={{ padding: '12px' }}>
+                      <span className={`badge ${getReviewStatusBadgeClass(row.review_status)}`} style={{ textTransform: 'capitalize', fontSize: '9px' }}>
+                        {getReviewStatusLabel(row.review_status)}
+                      </span>
+                    </td>
                     <td style={{ padding: '12px', textAlign: 'right', fontWeight: '800', color: 'var(--success)' }}>
                       {formatCurrency(row.amount)}
                     </td>
@@ -963,6 +1104,51 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               </div>
               <div>
                 <span className="text-muted">Document Source:</span> <strong>{selectedRow.document_source || 'N/A'}</strong>
+              </div>
+            </div>
+
+            {/* Review Decision Audit Trail */}
+            <div style={{ marginBottom: '16px', border: '1px dashed var(--border)', padding: '12px', borderRadius: '8px' }}>
+              <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '700' }}>Review Status & Decision Trail</h4>
+              <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div>
+                  <span className="text-muted">Review Decision State:</span>{' '}
+                  <span className={`badge ${getReviewStatusBadgeClass(selectedRow.review_status)}`} style={{ textTransform: 'capitalize', fontSize: '10px' }}>
+                    {getReviewStatusLabel(selectedRow.review_status)}
+                  </span>
+                </div>
+                {selectedRow.reviewed_by && (
+                  <>
+                    <div>
+                      <span className="text-muted">Reviewed By:</span> <strong>{selectedRow.reviewer_name || `User ID: ${selectedRow.reviewed_by}`}</strong>
+                    </div>
+                    <div>
+                      <span className="text-muted">Reviewed At:</span> <strong>{new Date(selectedRow.reviewed_at).toLocaleString()}</strong>
+                    </div>
+                  </>
+                )}
+                {selectedRow.accepted_tenant && (
+                  <div style={{ marginTop: '4px', paddingLeft: '8px', borderLeft: '3px solid var(--success)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                    <div>Accepted Tenant: <strong>{selectedRow.accepted_tenant.full_name}</strong> (Acc: {selectedRow.accepted_tenant.tenant_account_number})</div>
+                    {selectedRow.accepted_invoice && (
+                      <div>Accepted Invoice: <strong>{selectedRow.accepted_invoice.invoice_number}</strong> (Outstanding: {formatCurrency(selectedRow.accepted_invoice.balance)})</div>
+                    )}
+                  </div>
+                )}
+                {selectedRow.rejected_reason && (
+                  <div>
+                    <span className="text-muted">Rejection/Irrelevant Reason:</span> <strong style={{ color: 'var(--danger)' }}>{selectedRow.rejected_reason}</strong>
+                  </div>
+                )}
+                {selectedRow.review_notes && (
+                  <div style={{ marginTop: '4px', backgroundColor: 'var(--bg-surface-elevated)', padding: '8px', borderRadius: '4px', fontStyle: 'italic' }}>
+                    <span className="text-muted" style={{ display: 'block', fontSize: '10px', fontStyle: 'normal', marginBottom: '2px' }}>Review Notes:</span>
+                    "{selectedRow.review_notes}"
+                  </div>
+                )}
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '6px' }}>
+                Manual review decisions are audit notes only. They do not reconcile, allocate, or apply payments.
               </div>
             </div>
 
@@ -1074,6 +1260,197 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                 <pre style={{ margin: 0, padding: '12px', fontSize: '11px', backgroundColor: 'var(--bg-surface-elevated)', border: '1px solid var(--border)', borderRadius: '8px', overflowX: 'auto', maxBlockSize: '150px' }}>
                   {JSON.stringify(selectedRow.raw_fields, null, 2)}
                 </pre>
+              </div>
+            )}
+
+            {/* MANUAL REVIEW DECISION WORKSPACE */}
+            {(role === 'landlord' || role === 'super_admin') && (
+              <div style={{
+                marginBottom: '20px',
+                border: '2px solid var(--border)',
+                padding: '16px',
+                borderRadius: '12px',
+                backgroundColor: 'var(--bg-surface-elevated)'
+              }}>
+                <h4 style={{ fontSize: '13px', textTransform: 'uppercase', color: 'var(--text-primary)', marginBottom: '12px', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <ShieldAlert size={14} style={{ color: 'var(--primary)' }} />
+                  Manual Review Decision
+                </h4>
+
+                {/* Safety notice info banner */}
+                <div style={{
+                  padding: '8px 12px',
+                  backgroundColor: 'rgba(255, 152, 0, 0.05)',
+                  border: '1px solid var(--warning)',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  color: 'var(--text-secondary)',
+                  marginBottom: '12px'
+                }}>
+                  <strong>Review Disclaimer:</strong> Manual review decisions are audit notes only. They do not reconcile, allocate, or apply payments to invoices.
+                </div>
+
+                {/* Form Controls for Review Notes */}
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', marginBottom: '4px', color: 'var(--text-secondary)' }}>
+                    Review / Audit Notes (Max 1000 chars)
+                  </label>
+                  <textarea
+                    className="form-control"
+                    rows={2}
+                    maxLength={1000}
+                    placeholder="Enter manual review notes here..."
+                    value={reviewNotesText}
+                    onChange={(e) => setReviewNotesText(e.target.value)}
+                    style={{ fontSize: '12px', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
+                  />
+                </div>
+
+                {/* Decision options grid */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+
+                  {/* Option 1: Accept suggestion */}
+                  {selectedRow.status !== 'ignored' && selectedRow.suggestions && selectedRow.suggestions.length > 0 && (
+                    <div style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--bg-surface)' }}>
+                      <div style={{ fontSize: '11.5px', fontWeight: '700', marginBottom: '6px' }}>Option A: Accept Match Suggestion</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '8px' }}>
+                        {selectedRow.suggestions.map((s, idx) => (
+                          <label key={idx} style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: '8px',
+                            padding: '6px 10px',
+                            border: '1px solid var(--border)',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            backgroundColor: acceptedCandidateIndex === idx ? 'rgba(76, 175, 80, 0.08)' : 'transparent',
+                            borderColor: acceptedCandidateIndex === idx ? 'var(--success)' : 'var(--border)'
+                          }}>
+                            <input
+                              type="radio"
+                              name="accepted_suggestion_radio"
+                              checked={acceptedCandidateIndex === idx}
+                              onChange={() => {
+                                setAcceptedCandidateIndex(idx);
+                                setReviewDecisionType('accepted_suggestion');
+                              }}
+                              style={{ marginTop: '3px' }}
+                            />
+                            <div style={{ fontSize: '11px' }}>
+                              <strong>{s.tenant_name}</strong> ({s.unit_label}) • Invoice <strong>{s.invoice_number}</strong> • Confidence: <span style={{ textTransform: 'uppercase', fontWeight: '700' }}>{s.match_confidence}</span> (Score: {s.match_score})
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-success btn-sm"
+                        disabled={savingReview || reviewDecisionType !== 'accepted_suggestion' || acceptedCandidateIndex === -1}
+                        onClick={() => {
+                          const s = selectedRow.suggestions[acceptedCandidateIndex];
+                          handleSaveReviewDecision('accepted_suggestion', s.tenant_id, s.invoice_id);
+                        }}
+                      >
+                        Save Accepted Suggestion
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Reject / Needs More Evidence / Irrelevant forms */}
+                  {selectedRow.status !== 'ignored' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${reviewDecisionType === 'rejected_suggestion' ? 'btn-danger' : 'btn-secondary'}`}
+                        onClick={() => setReviewDecisionType('rejected_suggestion')}
+                        disabled={savingReview}
+                      >
+                        Reject Suggestion
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${reviewDecisionType === 'needs_more_evidence' ? 'btn-warning' : 'btn-secondary'}`}
+                        onClick={() => setReviewDecisionType('needs_more_evidence')}
+                        disabled={savingReview}
+                      >
+                        Needs More Evidence
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${reviewDecisionType === 'marked_irrelevant' ? 'btn-secondary' : 'btn-secondary'}`}
+                        onClick={() => setReviewDecisionType('marked_irrelevant')}
+                        style={{
+                          backgroundColor: reviewDecisionType === 'marked_irrelevant' ? 'var(--border)' : 'transparent',
+                          borderColor: 'var(--border)'
+                        }}
+                        disabled={savingReview}
+                      >
+                        Mark Irrelevant
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        disabled={savingReview}
+                        style={{
+                          backgroundColor: 'var(--border)',
+                          borderColor: 'var(--border)',
+                          width: '100%',
+                          cursor: 'default',
+                          fontWeight: '800'
+                        }}
+                      >
+                        Mark Evidence Irrelevant
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Rejected Reason Form */}
+                  {(reviewDecisionType === 'rejected_suggestion' || reviewDecisionType === 'marked_irrelevant') && (
+                    <div style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--bg-surface)' }}>
+                      <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', marginBottom: '4px', color: 'var(--text-secondary)' }}>
+                        Rejection / Irrelevant Reason (Max 500 chars) *
+                      </label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        maxLength={500}
+                        placeholder="Enter the reason why this suggestion/row is invalid..."
+                        value={rejectedReasonText}
+                        onChange={(e) => setRejectedReasonText(e.target.value)}
+                        style={{ fontSize: '12px', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border)', marginBottom: '8px' }}
+                      />
+                      <button
+                        type="button"
+                        className={`btn ${reviewDecisionType === 'rejected_suggestion' ? 'btn-danger' : 'btn-secondary'} btn-sm`}
+                        disabled={savingReview || !rejectedReasonText.trim()}
+                        onClick={() => handleSaveReviewDecision(reviewDecisionType)}
+                      >
+                        {reviewDecisionType === 'rejected_suggestion' ? 'Save Rejection' : 'Mark Evidence Irrelevant'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Needs More Evidence Form */}
+                  {reviewDecisionType === 'needs_more_evidence' && (
+                    <div style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', backgroundColor: 'var(--bg-surface)' }}>
+                      <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                        This will flag the evidence row as needing further documentation or review notes.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn btn-warning btn-sm"
+                        disabled={savingReview}
+                        onClick={() => handleSaveReviewDecision('needs_more_evidence')}
+                      >
+                        Save Needs More Evidence
+                      </button>
+                    </div>
+                  )}
+
+                </div>
               </div>
             )}
 

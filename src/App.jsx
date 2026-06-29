@@ -385,7 +385,7 @@ export default function App() {
       case 'landlord_reconciliation':
         return <Reconciliation organization={organization} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
       case 'landlord_payment_evidence':
-        return <PaymentEvidence organization={organization} refreshTrigger={refreshTrigger} />;
+        return <PaymentEvidence organization={organization} refreshTrigger={refreshTrigger} user={user} role={role} />;
       case 'landlord_settings':
         return (
           <Settings

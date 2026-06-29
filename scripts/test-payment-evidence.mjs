@@ -768,11 +768,11 @@ async function runTests() {
     !paymentEvidenceContent.includes("status: 'manually_reconciled'")
   );
 
-  // 5. Generic browser alert/confirm is not used directly without safety fallback checks
+  // 5. Generic browser alert/confirm is not used directly
   assert(
     'Generic browser alert/confirm is not used directly',
-    !paymentEvidenceContent.includes("if (!window.confirm(") &&
-    paymentEvidenceContent.includes("window.showConfirm ||")
+    !paymentEvidenceContent.includes("window.confirm(") &&
+    !paymentEvidenceContent.includes("alert(")
   );
 
   // Verify Suggestions GET logic
@@ -856,6 +856,186 @@ async function runTests() {
     !paymentEvidenceContent.includes('Reconcile Payment') &&
     !paymentEvidenceContent.includes('Approve Reconciliation') &&
     !paymentEvidenceContent.includes('Allocate Payment')
+  );
+
+  // ==========================================
+  // Test 9: Manual Review Decision UI Foundation
+  // ==========================================
+  console.log('\n9. Manual Review Decision UI Foundation:');
+
+  const reviewDecisionHandler = getRouteHandler('/payment-evidence/:id/review-decision');
+  const reviewDecisionMiddlewares = getRouteMiddlewares('/payment-evidence/:id/review-decision');
+
+  assert(
+    'Review Decision endpoint requires landlord or super_admin role',
+    reviewDecisionMiddlewares.includes(requireLandlordOrSuperAdminMiddleware)
+  );
+
+  // Setup test environment data
+  apiDb.seed('users', [
+    { id: 10, organization_id: 1, name: 'Alice Landlord' }
+  ]);
+  apiDb.seed('tenants', [
+    { id: 101, organization_id: 1, full_name: 'Tenant One', tenant_account_number: 'ACC-T1', status: 'active', phone: '254722334455' }
+  ]);
+  apiDb.seed('invoices', [
+    { id: 201, organization_id: 1, tenant_id: 101, invoice_number: 'INV-101', status: 'issued', balance: 5000, total: 5000, due_date: '2026-06-20' }
+  ]);
+  apiDb.seed('payment_evidence', [
+    { id: 4001, organization_id: 1, amount: 5000, transaction_date: '2026-06-19', status: 'needs_review', collection_channel: 'MPESA_PAYBILL', row_hash: 'HASH-REV-1', payer_phone: '254722334455' },
+    { id: 4002, organization_id: 1, amount: 5000, transaction_date: '2026-06-19', status: 'ignored', collection_channel: 'MPESA_PAYBILL', row_hash: 'HASH-REV-2', payer_phone: '254722334455' }
+  ]);
+
+  let reviewResStatus = null;
+  let reviewResResult = null;
+  const mockResReview = {
+    status(code) { reviewResStatus = code; return this; },
+    json(data) { reviewResResult = data; return this; }
+  };
+
+  // 1. Rejected decision validation checks
+  reviewResStatus = null;
+  reviewResResult = null;
+  await reviewDecisionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '4001' },
+    body: {
+      decision: 'invalid_decision_type'
+    }
+  }, mockResReview);
+  assert('Invalid decision type returns HTTP 400', reviewResStatus === 400 && reviewResResult.error === 'INVALID_DECISION');
+
+  // 2. Text field length limit validation checks
+  reviewResStatus = null;
+  await reviewDecisionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '4001' },
+    body: {
+      decision: 'rejected_suggestion',
+      rejected_reason: 'a'.repeat(501)
+    }
+  }, mockResReview);
+  assert('Rejection reason text exceeding limit returns HTTP 400', reviewResStatus === 400 && reviewResResult.error === 'REASON_TOO_LONG');
+
+  reviewResStatus = null;
+  await reviewDecisionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '4001' },
+    body: {
+      decision: 'needs_more_evidence',
+      review_notes: 'a'.repeat(1001)
+    }
+  }, mockResReview);
+  assert('Review notes text exceeding limit returns HTTP 400', reviewResStatus === 400 && reviewResResult.error === 'NOTES_TOO_LONG');
+
+  // 3. Ignored rows block accepted_suggestion decisions
+  reviewResStatus = null;
+  await reviewDecisionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '4002' },
+    body: {
+      decision: 'accepted_suggestion',
+      accepted_tenant_id: 101,
+      accepted_invoice_id: 201
+    }
+  }, mockResReview);
+  assert('Ignored rows cannot accept match suggestions', reviewResStatus === 400 && reviewResResult.error === 'IGNORED_ROW_BLOCKED');
+
+  // 4. Validate suggestion references on acceptance
+  reviewResStatus = null;
+  await reviewDecisionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '4001' },
+    body: {
+      decision: 'accepted_suggestion',
+      accepted_tenant_id: 999,
+      accepted_invoice_id: 999
+    }
+  }, mockResReview);
+  assert('Incorrect matching suggestion parameters are rejected', reviewResStatus === 400 && reviewResResult.error === 'SUGGESTION_NOT_FOUND');
+
+  // 5. Successful review decision save
+  reviewResStatus = null;
+  reviewResResult = null;
+  const initialInvoiceList = JSON.stringify(apiDb.get('invoices'));
+  const initialTenantList = JSON.stringify(apiDb.get('tenants'));
+
+  await reviewDecisionHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '4001' },
+    body: {
+      decision: 'accepted_suggestion',
+      accepted_tenant_id: 101,
+      accepted_invoice_id: 201,
+      review_notes: 'Verified against M-Pesa transaction log notes.'
+    }
+  }, mockResReview);
+
+  assert('Save review decision is successful', reviewResResult && reviewResResult.success === true);
+  assert('Return includes correct safety message', reviewResResult && reviewResResult.message === 'Review decision saved. No payment has been reconciled or applied.');
+  assert('Return includes updated row with decision details', reviewResResult && reviewResResult.row.review_decision === 'accepted_suggestion');
+  assert('Updated row includes accepted tenant info preloaded', reviewResResult && reviewResResult.row.accepted_tenant.full_name === 'Tenant One');
+  assert('Updated row includes accepted invoice info preloaded', reviewResResult && reviewResResult.row.accepted_invoice.invoice_number === 'INV-101');
+  assert('Updated row includes reviewer name', reviewResResult && reviewResResult.row.reviewer_name === 'Alice Landlord');
+
+  // Validate database immutability constraints
+  assert('Invoices table remains un-mutated', JSON.stringify(apiDb.get('invoices')) === initialInvoiceList);
+  assert('Tenants table remains un-mutated', JSON.stringify(apiDb.get('tenants')) === initialTenantList);
+
+  // 6. Verify frontend UI files structure for safety disclaimers, review state buttons and confirm dialogs
+  assert(
+    'Payment Evidence UI renders manual review safety notice disclaimers',
+    paymentEvidenceContent.includes("Manual review decisions are audit notes only. They do not reconcile, allocate, or apply payments.")
+  );
+  assert(
+    'Payment Evidence UI contains decision workflow action buttons',
+    paymentEvidenceContent.includes("Save Accepted Suggestion") &&
+    paymentEvidenceContent.includes("Reject Suggestion") &&
+    paymentEvidenceContent.includes("Needs More Evidence") &&
+    paymentEvidenceContent.includes("Mark Irrelevant")
+  );
+  assert(
+    'Payment Evidence UI uses window.showConfirm before saving decisions',
+    paymentEvidenceContent.includes("window.showConfirm") &&
+    paymentEvidenceContent.includes("Save Review Decision")
+  );
+
+  // Hardening: Remove generic browser alert/confirm fallbacks check
+  assert(
+    'PaymentEvidence.jsx does not contain window.confirm(',
+    !paymentEvidenceContent.includes("window.confirm(")
+  );
+  assert(
+    'PaymentEvidence.jsx does not contain alert(',
+    !paymentEvidenceContent.includes("alert(")
+  );
+
+  // Hardening: Frontend role gate checks
+  assert(
+    'PaymentEvidence.jsx restricts review workspace strictly to landlord/super_admin role (no || !role bypass)',
+    paymentEvidenceContent.includes("(role === 'landlord' || role === 'super_admin')") &&
+    !paymentEvidenceContent.includes("(role === 'landlord' || role === 'super_admin' || !role)")
+  );
+
+  // Hardening: Ignored-row UI behavior checks
+  assert(
+    'PaymentEvidence.jsx hides accept match suggestion option from ignored rows',
+    paymentEvidenceContent.includes("selectedRow.status !== 'ignored' && selectedRow.suggestions")
+  );
+  assert(
+    'PaymentEvidence.jsx hides other decisions and renders Mark Evidence Irrelevant conditionally for ignored rows',
+    paymentEvidenceContent.includes("selectedRow.status !== 'ignored' ?") &&
+    paymentEvidenceContent.includes("Mark Evidence Irrelevant")
+  );
+
+  // Hardening: Metadata-only updates verification (no status update in route body payload)
+  const routeContent = fs.readFileSync('server/routes/paymentEvidenceRoutes.js', 'utf8');
+  const updatesStart = routeContent.indexOf("const updates = {");
+  const updatesEnd = routeContent.indexOf("};", updatesStart);
+  const updatesBlock = routeContent.slice(updatesStart, updatesEnd);
+  assert(
+    'Route does not include status field inside its update payload',
+    updatesStart !== -1 && !/\bstatus\s*:/.test(updatesBlock)
   );
 
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
