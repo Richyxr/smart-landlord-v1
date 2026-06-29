@@ -57,6 +57,30 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [auditLogs, setAuditLogs] = useState([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
 
+  // Draft Allocation Preview States
+  const [previewData, setPreviewData] = useState(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [previewError, setPreviewError] = useState('');
+
+  const fetchAllocationPreview = async (id) => {
+    setLoadingPreview(true);
+    setPreviewError('');
+    try {
+      const res = await fetch(`/api/payment-evidence/${id}/allocation-preview`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to fetch allocation preview');
+      }
+      setPreviewData(data);
+    } catch (err) {
+      console.error(err);
+      setPreviewError(err.message || 'Failed to fetch allocation preview');
+      setPreviewData(null);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
   const fetchAuditLogs = async (id) => {
     setLoadingAudit(true);
     try {
@@ -119,8 +143,11 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
 
     if (selectedRow && (role === 'landlord' || role === 'super_admin')) {
       fetchAuditLogs(selectedRow.id);
+      fetchAllocationPreview(selectedRow.id);
     } else {
       setAuditLogs([]);
+      setPreviewData(null);
+      setPreviewError('');
     }
   }, [selectedRow, role]);
 
@@ -605,6 +632,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           notifySuccess('Decision Saved', data.message || 'Review decision updated.');
           setSelectedRow(data.row);
           fetchAuditLogs(data.row.id);
+          fetchAllocationPreview(data.row.id);
           await fetchEvidenceRows();
         } catch (err) {
           console.error(err);
@@ -1297,6 +1325,94 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                 Manual review decisions are audit notes only. They do not reconcile, allocate, or apply payments.
               </div>
             </div>
+
+            {/* Draft Allocation Preview Section */}
+            {(role === 'landlord' || role === 'super_admin') && (
+              <div style={{ marginBottom: '16px', border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-surface)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-primary)', margin: 0, fontWeight: '700' }}>Draft Allocation Preview</h4>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => selectedRow && fetchAllocationPreview(selectedRow.id)}
+                    disabled={loadingPreview}
+                    style={{ padding: '2px 8px', fontSize: '10px', height: 'auto', marginLeft: 'auto' }}
+                  >
+                    Refresh Preview
+                  </button>
+                </div>
+
+                {loadingPreview ? (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Loading readiness preview...</div>
+                ) : previewError ? (
+                  <div style={{ fontSize: '11px', color: 'var(--danger)' }}>{previewError}</div>
+                ) : previewData ? (
+                  <div style={{ fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span className="text-muted">Readiness State:</span>
+                      <span className={`badge ${previewData.ready ? 'badge-success' : 'badge-secondary'}`} style={{ textTransform: 'capitalize', fontSize: '9px' }}>
+                        {previewData.state.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className="text-muted">Message:</span> <strong>{previewData.message}</strong>
+                    </div>
+
+                    {previewData.ready ? (
+                      <div style={{ marginTop: '6px', borderTop: '1px solid var(--border)', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                          <div>
+                            <span className="text-muted">Tenant:</span> <strong>{previewData.accepted_tenant_name}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Invoice:</span> <strong>{previewData.accepted_invoice_number}</strong> ({previewData.invoice_status})
+                          </div>
+                          <div>
+                            <span className="text-muted">Invoice Balance:</span> <strong>{formatCurrency(previewData.invoice_balance)}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Evidence Amount:</span> <strong>{formatCurrency(previewData.amount)}</strong>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: '4px', padding: '6px 8px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '4px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+                          <div>
+                            <span className="text-muted" style={{ display: 'block', fontSize: '9px' }}>Allocation Preview:</span>
+                            <strong style={{ color: 'var(--success)' }}>{formatCurrency(previewData.allocation_amount_preview)}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted" style={{ display: 'block', fontSize: '9px' }}>Remaining Balance:</span>
+                            <strong>{formatCurrency(previewData.remaining_balance_preview)}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted" style={{ display: 'block', fontSize: '9px' }}>Overpayment Preview:</span>
+                            <strong style={{ color: previewData.overpayment_preview > 0 ? 'var(--warning)' : 'inherit' }}>{formatCurrency(previewData.overpayment_preview)}</strong>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', marginTop: '4px' }}>
+                        Not ready for allocation. Please review the evidence row and accept a match suggestion to generate draft allocation numbers.
+                      </div>
+                    )}
+
+                    <div style={{
+                      marginTop: '6px',
+                      padding: '8px',
+                      backgroundColor: 'rgba(255, 152, 0, 0.05)',
+                      border: '1px solid var(--warning)',
+                      borderRadius: '4px',
+                      fontSize: '9.5px',
+                      color: 'var(--text-secondary)'
+                    }}>
+                      <strong>Preview Notice:</strong> {previewData.safety_message}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>No readiness data loaded.</div>
+                )}
+              </div>
+            )}
 
             {/* Review Decision History Section */}
             <div style={{ marginBottom: '16px', border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-surface)' }}>

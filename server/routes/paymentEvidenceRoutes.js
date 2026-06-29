@@ -1044,5 +1044,111 @@ export function createPaymentEvidenceRoutes(pgDb) {
     });
   }));
 
+  // GET /api/payment-evidence/:id/allocation-preview
+  router.get('/payment-evidence/:id/allocation-preview', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
+    const rowId = Number(req.params.id);
+
+    const row = await activeDb.findOne('payment_evidence', { id: rowId, organization_id: orgId });
+    if (!row) {
+      return res.status(404).json({
+        error: 'ROW_NOT_FOUND',
+        message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    let ready = false;
+    let state = 'not_reviewed';
+    let message = 'This evidence row has not been reviewed yet.';
+    let tenant = null;
+    let invoice = null;
+
+    const reviewDecision = row.review_status || row.review_decision || '';
+
+    if (!reviewDecision) {
+      ready = false;
+      state = 'not_reviewed';
+      message = 'This evidence row has not been reviewed yet.';
+    } else if (row.status === 'ignored' || reviewDecision === 'marked_irrelevant') {
+      ready = false;
+      state = 'ignored';
+      message = 'This evidence row has been marked as ignored/irrelevant.';
+    } else if (reviewDecision === 'rejected_suggestion' || reviewDecision === 'needs_more_evidence') {
+      ready = false;
+      state = 'no_accepted_match';
+      message = 'This evidence row does not have an accepted match suggestion.';
+    } else if (reviewDecision === 'accepted_suggestion') {
+      const tenantId = row.accepted_tenant_id;
+      const invoiceId = row.accepted_invoice_id;
+
+      if (!tenantId) {
+        ready = false;
+        state = 'missing_tenant';
+        message = 'The accepted tenant is missing or does not exist.';
+      } else {
+        tenant = await activeDb.findOne('tenants', { id: Number(tenantId), organization_id: orgId });
+        if (!tenant) {
+          ready = false;
+          state = 'missing_tenant';
+          message = 'The accepted tenant is missing or does not exist.';
+        } else if (!invoiceId) {
+          ready = false;
+          state = 'missing_invoice';
+          message = 'The accepted invoice is missing or does not exist.';
+        } else {
+          invoice = await activeDb.findOne('invoices', { id: Number(invoiceId), organization_id: orgId });
+          if (!invoice) {
+            ready = false;
+            state = 'missing_invoice';
+            message = 'The accepted invoice is missing or does not exist.';
+          } else if (invoice.status === 'paid' || invoice.status === 'void') {
+            ready = false;
+            state = 'invoice_not_payable';
+            message = 'The accepted invoice is already paid or void.';
+          } else if (Number(row.amount) <= 0 || isNaN(Number(row.amount))) {
+            ready = false;
+            state = 'amount_invalid';
+            message = 'The payment evidence amount is invalid.';
+          } else {
+            ready = true;
+            state = 'ready_for_draft_allocation';
+            message = 'This evidence row is ready for draft allocation.';
+          }
+        }
+      }
+    }
+
+    const amount = Number(row.amount);
+    const invoice_balance = invoice ? Number(invoice.balance) : 0;
+
+    let allocation_amount_preview = 0;
+    let remaining_balance_preview = 0;
+    let overpayment_preview = 0;
+
+    if (ready && invoice) {
+      allocation_amount_preview = Math.min(amount, invoice_balance);
+      remaining_balance_preview = Math.max(0, invoice_balance - amount);
+      overpayment_preview = Math.max(0, amount - invoice_balance);
+    }
+
+    res.json({
+      ready,
+      state,
+      message,
+      evidence_id: row.id,
+      amount,
+      accepted_tenant_id: tenant ? tenant.id : null,
+      accepted_tenant_name: tenant ? tenant.full_name : null,
+      accepted_invoice_id: invoice ? invoice.id : null,
+      accepted_invoice_number: invoice ? invoice.invoice_number : null,
+      invoice_status: invoice ? invoice.status : null,
+      invoice_balance: invoice ? invoice_balance : null,
+      allocation_amount_preview,
+      remaining_balance_preview,
+      overpayment_preview,
+      safety_message: 'This is a draft allocation preview only. No invoice, tenant balance, ledger, receipt, or payment record has been changed.'
+    });
+  }));
+
   return router;
 }

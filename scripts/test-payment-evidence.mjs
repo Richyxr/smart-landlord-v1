@@ -1409,6 +1409,171 @@ async function runTests() {
     !paymentEvidenceContent.includes('/api/ledger')
   );
 
+  // ==========================================
+  // Test 13: Allocation Readiness Gate & Preview Foundation
+  // ==========================================
+  console.log('\n13. Allocation Readiness Gate & Preview Foundation:');
+
+  const previewHandler = getRouteHandler('/payment-evidence/:id/allocation-preview');
+  const previewMiddlewares = getRouteMiddlewares('/payment-evidence/:id/allocation-preview');
+
+  assert(
+    'Allocation Preview endpoint requires landlord or super_admin role',
+    previewMiddlewares.includes(requireLandlordOrSuperAdminMiddleware)
+  );
+
+  // Access control checks
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let blockedStatus = null;
+    let blockedNextCalled = false;
+    await requireLandlordOrSuperAdminMiddleware({
+      auth: { role: blockedRole, organizationId: 1, userId: 99 }
+    }, {
+      status(code) { blockedStatus = code; return this; },
+      json() { return this; }
+    }, () => { blockedNextCalled = true; });
+
+    assert(`Allocation Preview endpoint blocks ${blockedRole}`, blockedStatus === 403 && blockedNextCalled === false);
+  }
+
+  // Setup database seed for readiness gate testing
+  apiDb.seed('payment_evidence', [
+    // Unreviewed
+    { id: 6001, organization_id: 1, amount: 5000, transaction_date: '2026-06-20', status: 'needs_review', review_status: null, review_decision: null },
+    // Ignored
+    { id: 6002, organization_id: 1, amount: 5000, transaction_date: '2026-06-20', status: 'ignored', review_status: 'marked_irrelevant', review_decision: 'marked_irrelevant' },
+    // Accepted - missing tenant
+    { id: 6003, organization_id: 1, amount: 5000, transaction_date: '2026-06-20', status: 'needs_review', review_status: 'accepted_suggestion', review_decision: 'accepted_suggestion', accepted_tenant_id: 9999, accepted_invoice_id: 201 },
+    // Accepted - missing invoice
+    { id: 6004, organization_id: 1, amount: 5000, transaction_date: '2026-06-20', status: 'needs_review', review_status: 'accepted_suggestion', review_decision: 'accepted_suggestion', accepted_tenant_id: 101, accepted_invoice_id: 9999 },
+    // Accepted - valid match (ready)
+    { id: 6005, organization_id: 1, amount: 5000, transaction_date: '2026-06-20', status: 'needs_review', review_status: 'accepted_suggestion', review_decision: 'accepted_suggestion', accepted_tenant_id: 101, accepted_invoice_id: 201 },
+    // Accepted - overpaid match (ready)
+    { id: 6006, organization_id: 1, amount: 8000, transaction_date: '2026-06-20', status: 'needs_review', review_status: 'accepted_suggestion', review_decision: 'accepted_suggestion', accepted_tenant_id: 101, accepted_invoice_id: 201 }
+  ]);
+
+  apiDb.seed('tenants', [
+    { id: 101, organization_id: 1, full_name: 'Alice Tenant', tenant_account_number: 'ACC-T1', status: 'active' }
+  ]);
+
+  apiDb.seed('invoices', [
+    { id: 201, organization_id: 1, tenant_id: 101, invoice_number: 'INV-201', status: 'issued', balance: 6000, total: 6000, due_date: '2026-06-15' }
+  ]);
+
+  let previewResStatus = null;
+  let previewResResult = null;
+  const mockResPreview = {
+    status(code) { previewResStatus = code; return this; },
+    json(data) { previewResResult = data; return this; }
+  };
+
+  // 1. Wrong organization is blocked / returns 404
+  previewResStatus = null;
+  previewResResult = null;
+  await previewHandler({
+    auth: { organizationId: 2, role: 'landlord', userId: 10 },
+    params: { id: '6001' }
+  }, mockResPreview);
+  assert('Wrong organization returns HTTP 404', previewResStatus === 404 && previewResResult.error === 'ROW_NOT_FOUND');
+
+  // 2. Unreviewed row returns 'not_reviewed' state
+  previewResStatus = null;
+  previewResResult = null;
+  await previewHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '6001' }
+  }, mockResPreview);
+  assert('Unreviewed row returns not_reviewed status', previewResResult && previewResResult.ready === false && previewResResult.state === 'not_reviewed');
+
+  // 3. Ignored row returns 'ignored' state
+  previewResStatus = null;
+  previewResResult = null;
+  await previewHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '6002' }
+  }, mockResPreview);
+  assert('Ignored row returns ignored status', previewResResult && previewResResult.ready === false && previewResResult.state === 'ignored');
+
+  // 4. Missing tenant accepted match returns 'missing_tenant' state
+  previewResStatus = null;
+  previewResResult = null;
+  await previewHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '6003' }
+  }, mockResPreview);
+  assert('Missing tenant match returns missing_tenant status', previewResResult && previewResResult.ready === false && previewResResult.state === 'missing_tenant');
+
+  // 5. Missing invoice accepted match returns 'missing_invoice' state
+  previewResStatus = null;
+  previewResResult = null;
+  await previewHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '6004' }
+  }, mockResPreview);
+  assert('Missing invoice match returns missing_invoice status', previewResResult && previewResResult.ready === false && previewResResult.state === 'missing_invoice');
+
+  // 6. Valid accepted match returns 'ready_for_draft_allocation' and calculates preview details (partial payment case)
+  previewResStatus = null;
+  previewResResult = null;
+  const initialInvoiceListPreview = JSON.stringify(apiDb.get('invoices'));
+  const initialTenantListPreview = JSON.stringify(apiDb.get('tenants'));
+
+  await previewHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '6005' }
+  }, mockResPreview);
+
+  assert('Valid match returns ready_for_draft_allocation status', previewResResult && previewResResult.ready === true && previewResResult.state === 'ready_for_draft_allocation');
+  assert('Calculates partial payment allocation amount preview correctly', previewResResult && previewResResult.allocation_amount_preview === 5000);
+  assert('Calculates remaining balance preview correctly', previewResResult && previewResResult.remaining_balance_preview === 1000);
+  assert('Calculates overpayment preview as zero correctly', previewResResult && previewResResult.overpayment_preview === 0);
+  assert('Returns the safety message correctly', previewResResult && previewResResult.safety_message === 'This is a draft allocation preview only. No invoice, tenant balance, ledger, receipt, or payment record has been changed.');
+
+  // 7. Overpaid accepted match calculates overpayment correctly
+  previewResStatus = null;
+  previewResResult = null;
+  await previewHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '6006' }
+  }, mockResPreview);
+
+  assert('Overpaid match returns ready_for_draft_allocation status', previewResResult && previewResResult.ready === true && previewResResult.state === 'ready_for_draft_allocation');
+  assert('Calculates full payment allocation amount preview correctly', previewResResult && previewResResult.allocation_amount_preview === 6000);
+  assert('Calculates remaining balance preview as zero correctly', previewResResult && previewResResult.remaining_balance_preview === 0);
+  assert('Calculates overpayment preview correctly', previewResResult && previewResResult.overpayment_preview === 2000);
+
+  // Immutability checks: confirm no database state mutations occurred
+  assert('Invoices table remains un-mutated', JSON.stringify(apiDb.get('invoices')) === initialInvoiceListPreview);
+  assert('Tenants table remains un-mutated', JSON.stringify(apiDb.get('tenants')) === initialTenantListPreview);
+  assert('No payment allocation records created', apiDb.get('payment_allocations').length === 0);
+  assert('No ledger records created', apiDb.get('transactions').length === 0);
+  assert('No receipt records created', apiDb.get('receipts').length === 0);
+  assert('payment_evidence.status is unchanged', apiDb.get('payment_evidence')[0].status === 'needs_review');
+
+  // Frontend/Static checks
+  assert(
+    'PaymentEvidence.jsx renders Draft Allocation Preview section',
+    paymentEvidenceContent.includes('Draft Allocation Preview')
+  );
+
+  assert(
+    'PaymentEvidence.jsx contains preview safety notice copy',
+    paymentEvidenceContent.includes('previewData.safety_message')
+  );
+
+  assert(
+    'PaymentEvidence.jsx fetches allocation-preview endpoint',
+    paymentEvidenceContent.includes('allocation-preview')
+  );
+
+  assert(
+    'PaymentEvidence.jsx has Refresh Preview button and no forbidden buttons',
+    paymentEvidenceContent.includes('Refresh Preview') &&
+    !paymentEvidenceContent.includes('Allocate Payment') &&
+    !paymentEvidenceContent.includes('Apply Payment') &&
+    !paymentEvidenceContent.includes('Finalize Payment')
+  );
+
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
   if (failures > 0) {
     process.exit(1);
