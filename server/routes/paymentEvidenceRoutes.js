@@ -23,6 +23,140 @@ const getDaysDifference = (date1, date2) => {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 };
 
+const RECEIPT_ISSUANCE_CONTRACT_SAFETY_MESSAGE = 'This receipt issuance contract is read-only. No receipt number has been reserved and no receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.';
+
+function buildDraftReceiptNumberPreview(orgId, row) {
+  const parsedDate = row && row.transaction_date ? new Date(row.transaction_date) : new Date();
+  const year = isNaN(parsedDate.getTime()) ? new Date().getFullYear() : parsedDate.getFullYear();
+  return `DRAFT-RCP-${orgId}-${year}-PREVIEW`;
+}
+
+async function hasReceiptSchema(activeDb) {
+  if (activeDb && activeDb.tables && Object.prototype.hasOwnProperty.call(activeDb.tables, 'receipts')) {
+    return true;
+  }
+
+  if (activeDb && typeof activeDb.query === 'function') {
+    const result = await activeDb.query(
+      "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'receipts') AS exists"
+    );
+    return Boolean(result.rows && result.rows[0] && result.rows[0].exists);
+  }
+
+  return false;
+}
+
+async function getReceiptDuplicateCheckState(activeDb, orgId, rowId, transaction, allocation) {
+  const receiptSchemaEnabled = await hasReceiptSchema(activeDb);
+  if (!receiptSchemaEnabled) {
+    return 'receipt_schema_not_enabled';
+  }
+
+  if (activeDb && typeof activeDb.query === 'function') {
+    const columnsResult = await activeDb.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'receipts'"
+    );
+    const columns = new Set((columnsResult.rows || []).map(row => row.column_name));
+    const clauses = [];
+    const values = [];
+
+    const addCandidate = (column, value) => {
+      if (!columns.has(column) || value === null || value === undefined) return;
+      values.push(value);
+      clauses.push(`${column} = $${values.length}`);
+    };
+
+    addCandidate('transaction_id', transaction ? transaction.id : null);
+    addCandidate('payment_allocation_id', allocation ? allocation.id : null);
+    addCandidate('payment_evidence_id', rowId);
+    addCandidate('source_payment_evidence_id', rowId);
+
+    if (clauses.length === 0) {
+      return 'receipt_schema_not_enabled';
+    }
+
+    let sql = `SELECT id FROM receipts WHERE (${clauses.join(' OR ')})`;
+    if (columns.has('organization_id')) {
+      values.push(orgId);
+      sql += ` AND organization_id = $${values.length}`;
+    }
+    sql += ' LIMIT 1';
+
+    const duplicateResult = await activeDb.query(sql, values);
+    return duplicateResult.rows && duplicateResult.rows.length > 0 ? 'existing_receipt_found' : 'no_existing_receipt';
+  }
+
+  const receipts = typeof activeDb.get === 'function'
+    ? await activeDb.get('receipts')
+    : [];
+  const duplicate = receipts.find(receipt => {
+    if (receipt.organization_id !== undefined && Number(receipt.organization_id) !== Number(orgId)) return false;
+    return (
+      (transaction && Number(receipt.transaction_id) === Number(transaction.id)) ||
+      (allocation && Number(receipt.payment_allocation_id) === Number(allocation.id)) ||
+      Number(receipt.payment_evidence_id) === Number(rowId) ||
+      Number(receipt.source_payment_evidence_id) === Number(rowId)
+    );
+  });
+
+  return duplicate ? 'existing_receipt_found' : 'no_existing_receipt';
+}
+
+function buildReceiptIssuanceContract({
+  orgId,
+  row,
+  isAllocated,
+  transaction,
+  allocation,
+  invoice,
+  tenant,
+  duplicateCheckState
+}) {
+  const blockingReasons = [];
+
+  if (!isAllocated) {
+    blockingReasons.push('Payment evidence must be allocated before receipt issuance.');
+  }
+  if (!transaction) {
+    blockingReasons.push('An existing reconciled transaction is required before receipt issuance.');
+  }
+  if (!allocation) {
+    blockingReasons.push('An existing payment allocation is required before receipt issuance.');
+  }
+  if (!invoice) {
+    blockingReasons.push('An existing invoice is required before receipt issuance.');
+  }
+  if (!tenant) {
+    blockingReasons.push('An existing tenant is required before receipt issuance.');
+  }
+  if (duplicateCheckState === 'existing_receipt_found') {
+    blockingReasons.push('An existing receipt already references this payment evidence, transaction, or allocation.');
+  }
+  if (duplicateCheckState === 'receipt_schema_not_enabled') {
+    blockingReasons.push('Receipt storage schema is not enabled yet.');
+  }
+
+  blockingReasons.push('Receipt issuance execution is not enabled in this release.');
+
+  return {
+    can_issue_receipt: false,
+    state: 'issuance_contract_ready_but_disabled',
+    required_confirmation_text: 'CONFIRM RECEIPT ISSUANCE',
+    requires_allocated_payment_evidence: true,
+    requires_existing_transaction: true,
+    requires_existing_payment_allocation: true,
+    requires_existing_invoice: true,
+    requires_existing_tenant: true,
+    requires_no_existing_receipt: true,
+    duplicate_check_state: duplicateCheckState,
+    receipt_number_strategy: 'preview_only_not_reserved',
+    receipt_number_format_preview: 'RCP-{ORG}-{YYYY}-{SEQUENCE}',
+    receipt_number_preview: buildDraftReceiptNumberPreview(orgId, row),
+    blocking_reasons: blockingReasons,
+    safety_message: RECEIPT_ISSUANCE_CONTRACT_SAFETY_MESSAGE
+  };
+}
+
 function calculateCandidateScore(row, tenant, invoice, unit, property) {
   const reasons = [];
   const warnings = [];
@@ -1485,6 +1619,18 @@ export function createPaymentEvidenceRoutes(pgDb) {
 
     const isAllocated = row.status === 'manually_reconciled' || row.status === 'auto_reconciled';
     if (!isAllocated) {
+      const duplicateCheckState = await getReceiptDuplicateCheckState(activeDb, orgId, rowId, null, null);
+      const receiptIssuanceContract = buildReceiptIssuanceContract({
+        orgId,
+        row,
+        isAllocated,
+        transaction: null,
+        allocation: null,
+        invoice: null,
+        tenant: null,
+        duplicateCheckState
+      });
+
       return res.json({
         success: true,
         payment_evidence_id: row.id,
@@ -1502,6 +1648,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
           required_future_confirmation_text: 'CONFIRM RECEIPT ISSUANCE',
           safety_message: 'This is a receipt preview only. No receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.'
         },
+        receipt_issuance_contract: receiptIssuanceContract,
         safety_message: 'Receipt preview is read-only. No financial or receipt records were changed by this lookup.'
       });
     }
@@ -1538,6 +1685,17 @@ export function createPaymentEvidenceRoutes(pgDb) {
       : null;
 
     const amountPaid = allocation ? Number(allocation.amount_allocated) : (transaction ? Number(transaction.amount) : 0);
+    const duplicateCheckState = await getReceiptDuplicateCheckState(activeDb, orgId, rowId, transaction, allocation);
+    const receiptIssuanceContract = buildReceiptIssuanceContract({
+      orgId,
+      row,
+      isAllocated,
+      transaction,
+      allocation,
+      invoice,
+      tenant,
+      duplicateCheckState
+    });
 
     res.json({
       success: true,
@@ -1576,6 +1734,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
         required_future_confirmation_text: 'CONFIRM RECEIPT ISSUANCE',
         safety_message: 'This is a receipt preview only. No receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.'
       },
+      receipt_issuance_contract: receiptIssuanceContract,
       safety_message: 'Receipt preview is read-only. No financial or receipt records were changed by this lookup.'
     });
   }));

@@ -1807,6 +1807,49 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                       </div>
                     )}
 
+                    {/* Receipt Issuance Requirements Subsection */}
+                    {receiptPreviewData.receipt_issuance_contract && (
+                      <div style={{ marginTop: '6px', borderTop: '1px solid var(--border)', paddingTop: '8px' }}>
+                        <strong style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Receipt Issuance Requirements</strong>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px 8px' }}>
+                          <div>
+                            <span className="text-muted">Required Confirmation:</span>{' '}
+                            <code style={{ padding: '2px 4px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '3px', color: 'var(--primary)' }}>
+                              {receiptPreviewData.receipt_issuance_contract.required_confirmation_text || 'CONFIRM RECEIPT ISSUANCE'}
+                            </code>
+                          </div>
+                          <div>
+                            <span className="text-muted">Duplicate Check:</span> <strong>{receiptPreviewData.receipt_issuance_contract.duplicate_check_state || 'N/A'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Receipt Number Strategy:</span> <strong>{receiptPreviewData.receipt_issuance_contract.receipt_number_strategy || 'N/A'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Receipt Number Format:</span> <strong>{receiptPreviewData.receipt_issuance_contract.receipt_number_format_preview || 'N/A'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Draft Number Preview:</span> <strong>{receiptPreviewData.receipt_issuance_contract.receipt_number_preview || 'N/A'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Issuance Enabled:</span> <strong style={{ color: 'var(--danger)' }}>NO</strong>
+                          </div>
+                        </div>
+                        {receiptPreviewData.receipt_issuance_contract.blocking_reasons && (
+                          <div style={{ marginTop: '6px', padding: '6px 8px', backgroundColor: 'rgba(244, 67, 54, 0.05)', border: '1px solid var(--danger)', borderRadius: '4px' }}>
+                            <span style={{ fontWeight: '700', color: 'var(--danger)', display: 'block', marginBottom: '2px', fontSize: '9.5px' }}>Blocking Reasons:</span>
+                            <ul style={{ margin: 0, paddingLeft: '14px', fontSize: '9.5px', color: 'var(--text-primary)' }}>
+                              {receiptPreviewData.receipt_issuance_contract.blocking_reasons.map((reason, cIdx) => (
+                                <li key={cIdx}>{reason}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <div style={{ marginTop: '6px', padding: '6px 8px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '4px', fontSize: '9px', color: 'var(--text-muted)' }}>
+                          <strong>Safety Notice:</strong> {receiptPreviewData.receipt_issuance_contract.safety_message}
+                        </div>
+                      </div>
+                    )}
+
                     <div style={{ marginTop: '6px', padding: '6px 8px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '4px', fontSize: '9px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
                       {receiptPreviewData.safety_message}
                     </div>
