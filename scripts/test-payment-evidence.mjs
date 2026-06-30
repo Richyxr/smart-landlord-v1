@@ -34,6 +34,7 @@ class MockDb {
       transactions: [],
       tenants: [],
       invoices: [],
+      receipts: [],
       payment_evidence: [],
       payment_evidence_batches: []
     };
@@ -2198,7 +2199,7 @@ async function runTests() {
   assert('Allocated evidence includes receipt issuance contract fields', allocatedReceiptContract && allocatedReceiptContract.requires_allocated_payment_evidence === true && allocatedReceiptContract.requires_existing_transaction === true && allocatedReceiptContract.requires_existing_payment_allocation === true && allocatedReceiptContract.requires_existing_invoice === true && allocatedReceiptContract.requires_existing_tenant === true && allocatedReceiptContract.requires_no_existing_receipt === true);
   assert('Allocated contract keeps can_issue_receipt false', allocatedReceiptContract && allocatedReceiptContract.can_issue_receipt === false);
   assert('Duplicate check state is a supported contract state', allocatedReceiptContract && ['receipt_schema_not_enabled', 'no_existing_receipt', 'existing_receipt_found'].includes(allocatedReceiptContract.duplicate_check_state));
-  assert('Duplicate check reports receipt schema not enabled for current schema', allocatedReceiptContract && allocatedReceiptContract.duplicate_check_state === 'receipt_schema_not_enabled');
+  assert('Duplicate check reports no existing receipt when receipt storage is empty', allocatedReceiptContract && allocatedReceiptContract.duplicate_check_state === 'no_existing_receipt');
   assert('Receipt number strategy is preview_only_not_reserved', allocatedReceiptContract && allocatedReceiptContract.receipt_number_strategy === 'preview_only_not_reserved');
   assert('Receipt number preview begins with DRAFT-', allocatedReceiptContract && String(allocatedReceiptContract.receipt_number_preview).startsWith('DRAFT-'));
   assert('Receipt number format preview is present', allocatedReceiptContract && allocatedReceiptContract.receipt_number_format_preview === 'RCP-{ORG}-{YYYY}-{SEQUENCE}');
@@ -2258,6 +2259,151 @@ async function runTests() {
     !paymentEvidenceContent.includes('Post Ledger') &&
     !paymentEvidenceContent.includes('Finalize Receipt') &&
     !paymentEvidenceContent.includes('Void Receipt')
+  );
+
+  // ==========================================
+  // Test 18: Receipt Storage Schema Foundation + Duplicate Check Activation
+  // ==========================================
+  console.log('\n18. Receipt Storage Schema Foundation + Duplicate Check Activation:');
+
+  const receiptMigrationContent = fs.readFileSync('db/migrations/023_receipts.sql', 'utf8');
+
+  assert(
+    'Mock receipt storage exists',
+    Object.prototype.hasOwnProperty.call(apiDb.tables, 'receipts') && Array.isArray(apiDb.get('receipts'))
+  );
+
+  assert(
+    'Receipt migration creates receipts table',
+    /CREATE TABLE IF NOT EXISTS receipts/i.test(receiptMigrationContent)
+  );
+
+  assert(
+    'Receipt migration has unique organization receipt number guard',
+    /UNIQUE INDEX[\s\S]*receipt_number/i.test(receiptMigrationContent) &&
+    /organization_id,\s*receipt_number/i.test(receiptMigrationContent)
+  );
+
+  assert(
+    'Receipt migration has unique payment_allocation guard',
+    /UNIQUE INDEX[\s\S]*payment_allocation/i.test(receiptMigrationContent) &&
+    /organization_id,\s*payment_allocation_id/i.test(receiptMigrationContent)
+  );
+
+  assert(
+    'Receipt migration has unique payment_evidence guard',
+    /UNIQUE INDEX[\s\S]*payment_evidence/i.test(receiptMigrationContent) &&
+    /organization_id,\s*payment_evidence_id/i.test(receiptMigrationContent)
+  );
+
+  const receiptStorageHandler = getRouteHandler('/payment-evidence/:id/receipt-preview');
+  let receiptStorageResponse = null;
+  const receiptStorageMockRes = {
+    status() { return this; },
+    json(data) { receiptStorageResponse = data; return this; }
+  };
+
+  apiDb.seed('properties', [
+    { id: 321, organization_id: 1, name: 'Storage Court' }
+  ]);
+  apiDb.seed('units', [
+    { id: 421, organization_id: 1, unit_code: 'S-21' }
+  ]);
+  apiDb.seed('tenants', [
+    { id: 122, organization_id: 1, full_name: 'Storage Tenant', tenant_account_number: 'ACC-S21', status: 'active', currency: 'KES', property_id: 321, unit_id: 421 }
+  ]);
+  apiDb.seed('payment_evidence', [
+    { id: 8203, organization_id: 1, amount: 5000, transaction_date: '2026-06-22', status: 'manually_reconciled', review_status: 'accepted_suggestion', accepted_tenant_id: 122, accepted_invoice_id: 222, collection_channel: 'mpesa', transaction_code: 'MPESA8203' }
+  ]);
+  apiDb.seed('invoices', [
+    { id: 222, organization_id: 1, tenant_id: 122, invoice_number: 'INV-222', status: 'paid', balance: 0, total: 5000, amount_paid: 5000 }
+  ]);
+  apiDb.seed('transactions', [
+    { id: 521, organization_id: 1, tenant_id: 122, amount: 5000, transaction_type: 'payment', status: 'reconciled', raw_payload: JSON.stringify({ evidence_id: 8203, source: 'payment_evidence_allocation' }) }
+  ]);
+  apiDb.seed('payment_allocations', [
+    { id: 621, organization_id: 1, transaction_id: 521, invoice_id: 222, amount_allocated: 5000, allocated_at: '2026-06-22T12:00:00.000Z' }
+  ]);
+  apiDb.seed('receipts', []);
+
+  const receiptStorageInvoiceBefore = JSON.stringify(apiDb.get('invoices'));
+  const receiptStorageTenantBefore = JSON.stringify(apiDb.get('tenants'));
+  const receiptStorageTransactionBefore = JSON.stringify(apiDb.get('transactions'));
+  const receiptStorageAllocationBefore = JSON.stringify(apiDb.get('payment_allocations'));
+  const receiptStorageEvidenceBefore = JSON.stringify(apiDb.get('payment_evidence'));
+  const receiptStorageReceiptCountBefore = apiDb.get('receipts').length;
+
+  receiptStorageResponse = null;
+  await receiptStorageHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '8203' }
+  }, receiptStorageMockRes);
+
+  const noReceiptContract = receiptStorageResponse && receiptStorageResponse.receipt_issuance_contract;
+  assert('Receipt preview contract no longer reports receipt_schema_not_enabled when receipt storage exists', noReceiptContract && noReceiptContract.duplicate_check_state !== 'receipt_schema_not_enabled');
+  assert('Allocated evidence with no receipt returns no_existing_receipt', noReceiptContract && noReceiptContract.duplicate_check_state === 'no_existing_receipt');
+  assert('No existing receipt contract keeps can_issue_receipt false', noReceiptContract && noReceiptContract.can_issue_receipt === false);
+  assert('Receipt number preview still begins with DRAFT-', noReceiptContract && String(noReceiptContract.receipt_number_preview).startsWith('DRAFT-'));
+  assert('Receipt number strategy remains preview_only_not_reserved', noReceiptContract && noReceiptContract.receipt_number_strategy === 'preview_only_not_reserved');
+  assert('No receipt lookup does not create receipt', apiDb.get('receipts').length === receiptStorageReceiptCountBefore);
+
+  apiDb.seed('receipts', [
+    {
+      id: 701,
+      organization_id: 1,
+      tenant_id: 122,
+      invoice_id: 222,
+      transaction_id: 521,
+      payment_allocation_id: 621,
+      payment_evidence_id: 8203,
+      receipt_number: 'RCP-1-2026-000001',
+      status: 'issued',
+      issued_at: '2026-06-22T12:05:00.000Z',
+      issued_by_user_id: 10,
+      amount: 5000,
+      currency: 'KES',
+      payment_method: 'mpesa',
+      receipt_payload: {},
+      metadata: {}
+    }
+  ]);
+
+  const receiptStorageExistingReceiptCountBefore = apiDb.get('receipts').length;
+
+  receiptStorageResponse = null;
+  await receiptStorageHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '8203' }
+  }, receiptStorageMockRes);
+
+  const existingReceiptContract = receiptStorageResponse && receiptStorageResponse.receipt_issuance_contract;
+  assert('Allocated evidence with existing receipt returns existing_receipt_found', existingReceiptContract && existingReceiptContract.duplicate_check_state === 'existing_receipt_found');
+  assert('Existing receipt blocks future issuance readiness', existingReceiptContract && existingReceiptContract.blocking_reasons.includes('An existing receipt already references this payment evidence, transaction, or allocation.'));
+  assert('Existing receipt contract keeps can_issue_receipt false', existingReceiptContract && existingReceiptContract.can_issue_receipt === false);
+  assert('Existing receipt lookup does not create another receipt', apiDb.get('receipts').length === receiptStorageExistingReceiptCountBefore);
+
+  assert('Receipt storage lookup leaves invoice unchanged', JSON.stringify(apiDb.get('invoices')) === receiptStorageInvoiceBefore);
+  assert('Receipt storage lookup leaves tenant unchanged', JSON.stringify(apiDb.get('tenants')) === receiptStorageTenantBefore);
+  assert('Receipt storage lookup leaves transaction unchanged', JSON.stringify(apiDb.get('transactions')) === receiptStorageTransactionBefore);
+  assert('Receipt storage lookup leaves payment allocation unchanged', JSON.stringify(apiDb.get('payment_allocations')) === receiptStorageAllocationBefore);
+  assert('Receipt storage lookup leaves payment evidence unchanged', JSON.stringify(apiDb.get('payment_evidence')) === receiptStorageEvidenceBefore);
+  assert('Receipt storage lookup creates no ledger records', apiDb.get('transactions').filter(t => t.ledger).length === 0);
+
+  assert(
+    'PaymentEvidence.jsx still contains no unsupported final action labels after receipt storage',
+    !paymentEvidenceContent.includes('Issue Receipt') &&
+    !paymentEvidenceContent.includes('Create Receipt') &&
+    !paymentEvidenceContent.includes('Send Receipt') &&
+    !paymentEvidenceContent.includes('Download Receipt') &&
+    !paymentEvidenceContent.includes('Print Receipt') &&
+    !paymentEvidenceContent.includes('Post Ledger') &&
+    !paymentEvidenceContent.includes('Finalize Receipt') &&
+    !paymentEvidenceContent.includes('Void Receipt')
+  );
+
+  assert(
+    'No POST/PATCH/PUT/DELETE route added for receipt issuance after receipt storage',
+    !/router\.(post|patch|put|delete)\([^)]*receipt/i.test(routeContent)
   );
 
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);

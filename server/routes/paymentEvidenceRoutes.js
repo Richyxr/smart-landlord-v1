@@ -43,6 +43,11 @@ async function hasReceiptSchema(activeDb) {
     return Boolean(result.rows && result.rows[0] && result.rows[0].exists);
   }
 
+  if (activeDb && typeof activeDb.get === 'function') {
+    const receipts = await activeDb.get('receipts');
+    return Array.isArray(receipts);
+  }
+
   return false;
 }
 
