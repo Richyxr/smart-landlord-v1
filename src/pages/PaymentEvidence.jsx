@@ -92,6 +92,8 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [receiptPreviewData, setReceiptPreviewData] = useState(null);
   const [loadingReceiptPreview, setLoadingReceiptPreview] = useState(false);
   const [receiptPreviewError, setReceiptPreviewError] = useState('');
+  const [receiptIssueConfirmationText, setReceiptIssueConfirmationText] = useState('');
+  const [issuingReceipt, setIssuingReceipt] = useState(false);
 
   const fetchReceiptPreview = async (id) => {
     setLoadingReceiptPreview(true);
@@ -192,6 +194,8 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     setSavingReview(false);
     setTypedConfirmationText('');
     setConfirmingAllocation(false);
+    setReceiptIssueConfirmationText('');
+    setIssuingReceipt(false);
 
     if (selectedRow && (role === 'landlord' || role === 'super_admin')) {
       fetchAuditLogs(selectedRow.id);
@@ -215,6 +219,7 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       setResultError('');
       setReceiptPreviewData(null);
       setReceiptPreviewError('');
+      setReceiptIssueConfirmationText('');
     }
   }, [selectedRow, role]);
 
@@ -755,6 +760,53 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           notifyError('Error', err.message || 'Failed to execute allocation.');
         } finally {
           setConfirmingAllocation(false);
+        }
+      }
+    );
+  };
+
+  const handleIssueReceipt = async () => {
+    if (!selectedRow || !receiptPreviewData?.receipt_preview?.eligible || receiptPreviewData?.receipt_issuance_contract?.duplicate_check_state !== 'no_existing_receipt') return;
+
+    if (receiptIssueConfirmationText !== 'CONFIRM RECEIPT ISSUANCE') {
+      const { notifyError } = getBrandedConfirmAndNotify();
+      notifyError('Validation Error', 'Please type the receipt confirmation text exactly.');
+      return;
+    }
+
+    const { showConfirm, notifySuccess, notifyError } = getBrandedConfirmAndNotify();
+
+    showConfirm(
+      "Confirm Receipt Issuance",
+      "Issue a receipt for this already allocated payment evidence? This creates a receipt record only and does not move money.",
+      async () => {
+        setIssuingReceipt(true);
+        try {
+          const res = await fetch(`/api/payment-evidence/${selectedRow.id}/issue-receipt`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              confirmation_text: receiptIssueConfirmationText
+            })
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.message || data.error || 'Failed to issue receipt');
+          }
+
+          notifySuccess('Receipt Issued', data.message || 'Receipt issued successfully.');
+          setReceiptIssueConfirmationText('');
+          await fetchReceiptPreview(selectedRow.id);
+          await fetchAllocationResult(selectedRow.id);
+          await fetchEvidenceRows();
+        } catch (err) {
+          console.error(err);
+          notifyError('Receipt Error', err.message || 'Failed to issue receipt.');
+        } finally {
+          setIssuingReceipt(false);
         }
       }
     );
@@ -1831,7 +1883,10 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                             <span className="text-muted">Draft Number Preview:</span> <strong>{receiptPreviewData.receipt_issuance_contract.receipt_number_preview || 'N/A'}</strong>
                           </div>
                           <div>
-                            <span className="text-muted">Issuance Enabled:</span> <strong style={{ color: 'var(--danger)' }}>NO</strong>
+                            <span className="text-muted">Issuance Enabled:</span>{' '}
+                            <strong style={{ color: receiptPreviewData.receipt_issuance_contract.can_issue_receipt ? 'var(--success)' : 'var(--danger)' }}>
+                              {receiptPreviewData.receipt_issuance_contract.can_issue_receipt ? 'YES' : 'NO'}
+                            </strong>
                           </div>
                         </div>
                         {receiptPreviewData.receipt_issuance_contract.blocking_reasons && (
@@ -1847,6 +1902,30 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                         <div style={{ marginTop: '6px', padding: '6px 8px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '4px', fontSize: '9px', color: 'var(--text-muted)' }}>
                           <strong>Safety Notice:</strong> {receiptPreviewData.receipt_issuance_contract.safety_message}
                         </div>
+                      </div>
+                    )}
+
+                    {(role === 'landlord' || role === 'super_admin') && receiptPreviewData.receipt_issuance_contract?.can_issue_receipt === true && (
+                      <div style={{ marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '8px' }}>
+                        <label style={{ display: 'block', fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: '700', marginBottom: '4px' }}>
+                          Confirm Receipt Issuance
+                        </label>
+                        <input
+                          type="text"
+                          value={receiptIssueConfirmationText}
+                          onChange={(event) => setReceiptIssueConfirmationText(event.target.value)}
+                          placeholder="CONFIRM RECEIPT ISSUANCE"
+                          style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '11px', marginBottom: '6px' }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={handleIssueReceipt}
+                          disabled={issuingReceipt || receiptIssueConfirmationText !== 'CONFIRM RECEIPT ISSUANCE'}
+                          style={{ padding: '4px 10px', fontSize: '10px', height: 'auto' }}
+                        >
+                          Issue Receipt
+                        </button>
                       </div>
                     )}
 

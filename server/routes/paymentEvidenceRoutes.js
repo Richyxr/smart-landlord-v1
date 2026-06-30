@@ -31,6 +31,21 @@ function buildDraftReceiptNumberPreview(orgId, row) {
   return `DRAFT-RCP-${orgId}-${year}-PREVIEW`;
 }
 
+function safeReceiptOrgIdentifier(orgId, organization) {
+  const raw = organization && organization.account_number ? organization.account_number : orgId;
+  const cleaned = String(raw || orgId).toUpperCase().replace(/[^A-Z0-9-]/g, '');
+  return cleaned || String(orgId);
+}
+
+function receiptYearFromEvidence(row) {
+  const parsedDate = row && row.transaction_date ? new Date(row.transaction_date) : new Date();
+  return isNaN(parsedDate.getTime()) ? new Date().getFullYear() : parsedDate.getFullYear();
+}
+
+function buildFinalReceiptNumber(orgIdentifier, year, sequence) {
+  return `RCP-${orgIdentifier}-${year}-${String(sequence).padStart(6, '0')}`;
+}
+
 async function hasReceiptSchema(activeDb) {
   if (activeDb && activeDb.tables && Object.prototype.hasOwnProperty.call(activeDb.tables, 'receipts')) {
     return true;
@@ -141,11 +156,11 @@ function buildReceiptIssuanceContract({
     blockingReasons.push('Receipt storage schema is not enabled yet.');
   }
 
-  blockingReasons.push('Receipt issuance execution is not enabled in this release.');
+  const canIssueReceipt = blockingReasons.length === 0;
 
   return {
-    can_issue_receipt: false,
-    state: 'issuance_contract_ready_but_disabled',
+    can_issue_receipt: canIssueReceipt,
+    state: canIssueReceipt ? 'ready_for_confirmed_receipt_issuance' : 'issuance_blocked',
     required_confirmation_text: 'CONFIRM RECEIPT ISSUANCE',
     requires_allocated_payment_evidence: true,
     requires_existing_transaction: true,
@@ -160,6 +175,257 @@ function buildReceiptIssuanceContract({
     blocking_reasons: blockingReasons,
     safety_message: RECEIPT_ISSUANCE_CONTRACT_SAFETY_MESSAGE
   };
+}
+
+async function getAllocatedReceiptContext(activeDb, orgId, rowId) {
+  const row = await activeDb.findOne('payment_evidence', { id: rowId, organization_id: orgId });
+  if (!row) {
+    return { row: null };
+  }
+
+  const isAllocated = row.status === 'manually_reconciled' || row.status === 'auto_reconciled';
+  const txs = await activeDb.find('transactions', { organization_id: orgId });
+  const transaction = txs.find(t => {
+    try {
+      const payload = typeof t.raw_payload === 'string' ? JSON.parse(t.raw_payload) : t.raw_payload;
+      return payload && Number(payload.evidence_id) === Number(rowId);
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const allocation = transaction
+    ? await activeDb.findOne('payment_allocations', { transaction_id: transaction.id, organization_id: orgId })
+    : null;
+
+  const tenant = row.accepted_tenant_id
+    ? await activeDb.findOne('tenants', { id: Number(row.accepted_tenant_id), organization_id: orgId })
+    : null;
+
+  const invoice = row.accepted_invoice_id
+    ? await activeDb.findOne('invoices', { id: Number(row.accepted_invoice_id), organization_id: orgId })
+    : null;
+
+  const organization = await activeDb.findOne('organizations', { id: Number(orgId) });
+  const duplicateCheckState = await getReceiptDuplicateCheckState(activeDb, orgId, rowId, transaction, allocation);
+  const receiptIssuanceContract = buildReceiptIssuanceContract({
+    orgId,
+    row,
+    isAllocated,
+    transaction,
+    allocation,
+    invoice,
+    tenant,
+    duplicateCheckState
+  });
+
+  return {
+    row,
+    isAllocated,
+    transaction,
+    allocation,
+    tenant,
+    invoice,
+    organization,
+    duplicateCheckState,
+    receiptIssuanceContract
+  };
+}
+
+function buildReceiptPayload({ orgId, userId, row, transaction, allocation, tenant, invoice, receiptNumber, issuedAt }) {
+  const amountPaid = Number(allocation.amount_allocated);
+  const receiptLines = [
+    {
+      label: 'Rent payment allocation',
+      amount: amountPaid
+    }
+  ];
+
+  return {
+    organization_id: Number(orgId),
+    tenant_id: tenant.id,
+    tenant_name: tenant.full_name,
+    invoice_id: invoice.id,
+    invoice_number: invoice.invoice_number,
+    transaction_id: transaction.id,
+    payment_allocation_id: allocation.id,
+    payment_evidence_id: row.id,
+    payment_date: row.transaction_date,
+    payment_method: row.collection_channel || transaction.payment_method || 'other',
+    amount_paid: amountPaid,
+    invoice_status_at_issue: invoice.status,
+    invoice_balance_after_allocation: Number(invoice.balance),
+    receipt_number: receiptNumber,
+    issued_at: issuedAt,
+    issued_by_user_id: userId,
+    receipt_lines: receiptLines
+  };
+}
+
+function mapReceiptResponse(receipt, tenant, invoice, transaction, allocation) {
+  const payload = typeof receipt.receipt_payload === 'string'
+    ? JSON.parse(receipt.receipt_payload)
+    : (receipt.receipt_payload || {});
+
+  return {
+    id: receipt.id,
+    receipt_number: receipt.receipt_number,
+    status: receipt.status,
+    issued_at: receipt.issued_at,
+    amount: Number(receipt.amount),
+    tenant_id: receipt.tenant_id,
+    tenant_name: payload.tenant_name || (tenant ? tenant.full_name : null),
+    invoice_id: receipt.invoice_id,
+    invoice_number: payload.invoice_number || (invoice ? invoice.invoice_number : null),
+    transaction_id: receipt.transaction_id || (transaction ? transaction.id : null),
+    payment_allocation_id: receipt.payment_allocation_id || (allocation ? allocation.id : null)
+  };
+}
+
+async function insertIssuedReceipt(activeDb, context, orgId, userId) {
+  const { row, transaction, allocation, tenant, invoice, organization } = context;
+  const issuedAt = new Date().toISOString();
+  const year = receiptYearFromEvidence(row);
+  const orgIdentifier = safeReceiptOrgIdentifier(orgId, organization);
+  const prefix = `RCP-${orgIdentifier}-${year}-`;
+  const amount = Number(allocation.amount_allocated);
+  const paymentMethod = row.collection_channel || transaction.payment_method || 'other';
+
+  if (activeDb.pool && typeof activeDb.pool.connect === 'function') {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const client = await activeDb.pool.connect();
+      try {
+        await client.query('BEGIN');
+        const duplicate = await client.query(
+          `
+            SELECT id FROM receipts
+            WHERE organization_id = $1
+              AND (
+                payment_allocation_id = $2
+                OR payment_evidence_id = $3
+                OR transaction_id = $4
+              )
+            LIMIT 1
+          `,
+          [orgId, allocation.id, row.id, transaction.id]
+        );
+        if (duplicate.rows.length > 0) {
+          await client.query('ROLLBACK');
+          return { duplicate: true };
+        }
+
+        const countResult = await client.query(
+          'SELECT COUNT(*)::int AS count FROM receipts WHERE organization_id = $1 AND receipt_number LIKE $2',
+          [orgId, `${prefix}%`]
+        );
+        const receiptNumber = buildFinalReceiptNumber(orgIdentifier, year, Number(countResult.rows[0].count) + 1 + attempt);
+        const payload = buildReceiptPayload({ orgId, userId, row, transaction, allocation, tenant, invoice, receiptNumber, issuedAt });
+
+        const insertResult = await client.query(
+          `
+            INSERT INTO receipts (
+              organization_id,
+              tenant_id,
+              invoice_id,
+              transaction_id,
+              payment_allocation_id,
+              payment_evidence_id,
+              receipt_number,
+              status,
+              issued_at,
+              issued_by_user_id,
+              amount,
+              currency,
+              payment_method,
+              receipt_payload,
+              metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'issued', $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb)
+            RETURNING *
+          `,
+          [
+            orgId,
+            tenant.id,
+            invoice.id,
+            transaction.id,
+            allocation.id,
+            row.id,
+            receiptNumber,
+            issuedAt,
+            userId,
+            amount,
+            tenant.currency || invoice.currency || transaction.currency || 'KES',
+            paymentMethod,
+            JSON.stringify(payload),
+            JSON.stringify({
+              source: 'payment_evidence_issue_receipt',
+              payment_evidence_id: row.id,
+              immutable_snapshot: true
+            })
+          ]
+        );
+
+        await client.query('COMMIT');
+        return { receipt: insertResult.rows[0] };
+      } catch (error) {
+        await client.query('ROLLBACK');
+        if (error && error.code === '23505') {
+          const constraint = String(error.constraint || '');
+          if (constraint.includes('receipt_number') && attempt < 2) {
+            continue;
+          }
+          return { duplicate: true };
+        }
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+    throw new Error('Unable to generate a unique receipt number after retries.');
+  }
+
+  const existingReceipts = await activeDb.get('receipts');
+  const duplicate = existingReceipts.find(receipt => (
+    Number(receipt.organization_id) === Number(orgId) &&
+    (
+      Number(receipt.payment_allocation_id) === Number(allocation.id) ||
+      Number(receipt.payment_evidence_id) === Number(row.id) ||
+      Number(receipt.transaction_id) === Number(transaction.id)
+    )
+  ));
+  if (duplicate) {
+    return { duplicate: true };
+  }
+
+  const sequence = existingReceipts.filter(receipt => (
+    Number(receipt.organization_id) === Number(orgId) &&
+    String(receipt.receipt_number || '').startsWith(prefix)
+  )).length + 1;
+  const receiptNumber = buildFinalReceiptNumber(orgIdentifier, year, sequence);
+  const payload = buildReceiptPayload({ orgId, userId, row, transaction, allocation, tenant, invoice, receiptNumber, issuedAt });
+  const receipt = await activeDb.insert('receipts', {
+    organization_id: orgId,
+    tenant_id: tenant.id,
+    invoice_id: invoice.id,
+    transaction_id: transaction.id,
+    payment_allocation_id: allocation.id,
+    payment_evidence_id: row.id,
+    receipt_number: receiptNumber,
+    status: 'issued',
+    issued_at: issuedAt,
+    issued_by_user_id: userId,
+    amount,
+    currency: tenant.currency || invoice.currency || transaction.currency || 'KES',
+    payment_method: paymentMethod,
+    receipt_payload: payload,
+    metadata: {
+      source: 'payment_evidence_issue_receipt',
+      payment_evidence_id: row.id,
+      immutable_snapshot: true
+    }
+  });
+
+  return { receipt };
 }
 
 function calculateCandidateScore(row, tenant, invoice, unit, property) {
@@ -1741,6 +2007,94 @@ export function createPaymentEvidenceRoutes(pgDb) {
       },
       receipt_issuance_contract: receiptIssuanceContract,
       safety_message: 'Receipt preview is read-only. No financial or receipt records were changed by this lookup.'
+    });
+  }));
+
+  // POST /api/payment-evidence/:id/issue-receipt
+  router.post('/payment-evidence/:id/issue-receipt', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+    const { orgId, userId } = getContext(req);
+    const rowId = Number(req.params.id);
+
+    const context = await getAllocatedReceiptContext(activeDb, orgId, rowId);
+    if (!context.row) {
+      return res.status(404).json({
+        error: 'ROW_NOT_FOUND',
+        message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    const { confirmation_text } = req.body || {};
+    if (!confirmation_text) {
+      return res.status(400).json({
+        error: 'CONFIRMATION_TEXT_REQUIRED',
+        message: 'Confirmation text is required.'
+      });
+    }
+    if (confirmation_text !== 'CONFIRM RECEIPT ISSUANCE') {
+      return res.status(400).json({
+        error: 'INVALID_CONFIRMATION_TEXT',
+        message: 'Confirmation text is invalid. Please type "CONFIRM RECEIPT ISSUANCE".'
+      });
+    }
+
+    if (!context.isAllocated) {
+      return res.status(400).json({
+        error: 'PAYMENT_EVIDENCE_NOT_ALLOCATED',
+        message: 'Payment evidence must be allocated before receipt issuance.'
+      });
+    }
+    if (!context.transaction) {
+      return res.status(400).json({
+        error: 'MISSING_TRANSACTION',
+        message: 'An existing reconciled transaction is required before receipt issuance.'
+      });
+    }
+    if (!context.allocation) {
+      return res.status(400).json({
+        error: 'MISSING_PAYMENT_ALLOCATION',
+        message: 'An existing payment allocation is required before receipt issuance.'
+      });
+    }
+    if (!context.invoice) {
+      return res.status(400).json({
+        error: 'MISSING_INVOICE',
+        message: 'An existing invoice is required before receipt issuance.'
+      });
+    }
+    if (!context.tenant) {
+      return res.status(400).json({
+        error: 'MISSING_TENANT',
+        message: 'An existing tenant is required before receipt issuance.'
+      });
+    }
+    if (context.duplicateCheckState === 'receipt_schema_not_enabled') {
+      return res.status(400).json({
+        error: 'RECEIPT_SCHEMA_NOT_ENABLED',
+        message: 'Receipt storage schema is not enabled yet.'
+      });
+    }
+    if (context.duplicateCheckState === 'existing_receipt_found') {
+      return res.status(409).json({
+        error: 'RECEIPT_ALREADY_ISSUED',
+        message: 'A receipt already exists for this payment evidence, transaction, or allocation.'
+      });
+    }
+
+    const issued = await insertIssuedReceipt(activeDb, context, orgId, userId);
+    if (issued.duplicate) {
+      return res.status(409).json({
+        error: 'RECEIPT_ALREADY_ISSUED',
+        message: 'A receipt already exists for this payment evidence, transaction, or allocation.'
+      });
+    }
+
+    const receipt = mapReceiptResponse(issued.receipt, context.tenant, context.invoice, context.transaction, context.allocation);
+    res.json({
+      success: true,
+      message: 'Receipt issued successfully.',
+      payment_evidence_id: context.row.id,
+      receipt,
+      safety_message: 'Receipt issued exactly once. No ledger, invoice, tenant, transaction, allocation, or payment evidence financial record was changed.'
     });
   }));
 

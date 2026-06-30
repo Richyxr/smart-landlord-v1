@@ -2115,7 +2115,6 @@ async function runTests() {
 
   assert(
     'PaymentEvidence.jsx has no unsupported final action labels for receipts',
-    !paymentEvidenceContent.includes('Issue Receipt') &&
     !paymentEvidenceContent.includes('Create Receipt') &&
     !paymentEvidenceContent.includes('Send Receipt') &&
     !paymentEvidenceContent.includes('Download Receipt') &&
@@ -2197,7 +2196,8 @@ async function runTests() {
 
   const allocatedReceiptContract = receiptContractResponse && receiptContractResponse.receipt_issuance_contract;
   assert('Allocated evidence includes receipt issuance contract fields', allocatedReceiptContract && allocatedReceiptContract.requires_allocated_payment_evidence === true && allocatedReceiptContract.requires_existing_transaction === true && allocatedReceiptContract.requires_existing_payment_allocation === true && allocatedReceiptContract.requires_existing_invoice === true && allocatedReceiptContract.requires_existing_tenant === true && allocatedReceiptContract.requires_no_existing_receipt === true);
-  assert('Allocated contract keeps can_issue_receipt false', allocatedReceiptContract && allocatedReceiptContract.can_issue_receipt === false);
+  assert('Allocated contract enables confirmed receipt issuance when no receipt exists', allocatedReceiptContract && allocatedReceiptContract.can_issue_receipt === true);
+  assert('Allocated contract reports ready state for confirmed receipt issuance', allocatedReceiptContract && allocatedReceiptContract.state === 'ready_for_confirmed_receipt_issuance');
   assert('Duplicate check state is a supported contract state', allocatedReceiptContract && ['receipt_schema_not_enabled', 'no_existing_receipt', 'existing_receipt_found'].includes(allocatedReceiptContract.duplicate_check_state));
   assert('Duplicate check reports no existing receipt when receipt storage is empty', allocatedReceiptContract && allocatedReceiptContract.duplicate_check_state === 'no_existing_receipt');
   assert('Receipt number strategy is preview_only_not_reserved', allocatedReceiptContract && allocatedReceiptContract.receipt_number_strategy === 'preview_only_not_reserved');
@@ -2214,8 +2214,8 @@ async function runTests() {
   assert('Contract lookup creates no ledger records', apiDb.get('transactions').filter(t => t.ledger).length === 0);
 
   assert(
-    'No receipt issuance POST/PATCH/PUT/DELETE route added',
-    !/router\.(post|patch|put|delete)\([^)]*receipt/i.test(routeContent)
+    'Confirmed receipt issuance route is present for the execution slice',
+    routeContent.includes("router.post('/payment-evidence/:id/issue-receipt'")
   );
 
   assert(
@@ -2251,7 +2251,6 @@ async function runTests() {
 
   assert(
     'PaymentEvidence.jsx still has no unsupported final receipt action labels',
-    !paymentEvidenceContent.includes('Issue Receipt') &&
     !paymentEvidenceContent.includes('Create Receipt') &&
     !paymentEvidenceContent.includes('Send Receipt') &&
     !paymentEvidenceContent.includes('Download Receipt') &&
@@ -2342,7 +2341,8 @@ async function runTests() {
   const noReceiptContract = receiptStorageResponse && receiptStorageResponse.receipt_issuance_contract;
   assert('Receipt preview contract no longer reports receipt_schema_not_enabled when receipt storage exists', noReceiptContract && noReceiptContract.duplicate_check_state !== 'receipt_schema_not_enabled');
   assert('Allocated evidence with no receipt returns no_existing_receipt', noReceiptContract && noReceiptContract.duplicate_check_state === 'no_existing_receipt');
-  assert('No existing receipt contract keeps can_issue_receipt false', noReceiptContract && noReceiptContract.can_issue_receipt === false);
+  assert('No existing receipt contract enables confirmed issuance', noReceiptContract && noReceiptContract.can_issue_receipt === true);
+  assert('No existing receipt contract reports confirmed issuance ready state', noReceiptContract && noReceiptContract.state === 'ready_for_confirmed_receipt_issuance');
   assert('Receipt number preview still begins with DRAFT-', noReceiptContract && String(noReceiptContract.receipt_number_preview).startsWith('DRAFT-'));
   assert('Receipt number strategy remains preview_only_not_reserved', noReceiptContract && noReceiptContract.receipt_number_strategy === 'preview_only_not_reserved');
   assert('No receipt lookup does not create receipt', apiDb.get('receipts').length === receiptStorageReceiptCountBefore);
@@ -2391,7 +2391,6 @@ async function runTests() {
 
   assert(
     'PaymentEvidence.jsx still contains no unsupported final action labels after receipt storage',
-    !paymentEvidenceContent.includes('Issue Receipt') &&
     !paymentEvidenceContent.includes('Create Receipt') &&
     !paymentEvidenceContent.includes('Send Receipt') &&
     !paymentEvidenceContent.includes('Download Receipt') &&
@@ -2402,8 +2401,239 @@ async function runTests() {
   );
 
   assert(
-    'No POST/PATCH/PUT/DELETE route added for receipt issuance after receipt storage',
-    !/router\.(post|patch|put|delete)\([^)]*receipt/i.test(routeContent)
+    'Receipt storage keeps ledger route creation disabled',
+    !/router\.(post|patch|put|delete)\([^)]*ledger/i.test(routeContent)
+  );
+
+  // ==========================================
+  // Test 19: Confirmed Receipt Issuance Execution
+  // ==========================================
+  console.log('\n19. Confirmed Receipt Issuance Execution:');
+
+  const issueReceiptHandler = getRouteHandler('/payment-evidence/:id/issue-receipt');
+  const issueReceiptMiddlewares = getRouteMiddlewares('/payment-evidence/:id/issue-receipt');
+
+  assert(
+    'Receipt issuance endpoint requires landlord or super_admin role',
+    issueReceiptMiddlewares.includes(requireLandlordOrSuperAdminMiddleware)
+  );
+
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let issueBlockedStatus = null;
+    let issueBlockedNextCalled = false;
+    await requireLandlordOrSuperAdminMiddleware({
+      auth: { role: blockedRole, organizationId: 1, userId: 99 }
+    }, {
+      status(code) { issueBlockedStatus = code; return this; },
+      json() { return this; }
+    }, () => { issueBlockedNextCalled = true; });
+
+    assert(`Receipt issuance endpoint blocks ${blockedRole}`, issueBlockedStatus === 403 && issueBlockedNextCalled === false);
+  }
+
+  let issueReceiptStatus = null;
+  let issueReceiptResponse = null;
+  const issueReceiptMockRes = {
+    status(code) { issueReceiptStatus = code; return this; },
+    json(data) { issueReceiptResponse = data; return this; }
+  };
+
+  const seedIssueReceiptFixture = ({
+    rowId = 8303,
+    tenantId = 132,
+    invoiceId = 232,
+    transactionId = 531,
+    allocationId = 631,
+    includeTenant = true,
+    includeInvoice = true,
+    includeTransaction = true,
+    includeAllocation = true,
+    evidenceStatus = 'manually_reconciled',
+    receipts = []
+  } = {}) => {
+    apiDb.seed('organizations', [
+      { id: 1, account_number: 'SL-ORG-000001', name: 'Smart Landlord Org' }
+    ]);
+    apiDb.seed('properties', [
+      { id: 331, organization_id: 1, name: 'Issuance Place' }
+    ]);
+    apiDb.seed('units', [
+      { id: 431, organization_id: 1, unit_code: 'I-31' }
+    ]);
+    apiDb.seed('tenants', includeTenant ? [
+      { id: tenantId, organization_id: 1, full_name: 'Issued Tenant', tenant_account_number: 'ACC-I31', status: 'active', currency: 'KES', property_id: 331, unit_id: 431 }
+    ] : []);
+    apiDb.seed('payment_evidence', [
+      { id: rowId, organization_id: 1, amount: 5000, transaction_date: '2026-06-23', status: evidenceStatus, review_status: 'accepted_suggestion', accepted_tenant_id: tenantId, accepted_invoice_id: invoiceId, collection_channel: 'mpesa', transaction_code: `MPESA${rowId}` }
+    ]);
+    apiDb.seed('invoices', includeInvoice ? [
+      { id: invoiceId, organization_id: 1, tenant_id: tenantId, invoice_number: `INV-${invoiceId}`, status: 'paid', balance: 0, total: 5000, amount_paid: 5000, currency: 'KES' }
+    ] : []);
+    apiDb.seed('transactions', includeTransaction ? [
+      { id: transactionId, organization_id: 1, tenant_id: tenantId, amount: 5000, transaction_type: 'payment', status: 'reconciled', payment_method: 'mpesa', raw_payload: JSON.stringify({ evidence_id: rowId, source: 'payment_evidence_allocation' }) }
+    ] : []);
+    apiDb.seed('payment_allocations', includeAllocation ? [
+      { id: allocationId, organization_id: 1, transaction_id: transactionId, invoice_id: invoiceId, amount_allocated: 5000, allocated_at: '2026-06-23T12:00:00.000Z' }
+    ] : []);
+    apiDb.seed('receipts', receipts);
+  };
+
+  const runIssueReceiptRequest = async ({ orgId = 1, rowId = 8303, body = { confirmation_text: 'CONFIRM RECEIPT ISSUANCE' } } = {}) => {
+    issueReceiptStatus = null;
+    issueReceiptResponse = null;
+    await issueReceiptHandler({
+      auth: { organizationId: orgId, role: 'landlord', userId: 10 },
+      params: { id: String(rowId) },
+      body
+    }, issueReceiptMockRes);
+  };
+
+  seedIssueReceiptFixture();
+  await runIssueReceiptRequest({ orgId: 2 });
+  assert('Receipt issuance blocks wrong organization with 404', issueReceiptStatus === 404 && issueReceiptResponse.error === 'ROW_NOT_FOUND');
+
+  seedIssueReceiptFixture();
+  await runIssueReceiptRequest({ body: {} });
+  assert('Receipt issuance rejects missing confirmation text', issueReceiptStatus === 400 && issueReceiptResponse.error === 'CONFIRMATION_TEXT_REQUIRED');
+
+  seedIssueReceiptFixture();
+  await runIssueReceiptRequest({ body: { confirmation_text: 'CONFIRM RECEIPT' } });
+  assert('Receipt issuance rejects wrong confirmation text', issueReceiptStatus === 400 && issueReceiptResponse.error === 'INVALID_CONFIRMATION_TEXT');
+
+  seedIssueReceiptFixture({ rowId: 8304, evidenceStatus: 'needs_review' });
+  await runIssueReceiptRequest({ rowId: 8304 });
+  assert('Receipt issuance rejects unallocated evidence', issueReceiptStatus === 400 && issueReceiptResponse.error === 'PAYMENT_EVIDENCE_NOT_ALLOCATED');
+
+  seedIssueReceiptFixture({ rowId: 8305, includeTransaction: false });
+  await runIssueReceiptRequest({ rowId: 8305 });
+  assert('Receipt issuance rejects missing transaction', issueReceiptStatus === 400 && issueReceiptResponse.error === 'MISSING_TRANSACTION');
+
+  seedIssueReceiptFixture({ rowId: 8306, transactionId: 536, includeAllocation: false });
+  await runIssueReceiptRequest({ rowId: 8306 });
+  assert('Receipt issuance rejects missing payment allocation', issueReceiptStatus === 400 && issueReceiptResponse.error === 'MISSING_PAYMENT_ALLOCATION');
+
+  seedIssueReceiptFixture({ rowId: 8307, transactionId: 537, allocationId: 637, includeInvoice: false });
+  await runIssueReceiptRequest({ rowId: 8307 });
+  assert('Receipt issuance rejects missing invoice', issueReceiptStatus === 400 && issueReceiptResponse.error === 'MISSING_INVOICE');
+
+  seedIssueReceiptFixture({ rowId: 8308, tenantId: 138, invoiceId: 238, transactionId: 538, allocationId: 638, includeTenant: false });
+  await runIssueReceiptRequest({ rowId: 8308 });
+  assert('Receipt issuance rejects missing tenant', issueReceiptStatus === 400 && issueReceiptResponse.error === 'MISSING_TENANT');
+
+  seedIssueReceiptFixture({
+    rowId: 8309,
+    tenantId: 139,
+    invoiceId: 239,
+    transactionId: 539,
+    allocationId: 639,
+    receipts: [
+      {
+        id: 739,
+        organization_id: 1,
+        tenant_id: 139,
+        invoice_id: 239,
+        transaction_id: 539,
+        payment_allocation_id: 639,
+        payment_evidence_id: 8309,
+        receipt_number: 'RCP-SL-ORG-000001-2026-000001',
+        status: 'issued',
+        issued_at: '2026-06-23T12:05:00.000Z',
+        issued_by_user_id: 10,
+        amount: 5000,
+        currency: 'KES',
+        payment_method: 'mpesa',
+        receipt_payload: {},
+        metadata: {}
+      }
+    ]
+  });
+  await runIssueReceiptRequest({ rowId: 8309 });
+  assert('Receipt issuance rejects existing receipt duplicate', issueReceiptStatus === 409 && issueReceiptResponse.error === 'RECEIPT_ALREADY_ISSUED');
+  assert('Duplicate issuance creates no new receipt', apiDb.get('receipts').length === 1);
+
+  seedIssueReceiptFixture({ rowId: 8310, tenantId: 140, invoiceId: 240, transactionId: 540, allocationId: 640 });
+  const issueInvoiceBefore = JSON.stringify(apiDb.get('invoices'));
+  const issueTenantBefore = JSON.stringify(apiDb.get('tenants'));
+  const issueTransactionBefore = JSON.stringify(apiDb.get('transactions'));
+  const issueAllocationBefore = JSON.stringify(apiDb.get('payment_allocations'));
+  const issueEvidenceBefore = JSON.stringify(apiDb.get('payment_evidence'));
+
+  await runIssueReceiptRequest({ rowId: 8310 });
+
+  const issuedReceipts = apiDb.get('receipts');
+  const issuedReceipt = issuedReceipts[0];
+  const issuedPayload = issuedReceipt && issuedReceipt.receipt_payload;
+
+  assert('Valid receipt issuance returns success true', issueReceiptResponse && issueReceiptResponse.success === true);
+  assert('Valid receipt issuance creates exactly one receipt', issuedReceipts.length === 1);
+  assert('Issued receipt number is final and not a draft', issuedReceipt && String(issuedReceipt.receipt_number).startsWith('RCP-') && !String(issuedReceipt.receipt_number).startsWith('DRAFT'));
+  assert('Issued receipt status is issued', issuedReceipt && issuedReceipt.status === 'issued');
+  assert('Issued receipt amount equals allocated amount', issuedReceipt && Number(issuedReceipt.amount) === 5000);
+  assert('Issued receipt response returns receipt summary', issueReceiptResponse && issueReceiptResponse.receipt && issueReceiptResponse.receipt.receipt_number === issuedReceipt.receipt_number);
+  assert('Receipt payload snapshots tenant and invoice', issuedPayload && issuedPayload.tenant_name === 'Issued Tenant' && issuedPayload.invoice_number === 'INV-240');
+  assert('Receipt payload snapshots transaction, allocation, and evidence IDs', issuedPayload && issuedPayload.transaction_id === 540 && issuedPayload.payment_allocation_id === 640 && issuedPayload.payment_evidence_id === 8310);
+  assert('Receipt payload snapshots amount and line item', issuedPayload && issuedPayload.amount_paid === 5000 && issuedPayload.receipt_lines[0].amount === 5000);
+  assert('Receipt issuance safety message confirms no financial mutation', issueReceiptResponse && issueReceiptResponse.safety_message === 'Receipt issued exactly once. No ledger, invoice, tenant, transaction, allocation, or payment evidence financial record was changed.');
+
+  await runIssueReceiptRequest({ rowId: 8310 });
+  assert('Repeated receipt issuance is rejected', issueReceiptStatus === 409 && issueReceiptResponse.error === 'RECEIPT_ALREADY_ISSUED');
+  assert('Repeated receipt issuance creates no second receipt', apiDb.get('receipts').length === 1);
+
+  assert('Receipt issuance creates no ledger records', apiDb.get('transactions').filter(t => t.ledger).length === 0);
+  assert('Receipt issuance leaves invoice unchanged', JSON.stringify(apiDb.get('invoices')) === issueInvoiceBefore);
+  assert('Receipt issuance leaves tenant unchanged', JSON.stringify(apiDb.get('tenants')) === issueTenantBefore);
+  assert('Receipt issuance leaves transaction unchanged', JSON.stringify(apiDb.get('transactions')) === issueTransactionBefore);
+  assert('Receipt issuance leaves payment allocation unchanged', JSON.stringify(apiDb.get('payment_allocations')) === issueAllocationBefore);
+  assert('Receipt issuance leaves payment evidence financial state unchanged', JSON.stringify(apiDb.get('payment_evidence')) === issueEvidenceBefore);
+
+  const postIssuePreviewHandler = getRouteHandler('/payment-evidence/:id/receipt-preview');
+  let postIssuePreviewResponse = null;
+  await postIssuePreviewHandler({
+    auth: { organizationId: 1, role: 'landlord', userId: 10 },
+    params: { id: '8310' }
+  }, {
+    status() { return this; },
+    json(data) { postIssuePreviewResponse = data; return this; }
+  });
+  assert('Receipt preview reports existing receipt after issuance', postIssuePreviewResponse && postIssuePreviewResponse.receipt_issuance_contract.duplicate_check_state === 'existing_receipt_found');
+  assert('Receipt preview blocks second issuance after receipt exists', postIssuePreviewResponse && postIssuePreviewResponse.receipt_issuance_contract.can_issue_receipt === false);
+
+  assert(
+    'PaymentEvidence.jsx renders confirmed receipt issuance controls',
+    paymentEvidenceContent.includes('Issue Receipt') &&
+    paymentEvidenceContent.includes('Confirm Receipt Issuance') &&
+    paymentEvidenceContent.includes('receiptIssueConfirmationText')
+  );
+
+  assert(
+    'PaymentEvidence.jsx calls POST issue-receipt API endpoint',
+    paymentEvidenceContent.includes('issue-receipt') &&
+    paymentEvidenceContent.includes("method: 'POST'") &&
+    paymentEvidenceContent.includes('confirmation_text: receiptIssueConfirmationText')
+  );
+
+  assert(
+    'PaymentEvidence.jsx uses branded confirmation for receipt issuance',
+    paymentEvidenceContent.includes('showConfirm(') &&
+    paymentEvidenceContent.includes('Confirm Receipt Issuance') &&
+    !paymentEvidenceContent.includes('window.confirm(')
+  );
+
+  assert(
+    'PaymentEvidence.jsx keeps unsupported receipt output actions disabled',
+    !paymentEvidenceContent.includes('Create Receipt') &&
+    !paymentEvidenceContent.includes('Send Receipt') &&
+    !paymentEvidenceContent.includes('Download Receipt') &&
+    !paymentEvidenceContent.includes('Print Receipt') &&
+    !paymentEvidenceContent.includes('Post Ledger') &&
+    !paymentEvidenceContent.includes('Finalize Receipt') &&
+    !paymentEvidenceContent.includes('Void Receipt')
+  );
+
+  assert(
+    'PaymentEvidence.jsx has no ledger/download/print/send/void API writes',
+    !/method:\s*['"](POST|PATCH|PUT|DELETE)['"][\s\S]{0,160}\/api\/ledger/i.test(paymentEvidenceContent) &&
+    !/method:\s*['"](POST|PATCH|PUT|DELETE)['"][\s\S]{0,160}(download|print|send|void)/i.test(paymentEvidenceContent)
   );
 
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
