@@ -2098,5 +2098,100 @@ export function createPaymentEvidenceRoutes(pgDb) {
     });
   }));
 
+  // GET /api/payment-evidence/:id/receipt-result
+  router.get('/payment-evidence/:id/receipt-result', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
+    const rowId = Number(req.params.id);
+
+    // Org-scoped row lookup
+    const row = await activeDb.findOne('payment_evidence', { id: rowId, organization_id: orgId });
+    if (!row) {
+      return res.status(404).json({
+        error: 'ROW_NOT_FOUND',
+        message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    // Find issued receipt for this evidence row
+    let issuedReceipt = null;
+    if (activeDb.pool && typeof activeDb.pool.connect === 'function') {
+      const result = await activeDb.pool.connect().then(async (client) => {
+        try {
+          return await client.query(
+            `SELECT * FROM receipts WHERE organization_id = $1 AND payment_evidence_id = $2 ORDER BY issued_at DESC LIMIT 1`,
+            [orgId, rowId]
+          );
+        } finally {
+          client.release();
+        }
+      });
+      issuedReceipt = result.rows && result.rows.length > 0 ? result.rows[0] : null;
+    } else {
+      const receipts = typeof activeDb.get === 'function' ? await activeDb.get('receipts') : [];
+      const matches = receipts.filter(r =>
+        Number(r.organization_id) === Number(orgId) &&
+        Number(r.payment_evidence_id) === Number(rowId)
+      );
+      issuedReceipt = matches.length > 0 ? matches[matches.length - 1] : null;
+    }
+
+    if (!issuedReceipt) {
+      return res.json({
+        success: true,
+        payment_evidence_id: rowId,
+        receipt_issued: false,
+        receipt: null,
+        post_issuance_readiness: null,
+        safety_message: 'Receipt result is read-only. No financial or receipt records were changed by this lookup.'
+      });
+    }
+
+    // Parse the stored receipt payload snapshot
+    const payload = typeof issuedReceipt.receipt_payload === 'string'
+      ? JSON.parse(issuedReceipt.receipt_payload)
+      : (issuedReceipt.receipt_payload || {});
+
+    const receiptResult = {
+      id: issuedReceipt.id,
+      receipt_number: issuedReceipt.receipt_number,
+      status: issuedReceipt.status,
+      issued_at: issuedReceipt.issued_at,
+      amount: Number(issuedReceipt.amount),
+      currency: issuedReceipt.currency || 'KES',
+      payment_method: issuedReceipt.payment_method || null,
+      tenant_id: issuedReceipt.tenant_id,
+      tenant_name: payload.tenant_name || null,
+      invoice_id: issuedReceipt.invoice_id,
+      invoice_number: payload.invoice_number || null,
+      transaction_id: issuedReceipt.transaction_id,
+      payment_allocation_id: issuedReceipt.payment_allocation_id,
+      payment_evidence_id: issuedReceipt.payment_evidence_id,
+      payment_date: payload.payment_date || null,
+      invoice_status_at_issue: payload.invoice_status_at_issue || null,
+      invoice_balance_after_allocation: payload.invoice_balance_after_allocation !== undefined ? Number(payload.invoice_balance_after_allocation) : null,
+      receipt_lines: Array.isArray(payload.receipt_lines) ? payload.receipt_lines : []
+    };
+
+    // Post-issuance readiness block: all output actions are explicitly disabled
+    const postIssuanceReadiness = {
+      state: 'receipt_issued',
+      download_pdf: { enabled: false, reason: 'PDF download is not supported in this release.' },
+      print_receipt: { enabled: false, reason: 'Receipt printing is not supported in this release.' },
+      send_receipt: { enabled: false, reason: 'Receipt sending is not supported in this release.' },
+      void_receipt: { enabled: false, reason: 'Receipt voiding is not supported in this release.' },
+      post_ledger: { enabled: false, reason: 'Ledger posting is not supported in this release.' },
+      safety_message: 'Receipt has been issued. No further mutations are allowed via this endpoint. Download, print, send, void, and ledger posting are disabled.'
+    };
+
+    res.json({
+      success: true,
+      payment_evidence_id: rowId,
+      receipt_issued: true,
+      receipt: receiptResult,
+      post_issuance_readiness: postIssuanceReadiness,
+      safety_message: 'Receipt result is read-only. No financial or receipt records were changed by this lookup.'
+    });
+  }));
+
   return router;
 }

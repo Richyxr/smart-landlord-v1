@@ -2636,6 +2636,233 @@ async function runTests() {
     !/method:\s*['"](POST|PATCH|PUT|DELETE)['"][\s\S]{0,160}(download|print|send|void)/i.test(paymentEvidenceContent)
   );
 
+  // ==========================================
+  // Test 20: Receipt Result Visibility + Audit Display
+  // ==========================================
+  console.log('\n20. Receipt Result Visibility + Audit Display:');
+
+  const receiptResultHandler = getRouteHandler('/payment-evidence/:id/receipt-result');
+  const receiptResultMiddlewares = getRouteMiddlewares('/payment-evidence/:id/receipt-result');
+
+  assert(
+    'Receipt result endpoint exists',
+    typeof receiptResultHandler === 'function'
+  );
+
+  assert(
+    'Receipt result endpoint requires landlord or super_admin role',
+    receiptResultMiddlewares.includes(requireLandlordOrSuperAdminMiddleware)
+  );
+
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let resultBlockedStatus = null;
+    let resultBlockedNextCalled = false;
+    await requireLandlordOrSuperAdminMiddleware(
+      { auth: { role: blockedRole, organizationId: 1, userId: 99 } },
+      {
+        status(code) { resultBlockedStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { resultBlockedNextCalled = true; }
+    );
+    assert(`Receipt result endpoint blocks ${blockedRole}`, resultBlockedStatus === 403 && resultBlockedNextCalled === false);
+  }
+
+  let receiptResultStatus = null;
+  let receiptResultResponse = null;
+  const receiptResultMockRes = {
+    status(code) { receiptResultStatus = code; return this; },
+    json(data) { receiptResultResponse = data; return this; }
+  };
+
+  // Seed: evidence for org 1, receipt for same org
+  apiDb.seed('payment_evidence', [
+    { id: 9401, organization_id: 1, amount: 6000, transaction_date: '2026-07-01', status: 'manually_reconciled', review_status: 'accepted_suggestion', accepted_tenant_id: 142, accepted_invoice_id: 242, collection_channel: 'mpesa', transaction_code: 'MPESA9401' }
+  ]);
+  apiDb.seed('receipts', [
+    {
+      id: 801,
+      organization_id: 1,
+      tenant_id: 142,
+      invoice_id: 242,
+      transaction_id: 551,
+      payment_allocation_id: 651,
+      payment_evidence_id: 9401,
+      receipt_number: 'RCP-SL-ORG-000001-2026-000010',
+      status: 'issued',
+      issued_at: '2026-07-01T12:00:00.000Z',
+      issued_by_user_id: 10,
+      amount: 6000,
+      currency: 'KES',
+      payment_method: 'mpesa',
+      receipt_payload: JSON.stringify({
+        tenant_name: 'Result Tenant',
+        invoice_number: 'INV-242',
+        payment_date: '2026-07-01',
+        invoice_status_at_issue: 'paid',
+        invoice_balance_after_allocation: 0,
+        receipt_lines: [{ label: 'Rent payment allocation', amount: 6000 }]
+      }),
+      metadata: {}
+    }
+  ]);
+
+  // Snapshot state before
+  const receiptResultInvoiceBefore = JSON.stringify(apiDb.get('invoices'));
+  const receiptResultTenantBefore = JSON.stringify(apiDb.get('tenants'));
+  const receiptResultReceiptCountBefore = apiDb.get('receipts').length;
+  const receiptResultTransactionCountBefore = apiDb.get('transactions').length;
+  const receiptResultAllocationCountBefore = apiDb.get('payment_allocations').length;
+  const receiptResultEvidenceBefore = JSON.stringify(apiDb.get('payment_evidence'));
+
+  // Test: wrong org returns 404
+  receiptResultStatus = null;
+  receiptResultResponse = null;
+  await receiptResultHandler(
+    { auth: { organizationId: 2, role: 'landlord', userId: 10 }, params: { id: '9401' } },
+    receiptResultMockRes
+  );
+  assert('Receipt result blocks wrong organization with 404', receiptResultStatus === 404 && receiptResultResponse.error === 'ROW_NOT_FOUND');
+
+  // Test: evidence with no receipt returns receipt_issued: false
+  apiDb.seed('receipts', []);
+  receiptResultStatus = null;
+  receiptResultResponse = null;
+  await receiptResultHandler(
+    { auth: { organizationId: 1, role: 'landlord', userId: 10 }, params: { id: '9401' } },
+    receiptResultMockRes
+  );
+  assert('Receipt result returns receipt_issued false when no receipt exists', receiptResultResponse && receiptResultResponse.receipt_issued === false && receiptResultResponse.receipt === null);
+  assert('No-receipt result creates no new receipt', apiDb.get('receipts').length === 0);
+
+  // Test: evidence with existing receipt returns full details
+  apiDb.seed('receipts', [
+    {
+      id: 801,
+      organization_id: 1,
+      tenant_id: 142,
+      invoice_id: 242,
+      transaction_id: 551,
+      payment_allocation_id: 651,
+      payment_evidence_id: 9401,
+      receipt_number: 'RCP-SL-ORG-000001-2026-000010',
+      status: 'issued',
+      issued_at: '2026-07-01T12:00:00.000Z',
+      issued_by_user_id: 10,
+      amount: 6000,
+      currency: 'KES',
+      payment_method: 'mpesa',
+      receipt_payload: JSON.stringify({
+        tenant_name: 'Result Tenant',
+        invoice_number: 'INV-242',
+        payment_date: '2026-07-01',
+        invoice_status_at_issue: 'paid',
+        invoice_balance_after_allocation: 0,
+        receipt_lines: [{ label: 'Rent payment allocation', amount: 6000 }]
+      }),
+      metadata: {}
+    }
+  ]);
+
+  receiptResultStatus = null;
+  receiptResultResponse = null;
+  await receiptResultHandler(
+    { auth: { organizationId: 1, role: 'landlord', userId: 10 }, params: { id: '9401' } },
+    receiptResultMockRes
+  );
+
+  const rr = receiptResultResponse;
+  assert('Receipt result returns success true', rr && rr.success === true);
+  assert('Receipt result returns receipt_issued true', rr && rr.receipt_issued === true);
+  assert('Receipt result returns correct receipt_number', rr && rr.receipt && rr.receipt.receipt_number === 'RCP-SL-ORG-000001-2026-000010');
+  assert('Receipt result returns issued status', rr && rr.receipt && rr.receipt.status === 'issued');
+  assert('Receipt result returns correct amount', rr && rr.receipt && Number(rr.receipt.amount) === 6000);
+  assert('Receipt result returns tenant_name from payload', rr && rr.receipt && rr.receipt.tenant_name === 'Result Tenant');
+  assert('Receipt result returns invoice_number from payload', rr && rr.receipt && rr.receipt.invoice_number === 'INV-242');
+  assert('Receipt result returns transaction_id', rr && rr.receipt && rr.receipt.transaction_id === 551);
+  assert('Receipt result returns payment_allocation_id', rr && rr.receipt && rr.receipt.payment_allocation_id === 651);
+  assert('Receipt result returns receipt_lines from payload', rr && rr.receipt && Array.isArray(rr.receipt.receipt_lines) && rr.receipt.receipt_lines.length === 1);
+  assert('Receipt result receipt_lines amount matches', rr && rr.receipt && rr.receipt.receipt_lines[0].amount === 6000);
+  assert('Receipt result returns invoice_status_at_issue from payload', rr && rr.receipt && rr.receipt.invoice_status_at_issue === 'paid');
+  assert('Receipt result returns invoice_balance_after_allocation', rr && rr.receipt && rr.receipt.invoice_balance_after_allocation === 0);
+  assert('Receipt result has safety_message', rr && typeof rr.safety_message === 'string' && rr.safety_message.includes('read-only'));
+
+  // Post-issuance readiness block checks
+  const pir = rr && rr.post_issuance_readiness;
+  assert('Receipt result returns post_issuance_readiness block', pir && typeof pir === 'object');
+  assert('Post-issuance download_pdf is disabled', pir && pir.download_pdf && pir.download_pdf.enabled === false);
+  assert('Post-issuance print_receipt is disabled', pir && pir.print_receipt && pir.print_receipt.enabled === false);
+  assert('Post-issuance send_receipt is disabled', pir && pir.send_receipt && pir.send_receipt.enabled === false);
+  assert('Post-issuance void_receipt is disabled', pir && pir.void_receipt && pir.void_receipt.enabled === false);
+  assert('Post-issuance post_ledger is disabled', pir && pir.post_ledger && pir.post_ledger.enabled === false);
+  assert('Post-issuance readiness has safety message', pir && typeof pir.safety_message === 'string' && pir.safety_message.length > 0);
+
+  // Read-only safety: no mutations
+  assert('Receipt result lookup leaves invoices unchanged', JSON.stringify(apiDb.get('invoices')) === receiptResultInvoiceBefore);
+  assert('Receipt result lookup leaves tenants unchanged', JSON.stringify(apiDb.get('tenants')) === receiptResultTenantBefore);
+  assert('Receipt result lookup leaves payment evidence unchanged', JSON.stringify(apiDb.get('payment_evidence')) === receiptResultEvidenceBefore);
+  assert('Receipt result lookup leaves transaction count unchanged', apiDb.get('transactions').length === receiptResultTransactionCountBefore);
+  assert('Receipt result lookup leaves allocation count unchanged', apiDb.get('payment_allocations').length === receiptResultAllocationCountBefore);
+  assert('Receipt result lookup creates no new receipts', apiDb.get('receipts').length === receiptResultReceiptCountBefore);
+  assert('Receipt result creates no ledger records', apiDb.get('transactions').filter(t => t.ledger).length === 0);
+
+  // Frontend content checks
+  assert(
+    'PaymentEvidence.jsx renders Issued Receipt section header',
+    paymentEvidenceContent.includes('Issued Receipt')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders receipt-result API call',
+    paymentEvidenceContent.includes('receipt-result')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders Post-Issuance Readiness panel',
+    paymentEvidenceContent.includes('Post-Issuance Readiness')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders receipt result line items',
+    paymentEvidenceContent.includes('receipt_lines') && paymentEvidenceContent.includes('Receipt Lines')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders receipt_issued flag check',
+    paymentEvidenceContent.includes('receipt_issued')
+  );
+
+  assert(
+    'PaymentEvidence.jsx still has no unsupported final action labels after receipt result',
+    !paymentEvidenceContent.includes('Create Receipt') &&
+    !paymentEvidenceContent.includes('Send Receipt') &&
+    !paymentEvidenceContent.includes('Download Receipt') &&
+    !paymentEvidenceContent.includes('Print Receipt') &&
+    !paymentEvidenceContent.includes('Post Ledger') &&
+    !paymentEvidenceContent.includes('Finalize Receipt') &&
+    !paymentEvidenceContent.includes('Void Receipt')
+  );
+
+  assert(
+    'Receipt result endpoint is GET only (no POST/PATCH/PUT/DELETE)',
+    routeContent.includes("router.get('/payment-evidence/:id/receipt-result'") &&
+    !routeContent.includes("router.post('/payment-evidence/:id/receipt-result'")
+  );
+
+  assert(
+    'Receipt result route has no INSERT, UPDATE, or DELETE SQL for receipts',
+    (() => {
+      const marker = "router.get('/payment-evidence/:id/receipt-result'";
+      const startIdx = routeContent.indexOf(marker);
+      if (startIdx === -1) return false;
+      // Extract just the receipt-result handler block (up to ~3000 chars after the route definition)
+      const block = routeContent.slice(startIdx, startIdx + 3000);
+      return !/INSERT\s+INTO\s+receipts/i.test(block) &&
+             !/UPDATE\s+receipts/i.test(block) &&
+             !/DELETE\s+FROM\s+receipts/i.test(block);
+    })()
+  );
+
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
   if (failures > 0) {
     process.exit(1);

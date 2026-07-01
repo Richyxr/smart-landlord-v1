@@ -114,6 +114,30 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     }
   };
 
+  // Receipt Result States
+  const [receiptResultData, setReceiptResultData] = useState(null);
+  const [loadingReceiptResult, setLoadingReceiptResult] = useState(false);
+  const [receiptResultError, setReceiptResultError] = useState('');
+
+  const fetchReceiptResult = async (id) => {
+    setLoadingReceiptResult(true);
+    setReceiptResultError('');
+    try {
+      const res = await fetch(`/api/payment-evidence/${id}/receipt-result`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to fetch receipt result');
+      }
+      setReceiptResultData(data);
+    } catch (err) {
+      console.error(err);
+      setReceiptResultError(err.message || 'Failed to fetch receipt result');
+      setReceiptResultData(null);
+    } finally {
+      setLoadingReceiptResult(false);
+    }
+  };
+
   const fetchAllocationPreview = async (id) => {
     setLoadingPreview(true);
     setPreviewError('');
@@ -202,6 +226,7 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       if (selectedRow.status === 'manually_reconciled' || selectedRow.status === 'auto_reconciled') {
         fetchAllocationResult(selectedRow.id);
         fetchReceiptPreview(selectedRow.id);
+        fetchReceiptResult(selectedRow.id);
         setPreviewData(null);
         setPreviewError('');
       } else {
@@ -210,6 +235,8 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
         setResultError('');
         setReceiptPreviewData(null);
         setReceiptPreviewError('');
+        setReceiptResultData(null);
+        setReceiptResultError('');
       }
     } else {
       setAuditLogs([]);
@@ -219,6 +246,8 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       setResultError('');
       setReceiptPreviewData(null);
       setReceiptPreviewError('');
+      setReceiptResultData(null);
+      setReceiptResultError('');
       setReceiptIssueConfirmationText('');
     }
   }, [selectedRow, role]);
@@ -800,6 +829,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           notifySuccess('Receipt Issued', data.message || 'Receipt issued successfully.');
           setReceiptIssueConfirmationText('');
           await fetchReceiptPreview(selectedRow.id);
+          await fetchReceiptResult(selectedRow.id);
           await fetchAllocationResult(selectedRow.id);
           await fetchEvidenceRows();
         } catch (err) {
@@ -1936,6 +1966,82 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                 ) : (
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>No receipt preview data available.</div>
                 )}
+              </div>
+            )}
+
+            {/* Receipt Result Section */}
+            {(receiptResultData || loadingReceiptResult || receiptResultError) && (
+              <div style={{ marginBottom: '16px', border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-surface)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-primary)', fontWeight: '700' }}>Issued Receipt</h4>
+                  <button
+                    style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-surface-elevated)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                    onClick={() => selectedRow && fetchReceiptResult(selectedRow.id)}
+                    disabled={loadingReceiptResult}
+                  >
+                    Refresh Receipt Result
+                  </button>
+                </div>
+                {loadingReceiptResult ? (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Loading receipt result...</div>
+                ) : receiptResultError ? (
+                  <div style={{ fontSize: '11px', color: 'var(--danger)' }}>{receiptResultError}</div>
+                ) : receiptResultData && !receiptResultData.receipt_issued ? (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>No issued receipt found for this payment evidence record.</div>
+                ) : receiptResultData && receiptResultData.receipt ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <strong style={{ fontSize: '12px', display: 'block', marginBottom: '4px', color: 'var(--success)' }}>Receipt Issued</strong>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', fontSize: '11px' }}>
+                      <span className="text-muted">Receipt Number:</span> <strong>{receiptResultData.receipt.receipt_number}</strong>
+                      <span className="text-muted">Status:</span> <strong style={{ textTransform: 'capitalize', color: 'var(--success)' }}>{receiptResultData.receipt.status}</strong>
+                      <span className="text-muted">Issued At:</span> <strong>{receiptResultData.receipt.issued_at ? new Date(receiptResultData.receipt.issued_at).toLocaleString() : '—'}</strong>
+                      <span className="text-muted">Amount:</span> <strong style={{ color: 'var(--primary)' }}>{formatCurrency(receiptResultData.receipt.amount)}</strong>
+                      <span className="text-muted">Tenant:</span> <strong>{receiptResultData.receipt.tenant_name || `ID: ${receiptResultData.receipt.tenant_id}`}</strong>
+                      <span className="text-muted">Invoice:</span> <strong>{receiptResultData.receipt.invoice_number || `ID: ${receiptResultData.receipt.invoice_id}`}</strong>
+                      <span className="text-muted">Transaction ID:</span> <strong>{receiptResultData.receipt.transaction_id}</strong>
+                      <span className="text-muted">Allocation ID:</span> <strong>{receiptResultData.receipt.payment_allocation_id}</strong>
+                      <span className="text-muted">Payment Method:</span> <strong style={{ textTransform: 'uppercase' }}>{receiptResultData.receipt.payment_method || '—'}</strong>
+                      <span className="text-muted">Invoice Status at Issue:</span> <strong>{receiptResultData.receipt.invoice_status_at_issue || '—'}</strong>
+                      <span className="text-muted">Invoice Balance After:</span> <strong>{receiptResultData.receipt.invoice_balance_after_allocation !== null ? formatCurrency(receiptResultData.receipt.invoice_balance_after_allocation) : '—'}</strong>
+                    </div>
+
+                    {/* Receipt Line Items */}
+                    {receiptResultData.receipt.receipt_lines && receiptResultData.receipt.receipt_lines.length > 0 && (
+                      <div style={{ marginTop: '6px' }}>
+                        <span className="text-muted" style={{ display: 'block', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', marginBottom: '4px' }}>Receipt Lines</span>
+                        {receiptResultData.receipt.receipt_lines.map((line, idx) => (
+                          <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', padding: '2px 0', borderBottom: '1px solid var(--border)' }}>
+                            <span>{line.label}</span>
+                            <strong>{formatCurrency(line.amount)}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Post-Issuance Readiness Block */}
+                    {receiptResultData.post_issuance_readiness && (
+                      <div style={{ marginTop: '8px', padding: '8px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                        <strong style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-primary)', display: 'block', marginBottom: '6px' }}>Post-Issuance Readiness</strong>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '11px' }}>
+                          {Object.entries(receiptResultData.post_issuance_readiness).filter(([k]) => k !== 'state' && k !== 'safety_message').map(([action, info]) => (
+                            <div key={action} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--danger)', display: 'inline-block', flexShrink: 0 }}></span>
+                              <span style={{ textTransform: 'capitalize', color: 'var(--text-muted)' }}>{action.replace(/_/g, ' ')}:</span>
+                              <span style={{ color: 'var(--danger)' }}>Disabled — {info.reason}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ marginTop: '6px', fontSize: '9px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                          {receiptResultData.post_issuance_readiness.safety_message}
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: '6px', padding: '6px 8px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '4px', fontSize: '9px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                      {receiptResultData.safety_message}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             )}
 
