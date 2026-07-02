@@ -4,7 +4,14 @@ import { detectDuplicatePaymentEvidence } from '../server/services/payment-evide
 import { scorePaymentEvidenceMatch } from '../server/services/payment-evidence/scorePaymentEvidenceMatch.js';
 import { PERSPECTIVES, DIRECTIONS, STATUSES, COLLECTION_CHANNELS, DOCUMENT_SOURCES, EVIDENCE_STRENGTHS } from '../server/services/payment-evidence/paymentEvidenceRules.js';
 import { db as jsonDb } from '../server/db.js';
-import { createPaymentEvidenceRoutes, detectPdfStatementProvider, parseLoopStatementPreviewRows } from '../server/routes/paymentEvidenceRoutes.js';
+import {
+  createPaymentEvidenceRoutes,
+  detectPdfStatementProvider,
+  parseLoopStatementPreviewRows,
+  validateLoopPreviewRow,
+  scoreLoopPreviewRow,
+  summarizeLoopParserValidation
+} from '../server/routes/paymentEvidenceRoutes.js';
 import fs from 'fs';
 
 let failures = 0;
@@ -3276,6 +3283,37 @@ async function runTests() {
   assert('Loop parser row has collection_channel', typeof firstLoopRow.collection_channel === 'string');
   assert('Loop parser row source_provider is LOOP_STATEMENT', firstLoopRow.source_provider === 'LOOP_STATEMENT');
   assert('Loop parser row document_source is PDF_STATEMENT', firstLoopRow.document_source === 'PDF_STATEMENT');
+  assert('Loop parser row has row_status', ['ready_for_review', 'needs_attention', 'skipped'].includes(firstLoopRow.row_status));
+  assert('Loop parser row has parser_confidence', ['high', 'medium', 'low', 'unknown'].includes(firstLoopRow.parser_confidence));
+  assert('Loop parser row has confidence_score number', typeof firstLoopRow.confidence_score === 'number');
+  assert('Loop parser row has validation object', firstLoopRow.validation && typeof firstLoopRow.validation === 'object');
+  assert('Loop parser row has validation_errors array', Array.isArray(firstLoopRow.validation_errors));
+
+  const validationProbe = validateLoopPreviewRow(firstLoopRow, { duplicateLikeCodes: new Set() });
+  assert('Loop validation helper returns expected keys', validationProbe &&
+    Object.prototype.hasOwnProperty.call(validationProbe, 'is_valid') &&
+    Object.prototype.hasOwnProperty.call(validationProbe, 'has_valid_date') &&
+    Object.prototype.hasOwnProperty.call(validationProbe, 'has_valid_amount') &&
+    Object.prototype.hasOwnProperty.call(validationProbe, 'has_transaction_code') &&
+    Object.prototype.hasOwnProperty.call(validationProbe, 'has_direction') &&
+    Object.prototype.hasOwnProperty.call(validationProbe, 'has_balance') &&
+    Object.prototype.hasOwnProperty.call(validationProbe, 'has_supported_channel')
+  );
+
+  const confidenceProbe = scoreLoopPreviewRow(firstLoopRow, validationProbe);
+  assert('Loop confidence helper returns confidence_score', confidenceProbe && typeof confidenceProbe.confidence_score === 'number');
+  assert('Loop confidence helper returns parser_confidence', confidenceProbe && ['high', 'medium', 'low', 'unknown'].includes(confidenceProbe.parser_confidence));
+
+  const summaryProbe = summarizeLoopParserValidation(loopParsed.previewRows, loopParsed.rowsSkipped);
+  assert('Loop parser summary includes ready_for_review_count', typeof summaryProbe.ready_for_review_count === 'number');
+  assert('Loop parser summary includes needs_attention_count', typeof summaryProbe.needs_attention_count === 'number');
+  assert('Loop parser summary includes skipped_count', typeof summaryProbe.skipped_count === 'number');
+  assert('Loop parser summary includes confidence bucket counts',
+    typeof summaryProbe.high_confidence_count === 'number' &&
+    typeof summaryProbe.medium_confidence_count === 'number' &&
+    typeof summaryProbe.low_confidence_count === 'number' &&
+    typeof summaryProbe.unknown_confidence_count === 'number'
+  );
 
   const manyRowsText = Array.from({ length: 120 }).map((_, idx) => (
     `Received ${1000 + idx} Via NCBA for DEPOSIT. LOOP Ref:NHECAP${idx} Partner Ref:PR${idx} 2026-06-24 11:06:09 0.00 1,000.00 2,008.70`
@@ -3313,9 +3351,22 @@ async function runTests() {
     Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'rows_detected') &&
     Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'rows_returned') &&
     Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'rows_skipped') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'ready_for_review_count') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'needs_attention_count') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'skipped_count') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'high_confidence_count') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'medium_confidence_count') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'low_confidence_count') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'unknown_confidence_count') &&
     Array.isArray(pdfStatementResponse.parser_result.warnings)
   );
   assert('PDF statement preview includes import_readiness with enabled false', pdfStatementResponse && pdfStatementResponse.import_readiness && pdfStatementResponse.import_readiness.enabled === false);
+  assert('PDF statement preview includes import_readiness validation fields', pdfStatementResponse && pdfStatementResponse.import_readiness &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.import_readiness, 'validation_required') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.import_readiness, 'ready_for_future_import_count') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.import_readiness, 'blocked_count') &&
+    Array.isArray(pdfStatementResponse.import_readiness.blocking_reasons)
+  );
   assert('Valid PDF statement preview returns no preview rows', pdfStatementResponse && Array.isArray(pdfStatementResponse.preview_rows) && pdfStatementResponse.preview_rows.length === 0);
 
   const coopPdfBuffer = buildSimpleTextPdfBuffer([
@@ -3399,7 +3450,11 @@ async function runTests() {
     paymentEvidenceContent.includes('Parser status') &&
     paymentEvidenceContent.includes('Rows detected') &&
     paymentEvidenceContent.includes('Rows returned') &&
-    paymentEvidenceContent.includes('Rows skipped')
+    paymentEvidenceContent.includes('Rows skipped') &&
+    paymentEvidenceContent.includes('Ready for Review') &&
+    paymentEvidenceContent.includes('Needs Attention') &&
+    paymentEvidenceContent.includes('High confidence') &&
+    paymentEvidenceContent.includes('Unknown confidence')
   );
 
   assert(
@@ -3408,12 +3463,25 @@ async function runTests() {
     paymentEvidenceContent.includes('Description') &&
     paymentEvidenceContent.includes('Code') &&
     paymentEvidenceContent.includes('Partner Ref') &&
+    paymentEvidenceContent.includes('Row Status') &&
+    paymentEvidenceContent.includes('Parser Confidence') &&
+    paymentEvidenceContent.includes('Confidence Score') &&
     paymentEvidenceContent.includes('Direction') &&
     paymentEvidenceContent.includes('Channel') &&
     paymentEvidenceContent.includes('Debit') &&
     paymentEvidenceContent.includes('Credit') &&
     paymentEvidenceContent.includes('Amount') &&
-    paymentEvidenceContent.includes('Balance')
+    paymentEvidenceContent.includes('Balance') &&
+    paymentEvidenceContent.includes('Validation Errors') &&
+    paymentEvidenceContent.includes('Warnings')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders Loop validation review warning and import readiness details',
+    paymentEvidenceContent.includes('Loop row validation is for parser review only. Import is not enabled yet.') &&
+    paymentEvidenceContent.includes('Import Readiness') &&
+    paymentEvidenceContent.includes('Validation required:') &&
+    paymentEvidenceContent.includes('Blocked count:')
   );
 
   assert(

@@ -346,7 +346,7 @@ export function parseLoopStatementPreviewRows(text) {
   const warnings = [];
   let rowsDetected = 0;
   let rowsSkipped = 0;
-  const previewRows = [];
+  const parsedRows = [];
 
   for (const rowText of logicalRows) {
     const monetary = extractLoopMonetaryColumns(rowText);
@@ -372,16 +372,12 @@ export function parseLoopStatementPreviewRows(text) {
       : (direction === 'money_out' ? monetary.debit : Math.max(monetary.credit, monetary.debit));
     const rowWarnings = [];
 
-    if (!transactionDate) rowWarnings.push('Could not confidently parse transaction date.');
-    if (!code) rowWarnings.push('Missing LOOP transaction reference.');
-    if (direction === 'unknown') rowWarnings.push('Could not confidently infer money direction from debit/credit columns.');
-
     const description = rowText
       .replace(monetary.numericTail, '')
       .replace(/\s+/g, ' ')
       .trim();
 
-    previewRows.push({
+    parsedRows.push({
       source_row_index: rowsDetected,
       transaction_date: transactionDate,
       value_date: transactionDate,
@@ -401,11 +397,58 @@ export function parseLoopStatementPreviewRows(text) {
       warnings: rowWarnings
     });
 
-    if (previewRows.length >= PDF_PREVIEW_ROW_LIMIT) {
+    if (parsedRows.length >= PDF_PREVIEW_ROW_LIMIT) {
       warnings.push(`Preview row limit reached (${PDF_PREVIEW_ROW_LIMIT}). Additional parsed rows were not returned.`);
       break;
     }
   }
+
+  const duplicateLikeCodes = new Set();
+  const codeCounts = parsedRows.reduce((acc, row) => {
+    if (!row.transaction_code) return acc;
+    const key = String(row.transaction_code).toUpperCase();
+    acc.set(key, (acc.get(key) || 0) + 1);
+    return acc;
+  }, new Map());
+
+  for (const [code, count] of codeCounts.entries()) {
+    if (count > 1) duplicateLikeCodes.add(code);
+  }
+
+  const previewRows = parsedRows.map((row) => {
+    const validation = validateLoopPreviewRow(row, { duplicateLikeCodes });
+    const confidence = scoreLoopPreviewRow(row, validation);
+    const validationErrors = [];
+    const rowWarnings = [...(Array.isArray(row.warnings) ? row.warnings : [])];
+
+    if (!validation.has_valid_date) validationErrors.push('Missing or invalid transaction_date.');
+    if (!validation.has_valid_amount) validationErrors.push('Missing or invalid amount.');
+    if (!validation.has_transaction_code) validationErrors.push('Missing transaction_code.');
+    if (!validation.has_direction) validationErrors.push('Missing or ambiguous transaction direction.');
+    if (!validation.has_balance) validationErrors.push('Missing or invalid balance value.');
+    if (!validation.has_supported_channel) validationErrors.push('Unsupported or unknown collection channel.');
+    if (validation.is_duplicate_like) {
+      validationErrors.push('Duplicate-like transaction code detected in preview rows.');
+      rowWarnings.push('Duplicate-like transaction code detected in preview rows.');
+    }
+
+    let rowStatus = 'needs_attention';
+    if (validation.is_fee_or_charge) {
+      rowStatus = 'skipped';
+    } else if (validation.is_valid && (confidence.parser_confidence === 'high' || confidence.parser_confidence === 'medium')) {
+      rowStatus = 'ready_for_review';
+    }
+
+    return {
+      ...row,
+      row_status: rowStatus,
+      parser_confidence: confidence.parser_confidence,
+      confidence_score: confidence.confidence_score,
+      validation,
+      validation_errors: validationErrors,
+      warnings: Array.from(new Set(rowWarnings))
+    };
+  });
 
   if (rowsDetected === 0) {
     warnings.push('No Loop-style transaction rows with debit/credit/balance columns were detected.');
@@ -417,6 +460,77 @@ export function parseLoopStatementPreviewRows(text) {
     previewRows,
     warnings
   };
+}
+
+export function validateLoopPreviewRow(row, context = {}) {
+  const duplicateLikeCodes = context.duplicateLikeCodes || new Set();
+  const transactionCode = row && row.transaction_code ? String(row.transaction_code).toUpperCase() : '';
+  const hasValidDate = typeof row.transaction_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.transaction_date);
+  const amount = Number(row.amount);
+  const balance = Number(row.balance);
+  const channel = String(row.collection_channel || 'unknown');
+
+  const validation = {
+    is_valid: false,
+    has_valid_date: hasValidDate,
+    has_valid_amount: Number.isFinite(amount) && amount > 0,
+    has_transaction_code: Boolean(transactionCode),
+    has_direction: row.direction === 'money_in' || row.direction === 'money_out',
+    has_balance: Number.isFinite(balance),
+    has_supported_channel: channel !== 'unknown',
+    is_fee_or_charge: isLoopFeeOrChargeRow(row.raw_text || row.description || '', channel),
+    is_duplicate_like: transactionCode ? duplicateLikeCodes.has(transactionCode) : false
+  };
+
+  validation.is_valid = validation.has_valid_date &&
+    validation.has_valid_amount &&
+    validation.has_transaction_code &&
+    validation.has_direction &&
+    validation.has_balance &&
+    validation.has_supported_channel &&
+    !validation.is_fee_or_charge &&
+    !validation.is_duplicate_like;
+
+  return validation;
+}
+
+export function scoreLoopPreviewRow(row, validation) {
+  let score = 0;
+
+  if (validation.has_valid_date) score += 15;
+  if (validation.has_valid_amount) score += 15;
+  if (validation.has_transaction_code) score += 20;
+  if (validation.has_direction) score += 15;
+  if (validation.has_supported_channel) score += 10;
+  if (validation.has_balance) score += 10;
+  if (row && row.partner_reference) score += 5;
+  if (!validation.is_fee_or_charge) score += 10;
+
+  let parserConfidence = 'unknown';
+  if (score >= 80) parserConfidence = 'high';
+  else if (score >= 55) parserConfidence = 'medium';
+  else if (score >= 25) parserConfidence = 'low';
+
+  return {
+    confidence_score: score,
+    parser_confidence: parserConfidence
+  };
+}
+
+export function summarizeLoopParserValidation(rows, skippedCount) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const summary = {
+    ready_for_review_count: safeRows.filter(row => row.row_status === 'ready_for_review').length,
+    needs_attention_count: safeRows.filter(row => row.row_status === 'needs_attention').length,
+    skipped_count: Number(skippedCount) || 0,
+    high_confidence_count: safeRows.filter(row => row.parser_confidence === 'high').length,
+    medium_confidence_count: safeRows.filter(row => row.parser_confidence === 'medium').length,
+    low_confidence_count: safeRows.filter(row => row.parser_confidence === 'low').length,
+    unknown_confidence_count: safeRows.filter(row => row.parser_confidence === 'unknown').length,
+    warnings: ['Import remains disabled. Row validation is for parser review only.']
+  };
+
+  return summary;
 }
 
 async function buildPdfTextExtractionPreview(file) {
@@ -2765,13 +2879,26 @@ export function createPaymentEvidenceRoutes(pgDb) {
         rows_detected: 0,
         rows_returned: 0,
         rows_skipped: 0,
+        ready_for_review_count: 0,
+        needs_attention_count: 0,
+        skipped_count: 0,
+        high_confidence_count: 0,
+        medium_confidence_count: 0,
+        low_confidence_count: 0,
+        unknown_confidence_count: 0,
         warnings: loopProviderDetected
           ? []
           : ['Parser not enabled for detected provider in this release.']
       };
       const importReadiness = {
         enabled: false,
-        reason: 'Loop PDF import is not enabled in this release. Preview rows are shown for parser validation only.'
+        reason: 'Loop PDF import is not enabled in this release. Preview rows require parser validation review first.',
+        validation_required: false,
+        ready_for_future_import_count: 0,
+        blocked_count: 0,
+        blocking_reasons: [
+          'Import is intentionally disabled until landlord-confirmed PDF import is implemented.'
+        ]
       };
 
       if (!extractionPreview.extraction.text_available) {
@@ -2821,6 +2948,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
       if (loopProviderDetected) {
         const loopParsed = parseLoopStatementPreviewRows(extractionPreview.extractedText);
         const previewRows = loopParsed.previewRows;
+        const validationSummary = summarizeLoopParserValidation(previewRows, loopParsed.rowsSkipped);
         const loopParserResult = {
           enabled: true,
           parser: 'LOOP_STATEMENT_V1',
@@ -2828,7 +2956,21 @@ export function createPaymentEvidenceRoutes(pgDb) {
           rows_detected: loopParsed.rowsDetected,
           rows_returned: previewRows.length,
           rows_skipped: loopParsed.rowsSkipped,
-          warnings: loopParsed.warnings
+          ready_for_review_count: validationSummary.ready_for_review_count,
+          needs_attention_count: validationSummary.needs_attention_count,
+          skipped_count: validationSummary.skipped_count,
+          high_confidence_count: validationSummary.high_confidence_count,
+          medium_confidence_count: validationSummary.medium_confidence_count,
+          low_confidence_count: validationSummary.low_confidence_count,
+          unknown_confidence_count: validationSummary.unknown_confidence_count,
+          warnings: [...loopParsed.warnings, ...validationSummary.warnings]
+        };
+
+        const loopImportReadiness = {
+          ...importReadiness,
+          validation_required: true,
+          ready_for_future_import_count: validationSummary.ready_for_review_count,
+          blocked_count: validationSummary.needs_attention_count + validationSummary.skipped_count
         };
 
         return res.json({
@@ -2849,7 +2991,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
           },
           parser_result: loopParserResult,
           preview_rows: previewRows,
-          import_readiness: importReadiness,
+          import_readiness: loopImportReadiness,
           warnings: [
             'Loop statement preview row parsing is enabled for review only.',
             'Rows were not imported.',

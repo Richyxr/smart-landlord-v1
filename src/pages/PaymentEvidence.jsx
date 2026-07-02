@@ -3216,6 +3216,34 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                             <strong>{pdfReadinessData?.parser_result?.rows_skipped ?? 0}</strong>
                           </div>
                           <div>
+                            <span className="text-muted">Ready for Review:</span>{' '}
+                            <strong>{pdfReadinessData?.parser_result?.ready_for_review_count ?? 0}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Needs Attention:</span>{' '}
+                            <strong>{pdfReadinessData?.parser_result?.needs_attention_count ?? 0}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Skipped:</span>{' '}
+                            <strong>{pdfReadinessData?.parser_result?.skipped_count ?? 0}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">High confidence:</span>{' '}
+                            <strong>{pdfReadinessData?.parser_result?.high_confidence_count ?? 0}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Medium confidence:</span>{' '}
+                            <strong>{pdfReadinessData?.parser_result?.medium_confidence_count ?? 0}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Low confidence:</span>{' '}
+                            <strong>{pdfReadinessData?.parser_result?.low_confidence_count ?? 0}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Unknown confidence:</span>{' '}
+                            <strong>{pdfReadinessData?.parser_result?.unknown_confidence_count ?? 0}</strong>
+                          </div>
+                          <div>
                             <span className="text-muted">Import readiness:</span>{' '}
                             <strong style={{ color: 'var(--danger)' }}>
                               {pdfReadinessData?.import_readiness?.enabled ? 'Enabled' : 'Disabled'}
@@ -3225,9 +3253,47 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                         <div style={{ color: 'var(--warning)', fontWeight: '700', marginBottom: '6px' }}>
                           Loop preview rows are for validation only. Import is not enabled yet.
                         </div>
+                        <div style={{ color: 'var(--warning)', fontWeight: '700', marginBottom: '6px' }}>
+                          Loop row validation is for parser review only. Import is not enabled yet.
+                        </div>
                         {pdfReadinessData?.import_readiness?.reason && (
                           <div style={{ color: 'var(--text-muted)' }}>{pdfReadinessData.import_readiness.reason}</div>
                         )}
+
+                        {pdfReadinessData?.import_readiness && (
+                          <div style={{ marginTop: '8px', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface-elevated)' }}>
+                            <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>Import Readiness</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
+                              <div>
+                                <span className="text-muted">Import disabled:</span>{' '}
+                                <strong>{pdfReadinessData?.import_readiness?.enabled ? 'No' : 'Yes'}</strong>
+                              </div>
+                              <div>
+                                <span className="text-muted">Validation required:</span>{' '}
+                                <strong>{pdfReadinessData?.import_readiness?.validation_required ? 'Yes' : 'No'}</strong>
+                              </div>
+                              <div>
+                                <span className="text-muted">Ready for future import:</span>{' '}
+                                <strong>{pdfReadinessData?.import_readiness?.ready_for_future_import_count ?? 0}</strong>
+                              </div>
+                              <div>
+                                <span className="text-muted">Blocked count:</span>{' '}
+                                <strong>{pdfReadinessData?.import_readiness?.blocked_count ?? 0}</strong>
+                              </div>
+                            </div>
+                            {Array.isArray(pdfReadinessData?.import_readiness?.blocking_reasons) && pdfReadinessData.import_readiness.blocking_reasons.length > 0 && (
+                              <div style={{ marginTop: '8px' }}>
+                                <div style={{ fontWeight: '700', color: 'var(--warning)', marginBottom: '4px' }}>Blocking reasons</div>
+                                <ul style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-secondary)' }}>
+                                  {pdfReadinessData.import_readiness.blocking_reasons.map((reason, idx) => (
+                                    <li key={idx}>{reason}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         {pdfReadinessData?.parser_result?.warnings?.length > 0 && (
                           <div style={{ marginTop: '8px' }}>
                             <div style={{ fontWeight: '700', color: 'var(--warning)', marginBottom: '4px' }}>Parser warnings</div>
@@ -3252,12 +3318,17 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                                 <th style={{ padding: '8px' }}>Description</th>
                                 <th style={{ padding: '8px' }}>Code</th>
                                 <th style={{ padding: '8px' }}>Partner Ref</th>
+                                <th style={{ padding: '8px' }}>Row Status</th>
+                                <th style={{ padding: '8px' }}>Parser Confidence</th>
+                                <th style={{ padding: '8px', textAlign: 'right' }}>Confidence Score</th>
                                 <th style={{ padding: '8px' }}>Direction</th>
                                 <th style={{ padding: '8px' }}>Channel</th>
                                 <th style={{ padding: '8px', textAlign: 'right' }}>Debit</th>
                                 <th style={{ padding: '8px', textAlign: 'right' }}>Credit</th>
                                 <th style={{ padding: '8px', textAlign: 'right' }}>Amount</th>
                                 <th style={{ padding: '8px', textAlign: 'right' }}>Balance</th>
+                                <th style={{ padding: '8px' }}>Validation Errors</th>
+                                <th style={{ padding: '8px' }}>Warnings</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -3267,12 +3338,25 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                                   <td style={{ padding: '8px', maxInlineSize: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.description || ''}>{row.description || 'N/A'}</td>
                                   <td style={{ padding: '8px', fontWeight: '700' }}>{row.transaction_code || 'N/A'}</td>
                                   <td style={{ padding: '8px' }}>{row.partner_reference || 'N/A'}</td>
+                                  <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.row_status || 'needs_attention').replace(/_/g, ' ')}</td>
+                                  <td style={{ padding: '8px', textTransform: 'capitalize' }}>{row.parser_confidence || 'unknown'}</td>
+                                  <td style={{ padding: '8px', textAlign: 'right' }}>{row.confidence_score ?? 0}</td>
                                   <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.direction || 'unknown').replace('_', ' ')}</td>
                                   <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.collection_channel || 'unknown').replace('_', ' ')}</td>
                                   <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.debit || 0).toLocaleString()}</td>
                                   <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.credit || 0).toLocaleString()}</td>
                                   <td style={{ padding: '8px', textAlign: 'right', fontWeight: '700' }}>{Number(row.amount || 0).toLocaleString()}</td>
                                   <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.balance || 0).toLocaleString()}</td>
+                                  <td style={{ padding: '8px' }}>
+                                    {Array.isArray(row.validation_errors) && row.validation_errors.length > 0
+                                      ? row.validation_errors.join('; ')
+                                      : 'None'}
+                                  </td>
+                                  <td style={{ padding: '8px' }}>
+                                    {Array.isArray(row.warnings) && row.warnings.length > 0
+                                      ? row.warnings.join('; ')
+                                      : 'None'}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
