@@ -3186,8 +3186,100 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                     </div>
 
                     <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--warning)', borderRadius: '6px', backgroundColor: 'rgba(var(--warning-rgb), 0.06)', color: 'var(--warning)', fontWeight: '700' }}>
-                      Provider detection is enabled. Transaction row parsing is not enabled yet.
+                      {pdfReadinessData?.parser_result?.enabled
+                        ? 'Loop preview rows are for validation only. Import is not enabled yet.'
+                        : 'Provider detection is enabled. Transaction row parsing is not enabled yet.'}
                     </div>
+
+                    {pdfReadinessData?.parser_result && (
+                      <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}>
+                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>Loop Parser Result</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', marginBottom: '8px' }}>
+                          <div>
+                            <span className="text-muted">Parser name:</span>{' '}
+                            <strong>{pdfReadinessData?.parser_result?.parser || 'N/A'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Parser status:</span>{' '}
+                            <strong>{pdfReadinessData?.parser_result?.status || 'N/A'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Rows detected:</span>{' '}
+                            <strong>{pdfReadinessData?.parser_result?.rows_detected ?? 0}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Rows returned:</span>{' '}
+                            <strong>{pdfReadinessData?.parser_result?.rows_returned ?? 0}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Rows skipped:</span>{' '}
+                            <strong>{pdfReadinessData?.parser_result?.rows_skipped ?? 0}</strong>
+                          </div>
+                          <div>
+                            <span className="text-muted">Import readiness:</span>{' '}
+                            <strong style={{ color: 'var(--danger)' }}>
+                              {pdfReadinessData?.import_readiness?.enabled ? 'Enabled' : 'Disabled'}
+                            </strong>
+                          </div>
+                        </div>
+                        <div style={{ color: 'var(--warning)', fontWeight: '700', marginBottom: '6px' }}>
+                          Loop preview rows are for validation only. Import is not enabled yet.
+                        </div>
+                        {pdfReadinessData?.import_readiness?.reason && (
+                          <div style={{ color: 'var(--text-muted)' }}>{pdfReadinessData.import_readiness.reason}</div>
+                        )}
+                        {pdfReadinessData?.parser_result?.warnings?.length > 0 && (
+                          <div style={{ marginTop: '8px' }}>
+                            <div style={{ fontWeight: '700', color: 'var(--warning)', marginBottom: '4px' }}>Parser warnings</div>
+                            <ul style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-secondary)' }}>
+                              {pdfReadinessData.parser_result.warnings.map((warning, idx) => (
+                                <li key={idx}>{warning}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {Array.isArray(pdfReadinessData?.preview_rows) && pdfReadinessData.preview_rows.length > 0 && (
+                      <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}>
+                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>Loop Preview Rows</div>
+                        <div style={{ overflowX: 'auto' }}>
+                          <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', backgroundColor: 'var(--bg-surface-elevated)' }}>
+                                <th style={{ padding: '8px' }}>Date</th>
+                                <th style={{ padding: '8px' }}>Description</th>
+                                <th style={{ padding: '8px' }}>Code</th>
+                                <th style={{ padding: '8px' }}>Partner Ref</th>
+                                <th style={{ padding: '8px' }}>Direction</th>
+                                <th style={{ padding: '8px' }}>Channel</th>
+                                <th style={{ padding: '8px', textAlign: 'right' }}>Debit</th>
+                                <th style={{ padding: '8px', textAlign: 'right' }}>Credit</th>
+                                <th style={{ padding: '8px', textAlign: 'right' }}>Amount</th>
+                                <th style={{ padding: '8px', textAlign: 'right' }}>Balance</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {pdfReadinessData.preview_rows.map((row, idx) => (
+                                <tr key={`${row.source_row_index || idx}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>{row.transaction_date || 'N/A'}</td>
+                                  <td style={{ padding: '8px', maxInlineSize: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.description || ''}>{row.description || 'N/A'}</td>
+                                  <td style={{ padding: '8px', fontWeight: '700' }}>{row.transaction_code || 'N/A'}</td>
+                                  <td style={{ padding: '8px' }}>{row.partner_reference || 'N/A'}</td>
+                                  <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.direction || 'unknown').replace('_', ' ')}</td>
+                                  <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.collection_channel || 'unknown').replace('_', ' ')}</td>
+                                  <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.debit || 0).toLocaleString()}</td>
+                                  <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.credit || 0).toLocaleString()}</td>
+                                  <td style={{ padding: '8px', textAlign: 'right', fontWeight: '700' }}>{Number(row.amount || 0).toLocaleString()}</td>
+                                  <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.balance || 0).toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
 
                     {pdfReadinessData?.warnings && (
                       <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--warning)', borderRadius: '6px', backgroundColor: 'rgba(var(--warning-rgb), 0.06)' }}>

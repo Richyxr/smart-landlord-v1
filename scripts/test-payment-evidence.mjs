@@ -4,7 +4,7 @@ import { detectDuplicatePaymentEvidence } from '../server/services/payment-evide
 import { scorePaymentEvidenceMatch } from '../server/services/payment-evidence/scorePaymentEvidenceMatch.js';
 import { PERSPECTIVES, DIRECTIONS, STATUSES, COLLECTION_CHANNELS, DOCUMENT_SOURCES, EVIDENCE_STRENGTHS } from '../server/services/payment-evidence/paymentEvidenceRules.js';
 import { db as jsonDb } from '../server/db.js';
-import { createPaymentEvidenceRoutes, detectPdfStatementProvider } from '../server/routes/paymentEvidenceRoutes.js';
+import { createPaymentEvidenceRoutes, detectPdfStatementProvider, parseLoopStatementPreviewRows } from '../server/routes/paymentEvidenceRoutes.js';
 import fs from 'fs';
 
 let failures = 0;
@@ -3259,6 +3259,30 @@ async function runTests() {
   assert('Unknown text falls back to UNKNOWN_STATEMENT', unknownDetected.detected_provider === 'UNKNOWN_STATEMENT');
   assert('Unknown text confidence is unknown or low', ['unknown', 'low'].includes(unknownDetected.confidence));
 
+  const loopParsed = parseLoopStatementPreviewRows([
+    'Received 2000 Via NCBA for DEPOSIT. LOOP Ref:NHE59HRFDNWW, Partner Ref:FTC260624PSCC, 2026-06-24 11:06:09 0.00 2,000.00 2,008.70',
+    'Loop Charge 2026-06-24 12:01:11 50.00 0.00 1,958.70',
+    'Deposit from Mobile Money - NHE5L6IZA5IF ref UFFCG80JOM RICHARD NZIOKA, 254727845794, 2026-06-15 21:16:16, Deposit 0.00 5,000.00 -6,981.83'
+  ].join('\n'));
+  assert('Loop parser detects rows with monetary columns', loopParsed.rowsDetected >= 2);
+  assert('Loop parser returns at least one preview row', Array.isArray(loopParsed.previewRows) && loopParsed.previewRows.length > 0);
+  assert('Loop parser skips fee rows and increments rowsSkipped', loopParsed.rowsSkipped >= 1);
+  const firstLoopRow = loopParsed.previewRows[0] || {};
+  assert('Loop parser row has normalized transaction_date', typeof firstLoopRow.transaction_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(firstLoopRow.transaction_date));
+  assert('Loop parser row has transaction_code', typeof firstLoopRow.transaction_code === 'string' && firstLoopRow.transaction_code.length > 0);
+  assert('Loop parser row has partner_reference when present', typeof firstLoopRow.partner_reference === 'string' && firstLoopRow.partner_reference.length > 0);
+  assert('Loop parser row has debit/credit/amount/balance', typeof firstLoopRow.debit === 'number' && typeof firstLoopRow.credit === 'number' && typeof firstLoopRow.amount === 'number' && typeof firstLoopRow.balance === 'number');
+  assert('Loop parser row has direction', ['money_in', 'money_out', 'unknown'].includes(firstLoopRow.direction));
+  assert('Loop parser row has collection_channel', typeof firstLoopRow.collection_channel === 'string');
+  assert('Loop parser row source_provider is LOOP_STATEMENT', firstLoopRow.source_provider === 'LOOP_STATEMENT');
+  assert('Loop parser row document_source is PDF_STATEMENT', firstLoopRow.document_source === 'PDF_STATEMENT');
+
+  const manyRowsText = Array.from({ length: 120 }).map((_, idx) => (
+    `Received ${1000 + idx} Via NCBA for DEPOSIT. LOOP Ref:NHECAP${idx} Partner Ref:PR${idx} 2026-06-24 11:06:09 0.00 1,000.00 2,008.70`
+  )).join('\n');
+  const cappedLoopRows = parseLoopStatementPreviewRows(manyRowsText);
+  assert('Loop parser preview rows are capped at 100', Array.isArray(cappedLoopRows.previewRows) && cappedLoopRows.previewRows.length <= 100);
+
   const pdfFixtureBuffer = fs.readFileSync('node_modules/pdf-parse/test/data/01-valid.pdf');
   await runPdfStatementRequest({
     originalname: 'July Statement.pdf',
@@ -3281,7 +3305,32 @@ async function runTests() {
   assert('Provider detection result includes score', pdfStatementResponse && typeof pdfStatementResponse.provider_detection.score === 'number');
   assert('Provider detection result includes matched_indicators', pdfStatementResponse && Array.isArray(pdfStatementResponse.provider_detection.matched_indicators));
   assert('Provider detection result includes message', pdfStatementResponse && typeof pdfStatementResponse.provider_detection.message === 'string');
+  assert('PDF statement preview includes parser_result block', pdfStatementResponse && pdfStatementResponse.parser_result && typeof pdfStatementResponse.parser_result === 'object');
+  assert('PDF statement preview parser_result contains required fields', pdfStatementResponse &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'enabled') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'parser') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'status') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'rows_detected') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'rows_returned') &&
+    Object.prototype.hasOwnProperty.call(pdfStatementResponse.parser_result, 'rows_skipped') &&
+    Array.isArray(pdfStatementResponse.parser_result.warnings)
+  );
+  assert('PDF statement preview includes import_readiness with enabled false', pdfStatementResponse && pdfStatementResponse.import_readiness && pdfStatementResponse.import_readiness.enabled === false);
   assert('Valid PDF statement preview returns no preview rows', pdfStatementResponse && Array.isArray(pdfStatementResponse.preview_rows) && pdfStatementResponse.preview_rows.length === 0);
+
+  const coopPdfBuffer = buildSimpleTextPdfBuffer([
+    'STATEMENT OF ACCOUNT',
+    'Money In Money Out Balance',
+    'Transaction Details'
+  ]);
+  await runPdfStatementRequest({
+    originalname: 'Co-op Statement.pdf',
+    mimetype: 'application/pdf',
+    size: coopPdfBuffer.length,
+    buffer: coopPdfBuffer
+  });
+  assert('Non-Loop provider returns empty preview_rows', pdfStatementResponse && Array.isArray(pdfStatementResponse.preview_rows) && pdfStatementResponse.preview_rows.length === 0);
+  assert('Non-Loop provider parser_result is disabled', pdfStatementResponse && pdfStatementResponse.parser_result && pdfStatementResponse.parser_result.enabled === false && ['not_enabled_for_provider', 'no_text_available'].includes(pdfStatementResponse.parser_result.status));
 
   assert('Valid PDF statement preview returns warnings', pdfStatementResponse && Array.isArray(pdfStatementResponse.warnings) && pdfStatementResponse.warnings.includes('No payment evidence rows were imported.'));
   assert('Valid PDF statement preview warns row parsing is disabled', pdfStatementResponse && pdfStatementResponse.warnings.includes('Transaction row parsing is not enabled in this release.'));
@@ -3336,6 +3385,35 @@ async function runTests() {
     paymentEvidenceContent.includes('Provider Detection') &&
     paymentEvidenceContent.includes('Detected provider') &&
     paymentEvidenceContent.includes('Matched indicators')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders Loop Preview Rows and validation-only warning',
+    paymentEvidenceContent.includes('Loop Preview Rows') &&
+    paymentEvidenceContent.includes('Loop preview rows are for validation only. Import is not enabled yet.')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders Loop parser result fields',
+    paymentEvidenceContent.includes('Parser name') &&
+    paymentEvidenceContent.includes('Parser status') &&
+    paymentEvidenceContent.includes('Rows detected') &&
+    paymentEvidenceContent.includes('Rows returned') &&
+    paymentEvidenceContent.includes('Rows skipped')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders Loop row table headers',
+    paymentEvidenceContent.includes('Date') &&
+    paymentEvidenceContent.includes('Description') &&
+    paymentEvidenceContent.includes('Code') &&
+    paymentEvidenceContent.includes('Partner Ref') &&
+    paymentEvidenceContent.includes('Direction') &&
+    paymentEvidenceContent.includes('Channel') &&
+    paymentEvidenceContent.includes('Debit') &&
+    paymentEvidenceContent.includes('Credit') &&
+    paymentEvidenceContent.includes('Amount') &&
+    paymentEvidenceContent.includes('Balance')
   );
 
   assert(

@@ -33,6 +33,8 @@ const getDaysDifference = (date1, date2) => {
 
 const RECEIPT_ISSUANCE_CONTRACT_SAFETY_MESSAGE = 'This receipt issuance contract is read-only. No receipt number has been reserved and no receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.';
 const PDF_TEXT_SAMPLE_LIMIT = 2000;
+const PDF_PREVIEW_ROW_LIMIT = 100;
+const PDF_PREVIEW_ROW_RAW_TEXT_LIMIT = 500;
 const PDF_DETECTION_KEYWORDS = [
   'ACCOUNT STATEMENT',
   'CUSTOMER ADVICE',
@@ -221,6 +223,200 @@ function normalizePdfExtractedText(text) {
 function detectPdfKeywords(text) {
   const normalized = String(text || '').toLowerCase();
   return PDF_DETECTION_KEYWORDS.filter(keyword => normalized.includes(keyword.toLowerCase()));
+}
+
+function normalizeLoopNumeric(value) {
+  if (value === null || value === undefined) return 0;
+  const cleaned = String(value).replace(/,/g, '').trim();
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatLoopDateToIso(day, monthText, year) {
+  const monthLookup = {
+    jan: '01',
+    feb: '02',
+    mar: '03',
+    apr: '04',
+    may: '05',
+    jun: '06',
+    jul: '07',
+    aug: '08',
+    sep: '09',
+    oct: '10',
+    nov: '11',
+    dec: '12'
+  };
+  const month = monthLookup[String(monthText || '').slice(0, 3).toLowerCase()];
+  if (!month) return null;
+  const dayNumber = Number(day);
+  const yearNumber = Number(year);
+  if (!Number.isFinite(dayNumber) || !Number.isFinite(yearNumber)) return null;
+  return `${String(yearNumber).padStart(4, '0')}-${month}-${String(dayNumber).padStart(2, '0')}`;
+}
+
+function extractLoopTransactionDate(text) {
+  const raw = String(text || '');
+  const isoMatch = raw.match(/(\d{4}-\d{2}-\d{2})(?:[ T]\d{2}:\d{2}:\d{2})?/);
+  if (isoMatch && isoMatch[1]) return isoMatch[1];
+
+  const humanDateMatch = raw.match(/\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{4})\b/i);
+  if (humanDateMatch) {
+    return formatLoopDateToIso(humanDateMatch[1], humanDateMatch[2], humanDateMatch[3]);
+  }
+
+  return null;
+}
+
+function extractLoopMonetaryColumns(text) {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  const match = raw.match(/(-?\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s+(-?\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s+(-?\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*$/);
+  if (!match) return null;
+  return {
+    debit: normalizeLoopNumeric(match[1]),
+    credit: normalizeLoopNumeric(match[2]),
+    balance: normalizeLoopNumeric(match[3]),
+    numericTail: match[0]
+  };
+}
+
+function deriveLoopCollectionChannel(text) {
+  const lowered = String(text || '').toLowerCase();
+  if (lowered.includes('received') && lowered.includes('via ncba')) return 'bank_transfer';
+  if (lowered.includes('deposit from mobile money')) return 'mobile_money';
+  if (lowered.includes('pay bill')) return 'paybill';
+  if (lowered.includes('send money to mobile')) return 'mobile_transfer';
+  if (/(loop charge|access fee|access fees|excise duty|debit interest|interest settlement|charge)/i.test(lowered)) return 'fee';
+  return 'unknown';
+}
+
+function extractLoopTransactionCode(text) {
+  const raw = String(text || '');
+  const loopRef = raw.match(/LOOP\s*Ref\s*:\s*([A-Z0-9]{6,})/i);
+  if (loopRef && loopRef[1]) return loopRef[1].toUpperCase();
+
+  const dashRef = raw.match(/-\s*([A-Z0-9]{8,})\b/i);
+  if (dashRef && dashRef[1]) return dashRef[1].toUpperCase();
+
+  return null;
+}
+
+function extractLoopPartnerReference(text) {
+  const raw = String(text || '');
+  const partner = raw.match(/Partner\s*Ref\s*:\s*([A-Z0-9]{6,})/i);
+  if (partner && partner[1]) return partner[1].toUpperCase();
+
+  const genericRef = raw.match(/\bref\s*:?[\s-]*([A-Z0-9]{6,})\b/i);
+  if (genericRef && genericRef[1]) return genericRef[1].toUpperCase();
+
+  return null;
+}
+
+function isLoopFeeOrChargeRow(text, channel) {
+  if (channel === 'fee') return true;
+  return /(loop charge|access fee|access fees|excise duty|debit interest|interest settlement|charge)/i.test(String(text || ''));
+}
+
+function reconstructLoopLogicalRows(text) {
+  const lines = String(text || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const rows = [];
+  let current = '';
+  for (const line of lines) {
+    current = current ? `${current} ${line}` : line;
+    const hasMonetaryTail = Boolean(extractLoopMonetaryColumns(current));
+    if (hasMonetaryTail) {
+      rows.push(current.trim());
+      current = '';
+    }
+  }
+
+  if (current.trim()) {
+    rows.push(current.trim());
+  }
+
+  return rows;
+}
+
+export function parseLoopStatementPreviewRows(text) {
+  const logicalRows = reconstructLoopLogicalRows(text);
+  const warnings = [];
+  let rowsDetected = 0;
+  let rowsSkipped = 0;
+  const previewRows = [];
+
+  for (const rowText of logicalRows) {
+    const monetary = extractLoopMonetaryColumns(rowText);
+    if (!monetary) continue;
+    rowsDetected += 1;
+
+    const transactionDate = extractLoopTransactionDate(rowText);
+    const code = extractLoopTransactionCode(rowText);
+    const partnerReference = extractLoopPartnerReference(rowText);
+    const channel = deriveLoopCollectionChannel(rowText);
+    const isSkippedFee = isLoopFeeOrChargeRow(rowText, channel);
+
+    if (isSkippedFee) {
+      rowsSkipped += 1;
+      continue;
+    }
+
+    const direction = monetary.credit > 0 && monetary.debit === 0
+      ? 'money_in'
+      : (monetary.debit > 0 && monetary.credit === 0 ? 'money_out' : 'unknown');
+    const amount = direction === 'money_in'
+      ? monetary.credit
+      : (direction === 'money_out' ? monetary.debit : Math.max(monetary.credit, monetary.debit));
+    const rowWarnings = [];
+
+    if (!transactionDate) rowWarnings.push('Could not confidently parse transaction date.');
+    if (!code) rowWarnings.push('Missing LOOP transaction reference.');
+    if (direction === 'unknown') rowWarnings.push('Could not confidently infer money direction from debit/credit columns.');
+
+    const description = rowText
+      .replace(monetary.numericTail, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    previewRows.push({
+      source_row_index: rowsDetected,
+      transaction_date: transactionDate,
+      value_date: transactionDate,
+      description,
+      transaction_code: code,
+      partner_reference: partnerReference,
+      debit: monetary.debit,
+      credit: monetary.credit,
+      amount,
+      direction,
+      balance: monetary.balance,
+      collection_channel: channel,
+      document_source: 'PDF_STATEMENT',
+      source_provider: 'LOOP_STATEMENT',
+      source_perspective: 'landlord',
+      raw_text: rowText.slice(0, PDF_PREVIEW_ROW_RAW_TEXT_LIMIT),
+      warnings: rowWarnings
+    });
+
+    if (previewRows.length >= PDF_PREVIEW_ROW_LIMIT) {
+      warnings.push(`Preview row limit reached (${PDF_PREVIEW_ROW_LIMIT}). Additional parsed rows were not returned.`);
+      break;
+    }
+  }
+
+  if (rowsDetected === 0) {
+    warnings.push('No Loop-style transaction rows with debit/credit/balance columns were detected.');
+  }
+
+  return {
+    rowsDetected,
+    rowsSkipped,
+    previewRows,
+    warnings
+  };
 }
 
 async function buildPdfTextExtractionPreview(file) {
@@ -2505,8 +2701,9 @@ export function createPaymentEvidenceRoutes(pgDb) {
   }));
 
   // POST /api/payment-evidence/pdf-statement-preview
-  // Read-only endpoint: accepts PDF, extracts selectable text only, returns parser metadata.
-  // Does NOT OCR, parse transaction rows, create batches, or mutate any records.
+  // Read-only endpoint: accepts PDF, extracts selectable text, detects provider,
+  // and returns preview metadata plus Loop preview rows when supported.
+  // Does NOT import rows, create batches, or mutate any records.
   router.post(
     '/payment-evidence/pdf-statement-preview',
     requireAuthenticatedContext,
@@ -2559,6 +2756,23 @@ export function createPaymentEvidenceRoutes(pgDb) {
       const fileMime = req.file.mimetype;
       const extractionPreview = await buildPdfTextExtractionPreview(req.file);
       const providerDetection = detectPdfStatementProvider(extractionPreview.extractedText);
+      const loopProviderDetected = providerDetection.detected_provider === 'LOOP_STATEMENT';
+
+      const parserResult = {
+        enabled: loopProviderDetected,
+        parser: loopProviderDetected ? 'LOOP_STATEMENT_V1' : null,
+        status: loopProviderDetected ? 'preview_only' : 'not_enabled_for_provider',
+        rows_detected: 0,
+        rows_returned: 0,
+        rows_skipped: 0,
+        warnings: loopProviderDetected
+          ? []
+          : ['Parser not enabled for detected provider in this release.']
+      };
+      const importReadiness = {
+        enabled: false,
+        reason: 'Loop PDF import is not enabled in this release. Preview rows are shown for parser validation only.'
+      };
 
       if (!extractionPreview.extraction.text_available) {
         return res.json({
@@ -2577,7 +2791,15 @@ export function createPaymentEvidenceRoutes(pgDb) {
             ...providerDetection,
             message: 'Statement provider detection is enabled. Transaction row parsing is not enabled in this release.'
           },
+          parser_result: {
+            ...parserResult,
+            enabled: false,
+            parser: null,
+            status: 'no_text_available',
+            warnings: ['Parser not executed because no selectable text was found in the PDF.']
+          },
           preview_rows: [],
+          import_readiness: importReadiness,
           warnings: [
             'No selectable text was found in this PDF.',
             'This may be a scanned/image-only PDF.',
@@ -2593,6 +2815,53 @@ export function createPaymentEvidenceRoutes(pgDb) {
             'Allow landlord-confirmed import into review queue.'
           ],
           safety_message: 'PDF text extraction preview is read-only. No records were changed.'
+        });
+      }
+
+      if (loopProviderDetected) {
+        const loopParsed = parseLoopStatementPreviewRows(extractionPreview.extractedText);
+        const previewRows = loopParsed.previewRows;
+        const loopParserResult = {
+          enabled: true,
+          parser: 'LOOP_STATEMENT_V1',
+          status: 'preview_only',
+          rows_detected: loopParsed.rowsDetected,
+          rows_returned: previewRows.length,
+          rows_skipped: loopParsed.rowsSkipped,
+          warnings: loopParsed.warnings
+        };
+
+        return res.json({
+          success: true,
+          mode: 'loop_statement_preview_rows',
+          document_source: 'PDF_STATEMENT',
+          parser_status: previewRows.length > 0 ? 'loop_preview_rows_available' : 'loop_preview_rows_unavailable',
+          file: {
+            original_name: fileName,
+            mime_type: fileMime,
+            size_bytes: fileSize
+          },
+          extraction: extractionPreview.extraction,
+          provider_detection: {
+            enabled: true,
+            ...providerDetection,
+            message: 'Statement provider detection is enabled. Loop preview row parsing is enabled for review only.'
+          },
+          parser_result: loopParserResult,
+          preview_rows: previewRows,
+          import_readiness: importReadiness,
+          warnings: [
+            'Loop statement preview row parsing is enabled for review only.',
+            'Rows were not imported.',
+            'No payment evidence rows were created.',
+            'No invoice, tenant, receipt, ledger, transaction, allocation, or balance record was changed.'
+          ],
+          next_parser_steps: [
+            'Add parser confidence and row-level error review.',
+            'Add landlord-confirmed import into payment evidence review queue.',
+            'Add duplicate protection for imported statement rows.'
+          ],
+          safety_message: 'Loop statement row parsing preview is read-only. No payment evidence, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.'
         });
       }
 
@@ -2615,7 +2884,9 @@ export function createPaymentEvidenceRoutes(pgDb) {
           ...providerDetection,
           message: 'Statement provider detection is enabled. Transaction row parsing is not enabled in this release.'
         },
+        parser_result: parserResult,
         preview_rows: [],
+        import_readiness: importReadiness,
         warnings: [
           'PDF text extraction is enabled for selectable-text PDFs only.',
           'Provider detection is heuristic and should be confirmed by the landlord before parser import is enabled.',
