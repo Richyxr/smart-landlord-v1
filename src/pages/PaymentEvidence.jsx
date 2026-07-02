@@ -76,6 +76,9 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [confirmingSelectedAllocation, setConfirmingSelectedAllocation] = useState(false);
   const [selectedAllocationResult, setSelectedAllocationResult] = useState(null);
   const [selectedAllocationError, setSelectedAllocationError] = useState('');
+  const [selectedReceiptPreviewData, setSelectedReceiptPreviewData] = useState(null);
+  const [loadingSelectedReceiptPreview, setLoadingSelectedReceiptPreview] = useState(false);
+  const [selectedReceiptPreviewError, setSelectedReceiptPreviewError] = useState('');
 
   // Allocation Result States
   const [allocationResultData, setAllocationResultData] = useState(null);
@@ -191,6 +194,25 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       setPreviewData(null);
     } finally {
       setLoadingPreview(false);
+    }
+  };
+
+  const fetchConfirmedAllocationReceiptPreview = async (id) => {
+    setLoadingSelectedReceiptPreview(true);
+    setSelectedReceiptPreviewError('');
+    try {
+      const res = await fetch(`/api/payment-evidence/${id}/receipt-preview`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to fetch receipt preview');
+      }
+      setSelectedReceiptPreviewData(data);
+    } catch (err) {
+      console.error(err);
+      setSelectedReceiptPreviewError(err.message || 'Failed to fetch receipt preview');
+      setSelectedReceiptPreviewData(null);
+    } finally {
+      setLoadingSelectedReceiptPreview(false);
     }
   };
 
@@ -429,6 +451,9 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     setConfirmingSelectedAllocation(false);
     setSelectedAllocationResult(null);
     setSelectedAllocationError('');
+    setSelectedReceiptPreviewData(null);
+    setLoadingSelectedReceiptPreview(false);
+    setSelectedReceiptPreviewError('');
     setReceiptIssueConfirmationText('');
     setIssuingReceipt(false);
     setSelectedSuggestionIndex(-1);
@@ -446,6 +471,7 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
         fetchReceiptPreview(selectedRow.id);
         fetchReceiptResult(selectedRow.id);
         fetchReceiptPrintView(selectedRow.id);
+        fetchConfirmedAllocationReceiptPreview(selectedRow.id);
         setPreviewData(null);
         setPreviewError('');
       } else {
@@ -458,6 +484,8 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
         setReceiptResultError('');
         setReceiptPrintViewData(null);
         setReceiptPrintViewError('');
+        setSelectedReceiptPreviewData(null);
+        setSelectedReceiptPreviewError('');
       }
     } else {
       setAuditLogs([]);
@@ -478,6 +506,8 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       setConfirmingSelectedAllocation(false);
       setSelectedAllocationResult(null);
       setSelectedAllocationError('');
+      setSelectedReceiptPreviewData(null);
+      setSelectedReceiptPreviewError('');
     }
   }, [selectedRow, role]);
 
@@ -1083,6 +1113,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           fetchAuditLogs(selectedRow.id);
           fetchAllocationPreview(selectedRow.id);
           fetchAllocationResult(selectedRow.id);
+          fetchConfirmedAllocationReceiptPreview(selectedRow.id);
           await fetchEvidenceRows();
         } catch (err) {
           console.error(err);
@@ -2821,8 +2852,8 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                                 {confirmingSelectedAllocation ? 'Confirming Selected Allocation...' : 'Confirm Selected Allocation'}
                               </button>
 
-                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Receipt Preview — Coming Later</div>
-                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: selectedAllocationError ? '6px' : '0' }}>Ledger Posting — Coming Later</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Receipt preview is review-only. No receipt has been issued yet.</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: selectedAllocationError ? '6px' : '0' }}>Receipt Issuance — Coming Later</div>
 
                               {selectedAllocationError && (
                                 <div style={{ marginTop: '6px', color: 'var(--danger)' }}>{selectedAllocationError}</div>
@@ -2844,6 +2875,48 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                                   <div style={{ marginTop: '6px', color: 'var(--text-muted)' }}>
                                     {selectedAllocationResult.safety_message}
                                   </div>
+                                </div>
+                              )}
+
+                              {(loadingSelectedReceiptPreview || selectedReceiptPreviewError || selectedReceiptPreviewData) && (
+                                <div style={{ marginTop: '8px', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface-elevated)' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                    <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>Receipt Preview from Confirmed Allocation</div>
+                                    <button
+                                      type="button"
+                                      className="btn btn-secondary btn-sm"
+                                      onClick={() => selectedRow && fetchConfirmedAllocationReceiptPreview(selectedRow.id)}
+                                      disabled={loadingSelectedReceiptPreview}
+                                      style={{ padding: '2px 8px', fontSize: '10px', height: 'auto' }}
+                                    >
+                                      Refresh Receipt Preview
+                                    </button>
+                                  </div>
+
+                                  {loadingSelectedReceiptPreview ? (
+                                    <div style={{ color: 'var(--text-muted)' }}>Loading receipt preview...</div>
+                                  ) : selectedReceiptPreviewError ? (
+                                    <div style={{ color: 'var(--danger)' }}>{selectedReceiptPreviewError}</div>
+                                  ) : selectedReceiptPreviewData?.mode === 'receipt_preview_from_confirmed_allocation_review_only' ? (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
+                                      <div><span className="text-muted">Draft Receipt #:</span> <strong>{selectedReceiptPreviewData?.receipt_preview?.receipt_number_preview || 'N/A'}</strong></div>
+                                      <div><span className="text-muted">Tenant:</span> <strong>{selectedReceiptPreviewData?.receipt_preview?.tenant_name || 'N/A'}</strong></div>
+                                      <div><span className="text-muted">Invoice:</span> <strong>{selectedReceiptPreviewData?.receipt_preview?.invoice_number || 'N/A'}</strong></div>
+                                      <div><span className="text-muted">Transaction ID:</span> <strong>{selectedReceiptPreviewData?.receipt_preview?.transaction_id || 'N/A'}</strong></div>
+                                      <div><span className="text-muted">Allocation ID:</span> <strong>{selectedReceiptPreviewData?.receipt_preview?.payment_allocation_id || 'N/A'}</strong></div>
+                                      <div><span className="text-muted">Payment Method:</span> <strong style={{ textTransform: 'uppercase' }}>{selectedReceiptPreviewData?.receipt_preview?.payment_method || 'N/A'}</strong></div>
+                                      <div><span className="text-muted">Amount Paid:</span> <strong>{formatCurrency(selectedReceiptPreviewData?.receipt_preview?.amount_paid || 0)}</strong></div>
+                                      <div><span className="text-muted">Invoice Balance After:</span> <strong>{formatCurrency(selectedReceiptPreviewData?.receipt_preview?.invoice_balance_after || 0)}</strong></div>
+                                      <div style={{ gridColumn: '1 / -1', color: 'var(--warning)' }}>
+                                        Receipt preview is review-only. No receipt issuance is performed in this slice.
+                                      </div>
+                                      <div style={{ gridColumn: '1 / -1', color: 'var(--text-muted)' }}>
+                                        {selectedReceiptPreviewData?.safety_message}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div style={{ color: 'var(--text-muted)' }}>Receipt preview data will appear after confirmed allocation is available.</div>
+                                  )}
                                 </div>
                               )}
                             </div>

@@ -3232,6 +3232,128 @@ export function createPaymentEvidenceRoutes(pgDb) {
     });
   }));
 
+  // GET /api/payment-evidence/:id/confirmed-allocation-receipt-preview
+  // Review-only preview generated only from the confirmed selected allocation.
+  // No receipt issuance, no ledger posting, and no write operations occur here.
+  router.get('/payment-evidence/:id/confirmed-allocation-receipt-preview', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
+    const rowId = Number(req.params.id);
+
+    const row = await activeDb.findOne('payment_evidence', { id: rowId, organization_id: orgId });
+    if (!row) {
+      return res.status(404).json({
+        error: 'ROW_NOT_FOUND',
+        message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    const confirmedAllocation = row.raw_fields && typeof row.raw_fields === 'object'
+      ? row.raw_fields.confirmed_selected_allocation
+      : null;
+
+    const isConfirmed = row.status === 'manually_reconciled' && confirmedAllocation;
+    if (!isConfirmed) {
+      return res.status(400).json({
+        success: true,
+        mode: 'receipt_preview_from_confirmed_allocation_review_only',
+        payment_evidence_id: row.id,
+        receipt_preview: {
+          eligible: false,
+          state: 'allocation_not_confirmed',
+          message: 'Receipt preview from confirmed allocation is available only after selected allocation confirmation.'
+        },
+        issuance_readiness: {
+          can_issue_receipt: false,
+          state: 'receipt_issuance_disabled_in_slice',
+          blocking_reasons: [
+            'Receipt issuance is not enabled in this slice.'
+          ],
+          required_future_confirmation_text: 'CONFIRM RECEIPT ISSUANCE',
+          safety_message: 'This is a receipt preview only. No receipt number has been reserved and no receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.'
+        },
+        safety_message: 'Receipt preview from confirmed allocation is review-only. No receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.'
+      });
+    }
+
+    const transactionId = Number(confirmedAllocation.transaction_id || 0);
+    const paymentAllocationId = Number(confirmedAllocation.payment_allocation_id || 0);
+    const invoiceId = Number(confirmedAllocation.invoice_id || 0);
+
+    const transaction = transactionId
+      ? await activeDb.findOne('transactions', { id: transactionId, organization_id: orgId })
+      : null;
+    const allocation = paymentAllocationId
+      ? await activeDb.findOne('payment_allocations', { id: paymentAllocationId, organization_id: orgId })
+      : null;
+    const invoice = invoiceId
+      ? await activeDb.findOne('invoices', { id: invoiceId, organization_id: orgId })
+      : null;
+
+    const selectedMatchFromRaw = row.raw_fields && typeof row.raw_fields === 'object'
+      ? row.raw_fields.selected_match
+      : null;
+    const selectedTenantId = Number(selectedMatchFromRaw?.tenant_id || row.suggested_tenant_id || 0);
+    const tenant = selectedTenantId > 0
+      ? await activeDb.findOne('tenants', { id: selectedTenantId, organization_id: orgId })
+      : null;
+
+    if (!transaction || !allocation || !invoice || !tenant) {
+      return res.status(409).json({
+        error: 'ALLOCATION_RECORDS_INCOMPLETE',
+        message: 'Confirmed allocation metadata is incomplete for receipt preview. Please refresh allocation result.'
+      });
+    }
+
+    const allocatedAmount = Number(allocation.amount_allocated || confirmedAllocation.allocated_amount || 0);
+    const draftNumberSeed = String(transaction.reference_number || row.transaction_code || row.id).replace(/\s+/g, '').toUpperCase();
+
+    return res.json({
+      success: true,
+      mode: 'receipt_preview_from_confirmed_allocation_review_only',
+      payment_evidence_id: row.id,
+      receipt_preview: {
+        eligible: true,
+        state: 'ready_for_review_only_receipt_preview',
+        receipt_title: 'Draft Receipt Preview (Selected Allocation)',
+        receipt_number_preview: `DRAFT-${draftNumberSeed}`,
+        tenant_id: tenant.id,
+        tenant_name: tenant.full_name,
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        transaction_id: transaction.id,
+        payment_allocation_id: allocation.id,
+        payment_date: transaction.transaction_date || row.transaction_date,
+        payment_method: transaction.payment_method || row.collection_channel || 'other',
+        amount_paid: allocatedAmount,
+        invoice_balance_after: Number(invoice.balance || 0),
+        invoice_status: invoice.status,
+        receipt_lines: [
+          {
+            label: `Allocation to invoice ${invoice.invoice_number}`,
+            amount: allocatedAmount
+          }
+        ]
+      },
+      issuance_readiness: {
+        can_issue_receipt: false,
+        state: 'receipt_issuance_disabled_in_slice',
+        blocking_reasons: [
+          'Receipt issuance is not enabled in this slice.'
+        ],
+        required_future_confirmation_text: 'CONFIRM RECEIPT ISSUANCE',
+        safety_message: 'This is a receipt preview only. No receipt number has been reserved and no receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.'
+      },
+      post_preview_readiness: {
+        download_receipt_enabled: false,
+        print_receipt_enabled: false,
+        send_receipt_enabled: false,
+        ledger_posting_enabled: false,
+        message: 'Receipt preview is review-only in this slice. Issuance, sending, printing, download, and ledger posting are disabled.'
+      },
+      safety_message: 'Receipt preview from confirmed allocation is review-only. No receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.'
+    });
+  }));
+
   // GET /api/payment-evidence/:id/allocation-result
   router.get('/payment-evidence/:id/allocation-result', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
     const { orgId } = getContext(req);
@@ -3337,6 +3459,116 @@ export function createPaymentEvidenceRoutes(pgDb) {
       return res.status(404).json({
         error: 'ROW_NOT_FOUND',
         message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    const confirmedAllocation = row.raw_fields && typeof row.raw_fields === 'object'
+      ? row.raw_fields.confirmed_selected_allocation
+      : null;
+
+    // Selected-allocation receipt preview slice:
+    // read-only review contract only, no issuance and no mutation side effects.
+    if (confirmedAllocation) {
+      const isConfirmed = row.status === 'manually_reconciled';
+      if (!isConfirmed) {
+        return res.status(400).json({
+          success: true,
+          mode: 'receipt_preview_review_only',
+          payment_evidence_id: row.id,
+          receipt_preview: {
+            eligible: false,
+            state: 'allocation_not_confirmed',
+            message: 'Receipt preview from confirmed allocation is available only after selected allocation confirmation.'
+          },
+          issuance_readiness: {
+            can_issue_receipt: false,
+            state: 'receipt_issuance_disabled_in_slice',
+            blocking_reasons: [
+              'Receipt issuance is not enabled in this slice.'
+            ],
+            required_future_confirmation_text: 'CONFIRM RECEIPT ISSUANCE',
+            safety_message: 'This is a receipt preview only. No receipt number has been reserved and no receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.'
+          },
+          safety_message: 'Receipt preview is review-only. No receipt has been issued yet.'
+        });
+      }
+
+      const transactionId = Number(confirmedAllocation.transaction_id || 0);
+      const paymentAllocationId = Number(confirmedAllocation.payment_allocation_id || 0);
+      const invoiceId = Number(confirmedAllocation.invoice_id || 0);
+
+      const transaction = transactionId
+        ? await activeDb.findOne('transactions', { id: transactionId, organization_id: orgId })
+        : null;
+      const allocation = paymentAllocationId
+        ? await activeDb.findOne('payment_allocations', { id: paymentAllocationId, organization_id: orgId })
+        : null;
+      const invoice = invoiceId
+        ? await activeDb.findOne('invoices', { id: invoiceId, organization_id: orgId })
+        : null;
+
+      const selectedMatchFromRaw = row.raw_fields && typeof row.raw_fields === 'object'
+        ? row.raw_fields.selected_match
+        : null;
+      const selectedTenantId = Number(selectedMatchFromRaw?.tenant_id || row.suggested_tenant_id || 0);
+      const tenant = selectedTenantId > 0
+        ? await activeDb.findOne('tenants', { id: selectedTenantId, organization_id: orgId })
+        : null;
+
+      if (!transaction || !allocation || !invoice || !tenant) {
+        return res.status(409).json({
+          error: 'ALLOCATION_RECORDS_INCOMPLETE',
+          message: 'Confirmed allocation metadata is incomplete for receipt preview. Please refresh allocation result.'
+        });
+      }
+
+      const allocatedAmount = Number(allocation.amount_allocated || confirmedAllocation.allocated_amount || 0);
+      const draftNumberSeed = String(transaction.reference_number || row.transaction_code || row.id).replace(/\s+/g, '').toUpperCase();
+
+      return res.json({
+        success: true,
+        mode: 'receipt_preview_review_only',
+        payment_evidence_id: row.id,
+        receipt_preview: {
+          eligible: true,
+          state: 'ready_for_review_only_receipt_preview',
+          receipt_title: 'Draft Receipt Preview (Selected Allocation)',
+          receipt_number_preview: `DRAFT-${draftNumberSeed}`,
+          tenant_id: tenant.id,
+          tenant_name: tenant.full_name,
+          invoice_id: invoice.id,
+          invoice_number: invoice.invoice_number,
+          transaction_id: transaction.id,
+          payment_allocation_id: allocation.id,
+          payment_date: transaction.transaction_date || row.transaction_date,
+          payment_method: transaction.payment_method || row.collection_channel || 'other',
+          amount_paid: allocatedAmount,
+          invoice_balance_after: Number(invoice.balance || 0),
+          invoice_status: invoice.status,
+          receipt_lines: [
+            {
+              label: `Allocation to invoice ${invoice.invoice_number}`,
+              amount: allocatedAmount
+            }
+          ]
+        },
+        issuance_readiness: {
+          can_issue_receipt: false,
+          state: 'receipt_issuance_disabled_in_slice',
+          blocking_reasons: [
+            'Receipt issuance is not enabled in this slice.'
+          ],
+          required_future_confirmation_text: 'CONFIRM RECEIPT ISSUANCE',
+          safety_message: 'This is a receipt preview only. No receipt number has been reserved and no receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.'
+        },
+        post_preview_readiness: {
+          download_receipt_enabled: false,
+          print_receipt_enabled: false,
+          send_receipt_enabled: false,
+          ledger_posting_enabled: false,
+          message: 'Receipt preview is review-only in this slice. Issuance, sending, printing, download, and ledger posting are disabled.'
+        },
+        safety_message: 'Receipt preview is review-only. No receipt has been issued yet.'
       });
     }
 

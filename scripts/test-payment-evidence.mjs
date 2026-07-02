@@ -4410,9 +4410,13 @@ async function runTests() {
   assert('PaymentEvidence.jsx contains allocation preview review-only safety text', paymentEvidenceContent.includes('Allocation preview is review-only. No money is posted yet.'));
   assert('PaymentEvidence.jsx contains Confirm Selected Allocation section', paymentEvidenceContent.includes('Confirm Selected Allocation'));
   assert('PaymentEvidence.jsx contains selected allocation confirmation phrase', paymentEvidenceContent.includes('CONFIRM SELECTED ALLOCATION'));
-  assert('PaymentEvidence.jsx contains selected allocation disabled follow-up labels', paymentEvidenceContent.includes('Receipt Preview — Coming Later') && paymentEvidenceContent.includes('Ledger Posting — Coming Later'));
+  assert('PaymentEvidence.jsx contains selected allocation receipt preview review-only labels',
+    paymentEvidenceContent.includes('Receipt preview is review-only. No receipt has been issued yet.') &&
+    paymentEvidenceContent.includes('Receipt Issuance — Coming Later')
+  );
   assert('PaymentEvidence.jsx calls /allocation-preview endpoint', paymentEvidenceContent.includes('/allocation-preview'));
   assert('PaymentEvidence.jsx calls /confirm-selected-allocation endpoint', paymentEvidenceContent.includes('/confirm-selected-allocation'));
+  assert('PaymentEvidence.jsx calls /receipt-preview endpoint', paymentEvidenceContent.includes('/receipt-preview'));
   assert('PaymentEvidence.jsx displays allocation preview detail labels',
     paymentEvidenceContent.includes('Selected Tenant:') &&
     paymentEvidenceContent.includes('Selected Invoice:') &&
@@ -4426,8 +4430,8 @@ async function runTests() {
   assert('Allocation preview panel does not contain forbidden labels',
     !/Auto Reconcile|Allocate Now|Confirm Allocation Now|Issue Receipt|Post Ledger|Mark Invoice Paid|Create Transaction/.test(allocationPreviewSlice)
   );
-  assert('Allocation preview selected-confirmation panel does not expose receipt or ledger actions',
-    !/Type exact confirmation text: <strong>CONFIRM SELECTED ALLOCATION<\/strong>[\s\S]{0,1600}(Issue Receipt|receipt-result|receipt-print-view|Post Ledger|\/api\/ledger)/i.test(paymentEvidenceContent)
+  assert('Allocation preview selected-confirmation panel does not expose receipt issuance action',
+    !/Receipt Preview from Confirmed Allocation[\s\S]{0,1800}(Issue Receipt|\/issue-receipt)/i.test(paymentEvidenceContent)
   );
 
   // ==========================================
@@ -4501,6 +4505,23 @@ async function runTests() {
       amount: 1500,
       status: 'needs_review',
       raw_fields: { selected_match: { tenant_id: 2701, invoice_id: 4703 } }
+    },
+    {
+      id: 1508,
+      organization_id: 1,
+      transaction_code: 'SEL-CONF-META-NOTCONF',
+      transaction_date: '2026-06-24',
+      amount: 1500,
+      status: 'needs_review',
+      raw_fields: {
+        selected_match: { tenant_id: 2701, invoice_id: 4701 },
+        confirmed_selected_allocation: {
+          transaction_id: 9991,
+          payment_allocation_id: 9992,
+          invoice_id: 4701,
+          allocated_amount: 1500
+        }
+      }
     }
   ]);
   confirmSelectedDb.seed('tenants', [
@@ -4658,6 +4679,131 @@ async function runTests() {
 
   const secondConfirm = await runConfirmSelectedRequest({ id: 1501, body: { confirmation_text: 'CONFIRM SELECTED ALLOCATION' } });
   assert('Confirm selected allocation idempotency blocks second confirmation', secondConfirm.responseStatus === 409 && secondConfirm.responsePayload && secondConfirm.responsePayload.duplicate === true);
+
+  // ==========================================
+  // Test 28: Receipt Preview from Confirmed Allocation - Review Only, No Issuance
+  // ==========================================
+  console.log('\n28. Receipt Preview from Confirmed Allocation - Review Only, No Issuance:');
+
+  const confirmedReceiptRouteLayer = confirmSelectedRouter.stack.find(l => l.route && l.route.path === '/payment-evidence/:id/receipt-preview');
+  const confirmedReceiptHandler = confirmedReceiptRouteLayer && confirmedReceiptRouteLayer.route.stack[confirmedReceiptRouteLayer.route.stack.length - 1].handle;
+  const confirmedReceiptMiddlewares = confirmedReceiptRouteLayer ? confirmedReceiptRouteLayer.route.stack.slice(0, -1).map(s => s.handle) : [];
+  const confirmedReceiptRoleMiddleware = confirmedReceiptMiddlewares[confirmedReceiptMiddlewares.length - 1];
+
+  assert('Confirmed allocation receipt preview endpoint exists: GET /payment-evidence/:id/receipt-preview', typeof confirmedReceiptHandler === 'function');
+
+  for (const allowedRole of ['landlord', 'super_admin']) {
+    let allowStatus = null;
+    let allowNext = false;
+    await confirmedReceiptRoleMiddleware(
+      { auth: { role: allowedRole, organizationId: 1, userId: 88 } },
+      {
+        status(code) { allowStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { allowNext = true; }
+    );
+    assert(`Confirmed allocation receipt preview allows ${allowedRole}`, allowNext === true && allowStatus === null);
+  }
+
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let blockedStatus = null;
+    let blockedNext = false;
+    await confirmedReceiptRoleMiddleware(
+      { auth: { role: blockedRole, organizationId: 1, userId: 88 } },
+      {
+        status(code) { blockedStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { blockedNext = true; }
+    );
+    assert(`Confirmed allocation receipt preview blocks ${blockedRole}`, blockedStatus === 403 && blockedNext === false);
+  }
+
+  const runConfirmedReceiptPreviewRequest = async ({ orgId = 1, role = 'landlord', id = 1501 } = {}) => {
+    let responseStatus = null;
+    let responsePayload = null;
+    await confirmedReceiptHandler(
+      {
+        auth: { organizationId: orgId, role, userId: 88 },
+        params: { id: String(id) }
+      },
+      {
+        status(code) { responseStatus = code; return this; },
+        json(data) { responsePayload = data; return this; }
+      }
+    );
+    return { responseStatus, responsePayload };
+  };
+
+  const confirmedReceiptBefore = {
+    payment_evidence: JSON.stringify(confirmSelectedDb.get('payment_evidence')),
+    invoices: JSON.stringify(confirmSelectedDb.get('invoices')),
+    tenants: JSON.stringify(confirmSelectedDb.get('tenants')),
+    balances: JSON.stringify(confirmSelectedDb.get('balances')),
+    transactions: JSON.stringify(confirmSelectedDb.get('transactions')),
+    payment_allocations: JSON.stringify(confirmSelectedDb.get('payment_allocations')),
+    receipts: JSON.stringify(confirmSelectedDb.get('receipts')),
+    ledger: JSON.stringify(confirmSelectedDb.get('ledger'))
+  };
+
+  const receiptMissing = await runConfirmedReceiptPreviewRequest({ id: 999999 });
+  assert('Confirmed allocation receipt preview returns 404 for missing evidence', receiptMissing.responseStatus === 404);
+
+  const receiptCrossOrg = await runConfirmedReceiptPreviewRequest({ orgId: 1, id: 1504 });
+  assert('Confirmed allocation receipt preview blocks/hides cross-org evidence', receiptCrossOrg.responseStatus === 404);
+
+  const receiptNotConfirmed = await runConfirmedReceiptPreviewRequest({ id: 1508 });
+  assert('Confirmed allocation receipt preview requires confirmed selected allocation state',
+    receiptNotConfirmed.responseStatus === 400 &&
+    receiptNotConfirmed.responsePayload &&
+    receiptNotConfirmed.responsePayload.mode === 'receipt_preview_review_only' &&
+    receiptNotConfirmed.responsePayload.receipt_preview &&
+    receiptNotConfirmed.responsePayload.receipt_preview.eligible === false
+  );
+
+  const receiptPreviewConfirmed = await runConfirmedReceiptPreviewRequest({ id: 1501 });
+  assert('Confirmed allocation receipt preview returns review-only mode', receiptPreviewConfirmed.responsePayload && receiptPreviewConfirmed.responsePayload.mode === 'receipt_preview_review_only');
+  assert('Confirmed allocation receipt preview returns eligible true and key receipt fields',
+    receiptPreviewConfirmed.responsePayload &&
+    receiptPreviewConfirmed.responsePayload.receipt_preview &&
+    receiptPreviewConfirmed.responsePayload.receipt_preview.eligible === true &&
+    receiptPreviewConfirmed.responsePayload.receipt_preview.receipt_number_preview &&
+    receiptPreviewConfirmed.responsePayload.receipt_preview.transaction_id &&
+    receiptPreviewConfirmed.responsePayload.receipt_preview.payment_allocation_id
+  );
+  assert('Confirmed allocation receipt preview keeps issuance disabled',
+    receiptPreviewConfirmed.responsePayload &&
+    receiptPreviewConfirmed.responsePayload.issuance_readiness &&
+    receiptPreviewConfirmed.responsePayload.issuance_readiness.can_issue_receipt === false
+  );
+  assert('Confirmed allocation receipt preview keeps post-preview actions disabled',
+    receiptPreviewConfirmed.responsePayload &&
+    receiptPreviewConfirmed.responsePayload.post_preview_readiness &&
+    receiptPreviewConfirmed.responsePayload.post_preview_readiness.download_receipt_enabled === false &&
+    receiptPreviewConfirmed.responsePayload.post_preview_readiness.print_receipt_enabled === false &&
+    receiptPreviewConfirmed.responsePayload.post_preview_readiness.send_receipt_enabled === false &&
+    receiptPreviewConfirmed.responsePayload.post_preview_readiness.ledger_posting_enabled === false
+  );
+
+  assert('Confirmed allocation receipt preview creates no receipts', JSON.stringify(confirmSelectedDb.get('receipts')) === confirmedReceiptBefore.receipts);
+  assert('Confirmed allocation receipt preview creates no ledger records', JSON.stringify(confirmSelectedDb.get('ledger')) === confirmedReceiptBefore.ledger);
+  assert('Confirmed allocation receipt preview does not mutate payment_evidence', JSON.stringify(confirmSelectedDb.get('payment_evidence')) === confirmedReceiptBefore.payment_evidence);
+  assert('Confirmed allocation receipt preview does not mutate invoices', JSON.stringify(confirmSelectedDb.get('invoices')) === confirmedReceiptBefore.invoices);
+  assert('Confirmed allocation receipt preview does not mutate tenants', JSON.stringify(confirmSelectedDb.get('tenants')) === confirmedReceiptBefore.tenants);
+  assert('Confirmed allocation receipt preview does not mutate balances', JSON.stringify(confirmSelectedDb.get('balances')) === confirmedReceiptBefore.balances);
+  assert('Confirmed allocation receipt preview does not mutate transactions', JSON.stringify(confirmSelectedDb.get('transactions')) === confirmedReceiptBefore.transactions);
+  assert('Confirmed allocation receipt preview does not mutate payment allocations', JSON.stringify(confirmSelectedDb.get('payment_allocations')) === confirmedReceiptBefore.payment_allocations);
+
+  assert('PaymentEvidence.jsx renders confirmed allocation receipt preview section labels',
+    paymentEvidenceContent.includes('Receipt Preview from Confirmed Allocation') &&
+    paymentEvidenceContent.includes('Receipt preview is review-only. No receipt has been issued yet.') &&
+    paymentEvidenceContent.includes('Receipt Issuance — Coming Later')
+  );
+  assert('PaymentEvidence.jsx has refresh action for confirmed allocation receipt preview', paymentEvidenceContent.includes('Refresh Receipt Preview'));
+  assert('PaymentEvidence.jsx does not expose issue-receipt action in confirmed allocation receipt preview section',
+    !/Receipt Preview from Confirmed Allocation[\s\S]{0,1800}Issue Receipt/.test(paymentEvidenceContent)
+  );
 
   assert(
     'PaymentEvidence.jsx calls Loop PDF import endpoint',
