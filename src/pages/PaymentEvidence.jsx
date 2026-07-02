@@ -3139,8 +3139,54 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                       </pre>
                     </div>
 
+                    <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}>
+                      <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>Provider Detection</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', marginBottom: '8px' }}>
+                        <div>
+                          <span className="text-muted">Detected provider:</span>{' '}
+                          <strong>{pdfReadinessData?.provider_detection?.detected_provider || 'UNKNOWN_STATEMENT'}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Detected statement type:</span>{' '}
+                          <strong>{pdfReadinessData?.provider_detection?.detected_statement_type || 'unknown_statement'}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Confidence:</span>{' '}
+                          <strong style={{ textTransform: 'capitalize' }}>{pdfReadinessData?.provider_detection?.confidence || 'unknown'}</strong>
+                        </div>
+                        <div>
+                          <span className="text-muted">Score:</span>{' '}
+                          <strong>{pdfReadinessData?.provider_detection?.score ?? 0}</strong>
+                        </div>
+                      </div>
+
+                      <div style={{ marginBottom: '8px' }}>
+                        <span className="text-muted">Matched indicators:</span>{' '}
+                        <strong>
+                          {pdfReadinessData?.provider_detection?.matched_indicators?.length
+                            ? pdfReadinessData.provider_detection.matched_indicators.join(', ')
+                            : 'None'}
+                        </strong>
+                      </div>
+
+                      {pdfReadinessData?.provider_detection?.warnings?.length > 0 && (
+                        <div style={{ marginBottom: '8px' }}>
+                          <div style={{ fontWeight: '700', color: 'var(--warning)', marginBottom: '4px' }}>Provider warnings</div>
+                          <ul style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-secondary)' }}>
+                            {pdfReadinessData.provider_detection.warnings.map((warning, idx) => (
+                              <li key={idx}>{warning}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      <div style={{ color: 'var(--text-muted)' }}>
+                        {pdfReadinessData?.provider_detection?.message || 'Statement provider detection is enabled. Transaction row parsing is not enabled in this release.'}
+                      </div>
+                    </div>
+
                     <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--warning)', borderRadius: '6px', backgroundColor: 'rgba(var(--warning-rgb), 0.06)', color: 'var(--warning)', fontWeight: '700' }}>
-                      Transaction row parsing is not enabled yet
+                      Provider detection is enabled. Transaction row parsing is not enabled yet.
                     </div>
 
                     {pdfReadinessData?.warnings && (

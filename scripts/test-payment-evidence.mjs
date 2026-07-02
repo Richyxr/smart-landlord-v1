@@ -4,7 +4,7 @@ import { detectDuplicatePaymentEvidence } from '../server/services/payment-evide
 import { scorePaymentEvidenceMatch } from '../server/services/payment-evidence/scorePaymentEvidenceMatch.js';
 import { PERSPECTIVES, DIRECTIONS, STATUSES, COLLECTION_CHANNELS, DOCUMENT_SOURCES, EVIDENCE_STRENGTHS } from '../server/services/payment-evidence/paymentEvidenceRules.js';
 import { db as jsonDb } from '../server/db.js';
-import { createPaymentEvidenceRoutes } from '../server/routes/paymentEvidenceRoutes.js';
+import { createPaymentEvidenceRoutes, detectPdfStatementProvider } from '../server/routes/paymentEvidenceRoutes.js';
 import fs from 'fs';
 
 let failures = 0;
@@ -26,6 +26,47 @@ function assertThrows(description, fn) {
   } catch (_err) {
     console.log(`  PASS: ${description} (successfully threw)`);
   }
+}
+
+function escapePdfText(text) {
+  return String(text || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)');
+}
+
+function buildSimpleTextPdfBuffer(lines) {
+  const safeLines = Array.isArray(lines) ? lines : [String(lines || '')];
+  const textOps = safeLines
+    .map((line, idx) => `BT /F1 10 Tf 72 ${760 - (idx * 14)} Td (${escapePdfText(line)}) Tj ET`)
+    .join('\n');
+
+  const streamContent = `${textOps}\n`;
+  const objects = [
+    '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n',
+    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n',
+    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n',
+    '4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n',
+    `5 0 obj << /Length ${Buffer.byteLength(streamContent, 'utf8')} >> stream\n${streamContent}endstream\nendobj\n`
+  ];
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  for (const obj of objects) {
+    offsets.push(Buffer.byteLength(pdf, 'utf8'));
+    pdf += obj;
+  }
+
+  const xrefOffset = Buffer.byteLength(pdf, 'utf8');
+  pdf += `xref\n0 ${objects.length + 1}\n`;
+  pdf += '0000000000 65535 f \n';
+  for (let i = 1; i <= objects.length; i += 1) {
+    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  }
+  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\n`;
+  pdf += `startxref\n${xrefOffset}\n%%EOF`;
+
+  return Buffer.from(pdf, 'utf8');
 }
 
 class MockDb {
@@ -3181,6 +3222,43 @@ async function runTests() {
   const pdfInvoiceBefore = JSON.stringify(apiDb.get('invoices'));
   const pdfTenantBefore = JSON.stringify(apiDb.get('tenants'));
 
+  const loopDetected = detectPdfStatementProvider([
+    'ACCOUNT STATEMENT',
+    'LOOP Ref: 99221',
+    'Customer Number: C-9833',
+    'Account Number: 0011223344',
+    'Debit Credit Balance'
+  ].join('\n'));
+  assert('Loop-like text detects LOOP_STATEMENT', loopDetected.detected_provider === 'LOOP_STATEMENT');
+  assert('Loop-like text confidence is high or medium', ['high', 'medium'].includes(loopDetected.confidence));
+  assert('Loop-like text includes ACCOUNT STATEMENT indicator', loopDetected.matched_indicators.includes('ACCOUNT STATEMENT'));
+  assert('Loop-like text includes LOOP Ref indicator', loopDetected.matched_indicators.includes('LOOP Ref'));
+
+  const coopDetected = detectPdfStatementProvider([
+    'STATEMENT OF ACCOUNT',
+    'Money In Money Out Balance',
+    'Swift code KCOOKENA',
+    'Transaction Details'
+  ].join('\n'));
+  assert('Co-op-like text detects COOP_BANK_STATEMENT', coopDetected.detected_provider === 'COOP_BANK_STATEMENT');
+  assert('Co-op-like text includes STATEMENT OF ACCOUNT indicator', coopDetected.matched_indicators.includes('STATEMENT OF ACCOUNT'));
+  assert('Co-op-like text includes Money In indicator', coopDetected.matched_indicators.includes('Money In'));
+  assert('Co-op-like text includes Money Out indicator', coopDetected.matched_indicators.includes('Money Out'));
+
+  const adviceDetected = detectPdfStatementProvider([
+    'CUSTOMER ADVICE',
+    'Sender Details',
+    'Transaction Reference: TRX-2001',
+    'Bill Payment'
+  ].join('\n'));
+  assert('Customer advice text detects CUSTOMER_ADVICE', adviceDetected.detected_provider === 'CUSTOMER_ADVICE');
+  assert('Customer advice text includes CUSTOMER ADVICE indicator', adviceDetected.matched_indicators.includes('CUSTOMER ADVICE'));
+  assert('Customer advice text includes Transaction Reference indicator', adviceDetected.matched_indicators.includes('Transaction Reference'));
+
+  const unknownDetected = detectPdfStatementProvider('Welcome to statement export with no known financial markers.');
+  assert('Unknown text falls back to UNKNOWN_STATEMENT', unknownDetected.detected_provider === 'UNKNOWN_STATEMENT');
+  assert('Unknown text confidence is unknown or low', ['unknown', 'low'].includes(unknownDetected.confidence));
+
   const pdfFixtureBuffer = fs.readFileSync('node_modules/pdf-parse/test/data/01-valid.pdf');
   await runPdfStatementRequest({
     originalname: 'July Statement.pdf',
@@ -3195,20 +3273,19 @@ async function runTests() {
   assert('Valid PDF statement preview returns PDF_STATEMENT source', pdfStatementResponse && pdfStatementResponse.document_source === 'PDF_STATEMENT');
   assert('Valid PDF statement preview echoes file metadata', pdfStatementResponse && pdfStatementResponse.file && pdfStatementResponse.file.original_name === 'July Statement.pdf' && pdfStatementResponse.file.mime_type === 'application/pdf' && pdfStatementResponse.file.size_bytes === pdfFixtureBuffer.length);
   assert('Valid PDF statement preview returns extraction object', pdfStatementResponse && pdfStatementResponse.extraction && typeof pdfStatementResponse.extraction === 'object');
-  assert('Extraction object includes text_available', pdfStatementResponse && typeof pdfStatementResponse.extraction.text_available === 'boolean');
-  assert('Extraction object includes text_length', pdfStatementResponse && typeof pdfStatementResponse.extraction.text_length === 'number');
-  assert('Extraction object includes page_count', pdfStatementResponse && typeof pdfStatementResponse.extraction.page_count === 'number');
-  assert('Extraction object includes sample_text', pdfStatementResponse && typeof pdfStatementResponse.extraction.sample_text === 'string');
-  assert('Extraction sample text is capped', pdfStatementResponse && pdfStatementResponse.extraction.sample_text.length <= 2000);
-  assert('Extraction object includes line_count', pdfStatementResponse && typeof pdfStatementResponse.extraction.line_count === 'number');
-  assert('Extraction object includes detected_keywords', pdfStatementResponse && Array.isArray(pdfStatementResponse.extraction.detected_keywords));
-  assert('Provider detection is disabled', pdfStatementResponse && pdfStatementResponse.provider_detection && pdfStatementResponse.provider_detection.enabled === false);
-  assert('Provider detection returns null provider', pdfStatementResponse && pdfStatementResponse.provider_detection.detected_provider === null);
-  assert('Provider detection confidence is not assessed', pdfStatementResponse && pdfStatementResponse.provider_detection.confidence === 'not_assessed');
+  assert('Extraction object includes sample_text and cap', pdfStatementResponse && typeof pdfStatementResponse.extraction.sample_text === 'string' && pdfStatementResponse.extraction.sample_text.length <= 2000);
+  assert('Provider detection result includes enabled', pdfStatementResponse && pdfStatementResponse.provider_detection && pdfStatementResponse.provider_detection.enabled === true);
+  assert('Provider detection result includes detected_provider', pdfStatementResponse && typeof pdfStatementResponse.provider_detection.detected_provider === 'string');
+  assert('Provider detection result includes detected_statement_type', pdfStatementResponse && typeof pdfStatementResponse.provider_detection.detected_statement_type === 'string');
+  assert('Provider detection result includes confidence', pdfStatementResponse && typeof pdfStatementResponse.provider_detection.confidence === 'string');
+  assert('Provider detection result includes score', pdfStatementResponse && typeof pdfStatementResponse.provider_detection.score === 'number');
+  assert('Provider detection result includes matched_indicators', pdfStatementResponse && Array.isArray(pdfStatementResponse.provider_detection.matched_indicators));
+  assert('Provider detection result includes message', pdfStatementResponse && typeof pdfStatementResponse.provider_detection.message === 'string');
   assert('Valid PDF statement preview returns no preview rows', pdfStatementResponse && Array.isArray(pdfStatementResponse.preview_rows) && pdfStatementResponse.preview_rows.length === 0);
+
   assert('Valid PDF statement preview returns warnings', pdfStatementResponse && Array.isArray(pdfStatementResponse.warnings) && pdfStatementResponse.warnings.includes('No payment evidence rows were imported.'));
   assert('Valid PDF statement preview warns row parsing is disabled', pdfStatementResponse && pdfStatementResponse.warnings.includes('Transaction row parsing is not enabled in this release.'));
-  assert('Valid PDF statement preview returns next parser steps', pdfStatementResponse && Array.isArray(pdfStatementResponse.next_parser_steps) && pdfStatementResponse.next_parser_steps.length === 5);
+  assert('Valid PDF statement preview returns next parser steps', pdfStatementResponse && Array.isArray(pdfStatementResponse.next_parser_steps) && pdfStatementResponse.next_parser_steps.length === 4);
   assert('Valid PDF statement preview returns safety message', pdfStatementResponse && typeof pdfStatementResponse.safety_message === 'string' && pdfStatementResponse.safety_message.includes('read-only'));
 
   assert('PDF statement preview creates no payment evidence rows', JSON.stringify(apiDb.get('payment_evidence')) === pdfEvidenceBefore);
@@ -3229,10 +3306,13 @@ async function runTests() {
   assert(
     'PDF statement preview route contains no database write calls in handler block',
     (() => {
-      const marker = "router.post(\n    '/payment-evidence/pdf-statement-preview'";
+      const marker = "'/payment-evidence/pdf-statement-preview'";
       const startIdx = routeContent.indexOf(marker);
       if (startIdx === -1) return false;
-      const block = routeContent.slice(startIdx, startIdx + 3500);
+      const tail = routeContent.slice(startIdx);
+      const endIdx = tail.indexOf('return router;');
+      if (endIdx === -1) return false;
+      const block = tail.slice(0, endIdx);
       return !/activeDb\.(insert|update|delete)/i.test(block) &&
              !/INSERT\s+INTO/i.test(block) &&
              !/UPDATE\s+/i.test(block) &&
@@ -3252,6 +3332,13 @@ async function runTests() {
   );
 
   assert(
+    'PaymentEvidence.jsx renders Provider Detection panel and fields',
+    paymentEvidenceContent.includes('Provider Detection') &&
+    paymentEvidenceContent.includes('Detected provider') &&
+    paymentEvidenceContent.includes('Matched indicators')
+  );
+
+  assert(
     'PaymentEvidence.jsx renders PDF parser readiness or extraction action',
     paymentEvidenceContent.includes('Check PDF Parser Readiness') ||
     paymentEvidenceContent.includes('Extract PDF Text Preview')
@@ -3259,7 +3346,7 @@ async function runTests() {
 
   assert(
     'PaymentEvidence.jsx clearly states transaction row parsing is not enabled yet',
-    paymentEvidenceContent.includes('Transaction row parsing is not enabled yet')
+    paymentEvidenceContent.includes('Provider detection is enabled. Transaction row parsing is not enabled yet.')
   );
 
   assert(

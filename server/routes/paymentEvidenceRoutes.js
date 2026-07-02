@@ -47,6 +47,148 @@ const PDF_DETECTION_KEYWORDS = [
   'Received'
 ];
 
+const PDF_PROVIDER_UNKNOWN = {
+  detected_provider: 'UNKNOWN_STATEMENT',
+  detected_statement_type: 'unknown_statement',
+  confidence: 'unknown',
+  score: 0,
+  matched_indicators: [],
+  warnings: []
+};
+
+const PDF_PROVIDER_DETECTION_RULES = [
+  {
+    provider: 'LOOP_STATEMENT',
+    statementType: 'account_statement',
+    indicators: [
+      { value: 'ACCOUNT STATEMENT', weight: 30 },
+      { value: 'LOOP Ref', weight: 15 },
+      { value: 'Customer Number', weight: 15 },
+      { value: 'Account Number', weight: 15 },
+      { value: 'WLTBNK', weight: 15 },
+      { value: 'Received', weight: 5 },
+      { value: 'Via NCBA', weight: 15 },
+      { value: 'Payment In', weight: 5 },
+      { value: 'Payment Out', weight: 5 },
+      { value: 'Debit', weight: 5 },
+      { value: 'Credit', weight: 5 },
+      { value: 'Balance', weight: 5 },
+      { value: 'Pay Bill Bill Payment', weight: 15 }
+    ]
+  },
+  {
+    provider: 'COOP_BANK_STATEMENT',
+    statementType: 'account_statement',
+    indicators: [
+      { value: 'STATEMENT OF ACCOUNT', weight: 30 },
+      { value: 'COOP HOUSE BRANCH', weight: 15 },
+      { value: 'Swift code KCOOKENA', weight: 15 },
+      { value: 'Account Currency', weight: 15 },
+      { value: 'Branch', weight: 15 },
+      { value: 'Transaction Details', weight: 15 },
+      { value: 'Money In', weight: 5 },
+      { value: 'Money Out', weight: 5 },
+      { value: 'Balance', weight: 5 }
+    ]
+  },
+  {
+    provider: 'CUSTOMER_ADVICE',
+    statementType: 'customer_advice',
+    indicators: [
+      { value: 'CUSTOMER ADVICE', weight: 30 },
+      { value: 'Sender Details', weight: 15 },
+      { value: 'Beneficiary details', weight: 15 },
+      { value: 'Transaction Type', weight: 15 },
+      { value: 'Transaction Reference', weight: 15 },
+      { value: 'Bill Payment', weight: 15 },
+      { value: 'Pay Bill Number', weight: 15 },
+      { value: 'Beneficiary Account Number', weight: 15 }
+    ]
+  },
+  {
+    provider: 'MPESA_STATEMENT',
+    statementType: 'mpesa_statement',
+    indicators: [
+      { value: 'M-PESA', weight: 30 },
+      { value: 'MPESA', weight: 30 },
+      { value: 'Receipt No', weight: 15 },
+      { value: 'Completion Time', weight: 15 },
+      { value: 'Paid In', weight: 5 },
+      { value: 'Withdrawn', weight: 5 },
+      { value: 'Balance', weight: 5 },
+      { value: 'Transaction Status', weight: 15 }
+    ]
+  }
+];
+
+function resolveProviderDetectionConfidence(score) {
+  if (score >= 70) return 'high';
+  if (score >= 40) return 'medium';
+  if (score > 0) return 'low';
+  return 'unknown';
+}
+
+export function detectPdfStatementProvider(text) {
+  const normalized = String(text || '').toUpperCase();
+  const results = PDF_PROVIDER_DETECTION_RULES.map((rule) => {
+    const matched = [];
+    let score = 0;
+
+    for (const indicator of rule.indicators) {
+      if (normalized.includes(indicator.value.toUpperCase())) {
+        matched.push(indicator.value);
+        score += indicator.weight;
+      }
+    }
+
+    return {
+      provider: rule.provider,
+      statementType: rule.statementType,
+      matched,
+      score: Math.min(100, score)
+    };
+  });
+
+  const best = results.reduce((acc, current) => {
+    if (!acc) return current;
+    if (current.score > acc.score) return current;
+    if (current.score === acc.score && current.matched.length > acc.matched.length) return current;
+    return acc;
+  }, null);
+
+  if (!best || best.score === 0) {
+    return { ...PDF_PROVIDER_UNKNOWN };
+  }
+
+  const confidence = resolveProviderDetectionConfidence(best.score);
+  const confidenceTooLow = best.score < 25;
+  const warnings = [];
+
+  if (confidenceTooLow || confidence === 'low') {
+    warnings.push('Low-confidence provider detection. Confirm statement source manually before enabling parser import.');
+  }
+
+  if (confidenceTooLow) {
+    return {
+      detected_provider: 'UNKNOWN_STATEMENT',
+      detected_statement_type: 'unknown_statement',
+      confidence,
+      score: best.score,
+      matched_indicators: best.matched,
+      warnings
+    };
+  }
+
+  return {
+    detected_provider: best.provider,
+    detected_statement_type: best.statementType,
+    confidence,
+    score: best.score,
+    matched_indicators: best.matched,
+    warnings
+  };
+}
+
 function buildDraftReceiptNumberPreview(orgId, row) {
   const parsedDate = row && row.transaction_date ? new Date(row.transaction_date) : new Date();
   const year = isNaN(parsedDate.getTime()) ? new Date().getFullYear() : parsedDate.getFullYear();
@@ -98,6 +240,7 @@ async function buildPdfTextExtractionPreview(file) {
 
   return {
     parserStatus: textAvailable ? 'text_extraction_enabled' : 'no_text_found',
+    extractedText,
     extraction: {
       text_available: textAvailable,
       text_length: extractedText.length,
@@ -2415,6 +2558,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
       const fileSize = req.file.size || 0;
       const fileMime = req.file.mimetype;
       const extractionPreview = await buildPdfTextExtractionPreview(req.file);
+      const providerDetection = detectPdfStatementProvider(extractionPreview.extractedText);
 
       if (!extractionPreview.extraction.text_available) {
         return res.json({
@@ -2429,20 +2573,20 @@ export function createPaymentEvidenceRoutes(pgDb) {
           },
           extraction: extractionPreview.extraction,
           provider_detection: {
-            enabled: false,
-            detected_provider: null,
-            confidence: 'not_assessed',
-            message: 'Provider-specific detection is not enabled in this release.'
+            enabled: true,
+            ...providerDetection,
+            message: 'Statement provider detection is enabled. Transaction row parsing is not enabled in this release.'
           },
           preview_rows: [],
           warnings: [
             'No selectable text was found in this PDF.',
             'This may be a scanned/image-only PDF.',
             'OCR is not enabled in this release.',
+            'Provider detection is heuristic and should be confirmed by the landlord before parser import is enabled.',
+            'Transaction row parsing is not enabled in this release.',
             'No payment evidence rows were imported.'
           ],
           next_parser_steps: [
-            'Add provider detection for supported statement formats.',
             'Add Loop statement row parser.',
             'Add Co-op Bank statement row parser.',
             'Show extracted transaction rows in preview.',
@@ -2467,21 +2611,19 @@ export function createPaymentEvidenceRoutes(pgDb) {
         },
         extraction: extractionPreview.extraction,
         provider_detection: {
-          enabled: false,
-          detected_provider: null,
-          confidence: 'not_assessed',
-          message: 'Provider-specific detection is not enabled in this release.'
+          enabled: true,
+          ...providerDetection,
+          message: 'Statement provider detection is enabled. Transaction row parsing is not enabled in this release.'
         },
         preview_rows: [],
         warnings: [
           'PDF text extraction is enabled for selectable-text PDFs only.',
-          'OCR for scanned PDFs is not enabled.',
+          'Provider detection is heuristic and should be confirmed by the landlord before parser import is enabled.',
           'Transaction row parsing is not enabled in this release.',
           'No payment evidence rows were imported.',
           'No invoice, tenant, receipt, ledger, transaction, allocation, or balance record was changed.'
         ],
         next_parser_steps: [
-          'Add provider detection for supported statement formats.',
           'Add Loop statement row parser.',
           'Add Co-op Bank statement row parser.',
           'Show extracted transaction rows in preview.',
