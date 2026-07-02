@@ -56,6 +56,9 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [savingReview, setSavingReview] = useState(false);
   const [auditLogs, setAuditLogs] = useState([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
+  const [matchingSuggestionsData, setMatchingSuggestionsData] = useState(null);
+  const [loadingMatchingSuggestions, setLoadingMatchingSuggestions] = useState(false);
+  const [matchingSuggestionsError, setMatchingSuggestionsError] = useState('');
 
   // Draft Allocation Preview States
   const [previewData, setPreviewData] = useState(null);
@@ -194,6 +197,25 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       console.error(err);
     } finally {
       setLoadingAudit(false);
+    }
+  };
+
+  const fetchMatchingSuggestions = async (id) => {
+    setLoadingMatchingSuggestions(true);
+    setMatchingSuggestionsError('');
+    try {
+      const res = await fetch(`/api/payment-evidence/${id}/matching-suggestions`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to fetch matching suggestions');
+      }
+      setMatchingSuggestionsData(data);
+    } catch (err) {
+      console.error(err);
+      setMatchingSuggestionsError(err.message || 'Failed to fetch matching suggestions');
+      setMatchingSuggestionsData(null);
+    } finally {
+      setLoadingMatchingSuggestions(false);
     }
   };
 
@@ -336,6 +358,7 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
 
     if (selectedRow && (role === 'landlord' || role === 'super_admin')) {
       fetchAuditLogs(selectedRow.id);
+      fetchMatchingSuggestions(selectedRow.id);
       if (selectedRow.status === 'manually_reconciled' || selectedRow.status === 'auto_reconciled') {
         fetchAllocationResult(selectedRow.id);
         fetchReceiptPreview(selectedRow.id);
@@ -356,6 +379,8 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       }
     } else {
       setAuditLogs([]);
+      setMatchingSuggestionsData(null);
+      setMatchingSuggestionsError('');
       setPreviewData(null);
       setPreviewError('');
       setAllocationResultData(null);
@@ -2431,9 +2456,9 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               </div>
             )}
 
-            {/* Suggested Match Explanation Section */}
+            {/* Matching Suggestions (Review-Only) */}
             <div style={{ marginBottom: '16px' }}>
-              <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '700' }}>Suggested Match Explanation</h4>
+              <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', fontWeight: '700' }}>Matching Suggestions</h4>
               <div style={{
                 padding: '10px 12px',
                 backgroundColor: 'var(--info-glow)',
@@ -2443,15 +2468,34 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                 color: 'var(--text-primary)',
                 marginBottom: '12px'
               }}>
-                These are matching suggestions only. No payment has been reconciled, allocated, or applied to an invoice.
+                Suggestions are review-only. No allocation or receipt is created.
+              </div>
+              <div style={{ marginBottom: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled
+                  title="This action is intentionally disabled in this review-only slice."
+                  style={{ opacity: 0.65, cursor: 'not-allowed' }}
+                >
+                  Confirm Match — Coming Later
+                </button>
               </div>
               {selectedRow.status === 'ignored' ? (
                 <div style={{ border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
                   Ignored evidence cannot accept match suggestions.
                 </div>
-              ) : selectedRow.suggestions && selectedRow.suggestions.length > 0 ? (
+              ) : loadingMatchingSuggestions ? (
+                <div style={{ border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Loading matching suggestions...
+                </div>
+              ) : matchingSuggestionsError ? (
+                <div style={{ border: '1px solid var(--danger)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--danger)' }}>
+                  {matchingSuggestionsError}
+                </div>
+              ) : matchingSuggestionsData?.suggestions && matchingSuggestionsData.suggestions.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {selectedRow.suggestions.map((s, idx) => (
+                  {matchingSuggestionsData.suggestions.map((s, idx) => (
                     <div key={idx} style={{
                       border: '1px solid var(--border)',
                       padding: '12px',
@@ -2466,14 +2510,15 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                           borderRadius: '4px',
                           fontWeight: '700',
                           textTransform: 'uppercase',
-                          backgroundColor: s.match_confidence === 'high' ? 'rgba(76, 175, 80, 0.15)' : s.match_confidence === 'medium' ? 'rgba(255, 152, 0, 0.15)' : 'rgba(33, 150, 243, 0.15)',
-                          color: s.match_confidence === 'high' ? 'var(--success)' : s.match_confidence === 'medium' ? 'var(--warning)' : 'var(--info)',
-                          border: s.match_confidence === 'high' ? '1px solid var(--success)' : s.match_confidence === 'medium' ? '1px solid var(--warning)' : '1px solid var(--info)'
+                          backgroundColor: s.confidence === 'high' ? 'rgba(76, 175, 80, 0.15)' : s.confidence === 'medium' ? 'rgba(255, 152, 0, 0.15)' : 'rgba(33, 150, 243, 0.15)',
+                          color: s.confidence === 'high' ? 'var(--success)' : s.confidence === 'medium' ? 'var(--warning)' : 'var(--info)',
+                          border: s.confidence === 'high' ? '1px solid var(--success)' : s.confidence === 'medium' ? '1px solid var(--warning)' : '1px solid var(--info)'
                         }}>
-                          {s.match_confidence} Confidence (Score: {s.match_score})
+                          {s.confidence} Confidence (Score: {s.confidence_score})
                         </span>
                         {idx === 0 && <span style={{ fontSize: '9px', fontWeight: '700', color: 'var(--success)' }}>BEST MATCH</span>}
                       </div>
+                      <div>Suggestion Type: <strong>{String(s.suggestion_type || 'candidate_match').replace(/_/g, ' ')}</strong></div>
                       <div>Tenant: <strong>{s.tenant_name}</strong> (Phone: {s.tenant_phone})</div>
                       <div>Unit/Property: <strong>{s.unit_label}</strong></div>
                       {s.invoice_number && (
@@ -2483,19 +2528,19 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Due Date: {new Date(s.invoice_due_date).toLocaleDateString()}</div>
                         </div>
                       )}
-                      {s.match_reasons && s.match_reasons.length > 0 && (
+                      {s.matched_signals && s.matched_signals.length > 0 && (
                         <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                          <strong>Reasons:</strong>
+                          <strong>Matched Signals:</strong>
                           <ul style={{ margin: '2px 0 0 0', paddingLeft: '16px' }}>
-                            {s.match_reasons.map((r, rIdx) => <li key={rIdx}>{r}</li>)}
+                            {s.matched_signals.map((r, rIdx) => <li key={rIdx}>{String(r).replace(/_/g, ' ')}</li>)}
                           </ul>
                         </div>
                       )}
-                      {s.match_warnings && s.match_warnings.length > 0 && (
+                      {s.warnings && s.warnings.length > 0 && (
                         <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--warning)' }}>
                           <strong>Warnings:</strong>
                           <ul style={{ margin: '2px 0 0 0', paddingLeft: '16px' }}>
-                            {s.match_warnings.map((w, wIdx) => <li key={wIdx}>{w}</li>)}
+                            {s.warnings.map((w, wIdx) => <li key={wIdx}>{w}</li>)}
                           </ul>
                         </div>
                       )}
@@ -3475,6 +3520,19 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                               </div>
                               <div style={{ marginTop: '8px', color: 'var(--text-muted)' }}>
                                 {pdfImportResult?.safety_message || 'Loop PDF import created payment evidence review rows only. No transactions, allocations, receipts, ledger entries, invoices, tenants, or balances were changed.'}
+                              </div>
+
+                              <div style={{ marginTop: '8px', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface-elevated)' }}>
+                                <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>Matching Suggestions</div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                  Rows with suggestions: <strong>{pdfImportResult?.matching_summary?.rows_with_suggestions ?? 0}</strong>
+                                </div>
+                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                  Rows without suggestions: <strong>{pdfImportResult?.matching_summary?.rows_without_suggestions ?? 0}</strong>
+                                </div>
+                                <div style={{ marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                                  Suggestions are review-only. No allocation or receipt is created.
+                                </div>
                               </div>
                             </div>
                           )}

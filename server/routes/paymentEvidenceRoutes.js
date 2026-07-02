@@ -1197,6 +1197,230 @@ function calculateCandidateScore(row, tenant, invoice, unit, property) {
   };
 }
 
+async function buildPaymentEvidenceMatchingSuggestions(activeDb, orgId, evidenceRows, maxSuggestionsPerRow = 3) {
+  const rows = Array.isArray(evidenceRows) ? evidenceRows : [];
+  if (rows.length === 0) return [];
+
+  const allTenants = await activeDb.find('tenants', { organization_id: orgId });
+  const allInvoices = await activeDb.find('invoices', { organization_id: orgId });
+  const allProperties = await activeDb.find('properties', { organization_id: orgId }) || [];
+  const allUnits = await activeDb.find('units', { organization_id: orgId }) || [];
+
+  const unitsMap = new Map(allUnits.map(u => [u.id, u]));
+  const propertiesMap = new Map(allProperties.map(p => [p.id, p]));
+  const activeTenants = allTenants.filter(t => t.status !== 'deleted' && t.status !== 'inactive');
+  const activeTenantMap = new Map(activeTenants.map(t => [t.id, t]));
+  const eligibleInvoices = allInvoices.filter(inv => inv.status !== 'paid' && inv.status !== 'void');
+
+  return rows.map((row) => {
+    let suggestions = [];
+    if (row.status !== 'ignored') {
+      for (const inv of eligibleInvoices) {
+        const activeTenant = activeTenantMap.get(inv.tenant_id);
+        if (!activeTenant) continue;
+        const unit = activeTenant.unit_id ? unitsMap.get(activeTenant.unit_id) : null;
+        const property = unit ? propertiesMap.get(unit.property_id) : null;
+
+        const match = calculateCandidateScore(row, activeTenant, inv, unit, property);
+        if (match) {
+          suggestions.push(match);
+        }
+      }
+
+      suggestions.sort((a, b) => {
+        if (b.match_score !== a.match_score) {
+          return b.match_score - a.match_score;
+        }
+        const confWeight = { high: 3, medium: 2, low: 1 };
+        const weightA = confWeight[a.match_confidence] || 0;
+        const weightB = confWeight[b.match_confidence] || 0;
+        if (weightB !== weightA) {
+          return weightB - weightA;
+        }
+        if (a.invoice_due_date !== b.invoice_due_date) {
+          return String(b.invoice_due_date || '').localeCompare(String(a.invoice_due_date || ''));
+        }
+        return Number(b.invoice_id || 0) - Number(a.invoice_id || 0);
+      });
+
+      suggestions = suggestions.slice(0, maxSuggestionsPerRow);
+    }
+
+    return {
+      payment_evidence_id: row.id,
+      transaction_code: row.transaction_code || null,
+      match_count: suggestions.length,
+      top_match_confidence: suggestions[0] ? suggestions[0].match_confidence : 'none',
+      top_match_score: suggestions[0] ? suggestions[0].match_score : 0,
+      suggestions
+    };
+  });
+}
+
+function getConfidenceLabelFromScore(score) {
+  const numericScore = Number(score || 0);
+  if (numericScore >= 85) return 'high';
+  if (numericScore >= 60) return 'medium';
+  if (numericScore > 0) return 'low';
+  return 'none';
+}
+
+function buildEvidenceCandidateSignals(row, tenant, invoice, unit) {
+  const rowAmount = Number(row.amount);
+  const invBalance = Number(invoice.balance);
+  const invTotal = Number(invoice.total);
+  const isAmountMatch = rowAmount === invBalance || rowAmount === invTotal;
+
+  let referenceAccountMatch = false;
+  if (row.reference_account && tenant.tenant_account_number) {
+    referenceAccountMatch = String(row.reference_account).trim().toLowerCase() === String(tenant.tenant_account_number).trim().toLowerCase();
+  }
+
+  const invoiceNumber = String(invoice.invoice_number || '').trim().toLowerCase();
+  let invoiceReferenceMatch = false;
+  if (invoiceNumber) {
+    invoiceReferenceMatch = (
+      (row.transaction_code && String(row.transaction_code).trim().toLowerCase() === invoiceNumber) ||
+      (row.paybill_reference && String(row.paybill_reference).trim().toLowerCase() === invoiceNumber) ||
+      (row.invoice_reference && String(row.invoice_reference).trim().toLowerCase() === invoiceNumber) ||
+      (row.description && String(row.description).trim().toLowerCase().includes(invoiceNumber))
+    );
+  }
+
+  let phoneMatch = false;
+  if (row.payer_phone && tenant.phone_number) {
+    const p1 = normalizePhone(row.payer_phone);
+    const p2 = normalizePhone(tenant.phone_number);
+    phoneMatch = Boolean(p1 && p2 && p1 === p2);
+  }
+
+  let nameMatch = false;
+  if (row.payer_name && tenant.full_name) {
+    const n1 = String(row.payer_name).trim().toLowerCase();
+    const n2 = String(tenant.full_name).trim().toLowerCase();
+    nameMatch = n1.includes(n2) || n2.includes(n1);
+  }
+
+  let unitMatch = false;
+  if (unit && unit.unit_code) {
+    const uc = String(unit.unit_code).trim().toLowerCase();
+    unitMatch = (
+      (row.description && String(row.description).toLowerCase().includes(uc)) ||
+      (row.reference_account && String(row.reference_account).toLowerCase().includes(uc)) ||
+      (row.payer_name && String(row.payer_name).toLowerCase().includes(uc))
+    );
+  }
+
+  const matchedSignals = [];
+  if (invoiceReferenceMatch) matchedSignals.push('invoice_reference_exact');
+  if (referenceAccountMatch) matchedSignals.push('tenant_account_reference_exact');
+  if (phoneMatch) matchedSignals.push('tenant_phone_exact');
+  if (nameMatch) matchedSignals.push('tenant_name_similar');
+  if (unitMatch) matchedSignals.push('unit_reference_match');
+  if (isAmountMatch) matchedSignals.push('amount_exact');
+
+  return {
+    isAmountMatch,
+    invoiceReferenceMatch,
+    referenceAccountMatch,
+    phoneMatch,
+    nameMatch,
+    unitMatch,
+    matchedSignals
+  };
+}
+
+function deriveSuggestionTypeFromSignals(signals) {
+  if (signals.invoiceReferenceMatch && signals.isAmountMatch) return 'invoice_reference_exact';
+  if (signals.referenceAccountMatch && signals.isAmountMatch) return 'tenant_account_reference_exact';
+  if (signals.phoneMatch && signals.isAmountMatch) return 'amount_plus_tenant_phone';
+  if (signals.nameMatch && signals.isAmountMatch) return 'amount_plus_tenant_name';
+  if (signals.unitMatch && signals.isAmountMatch) return 'amount_plus_unit_reference';
+  if (signals.isAmountMatch) return 'amount_only';
+  if (signals.phoneMatch) return 'tenant_phone_only';
+  if (signals.nameMatch) return 'tenant_name_only';
+  if (signals.referenceAccountMatch) return 'tenant_account_reference_only';
+  return 'heuristic_candidate';
+}
+
+async function buildReviewOnlyMatchingSuggestionsForEvidence(activeDb, orgId, evidenceRow, maxSuggestions = 5) {
+  if (!evidenceRow || evidenceRow.status === 'ignored') {
+    return [];
+  }
+
+  const allTenants = await activeDb.find('tenants', { organization_id: orgId });
+  const allInvoices = await activeDb.find('invoices', { organization_id: orgId });
+  const allProperties = await activeDb.find('properties', { organization_id: orgId }) || [];
+  const allUnits = await activeDb.find('units', { organization_id: orgId }) || [];
+
+  const unitsMap = new Map(allUnits.map(u => [u.id, u]));
+  const propertiesMap = new Map(allProperties.map(p => [p.id, p]));
+  const activeTenants = allTenants.filter(t => t.status !== 'deleted' && t.status !== 'inactive');
+  const activeTenantMap = new Map(activeTenants.map(t => [t.id, t]));
+
+  const rawSuggestions = [];
+
+  for (const inv of allInvoices) {
+    if (String(inv.status || '').toLowerCase() === 'void') continue;
+
+    const activeTenant = activeTenantMap.get(inv.tenant_id);
+    if (!activeTenant) continue;
+
+    const unit = activeTenant.unit_id ? unitsMap.get(activeTenant.unit_id) : null;
+    const property = unit ? propertiesMap.get(unit.property_id) : null;
+    const base = calculateCandidateScore(evidenceRow, activeTenant, inv, unit, property);
+    if (!base) continue;
+
+    const signals = buildEvidenceCandidateSignals(evidenceRow, activeTenant, inv, unit);
+    let confidenceScore = Number(base.match_score || 0);
+    const warnings = Array.isArray(base.match_warnings) ? [...base.match_warnings] : [];
+
+    if (String(inv.status || '').toLowerCase() === 'paid') {
+      warnings.push('Invoice is already paid. Confidence reduced for review-only safety.');
+      confidenceScore = Math.max(15, confidenceScore - 35);
+    }
+
+    rawSuggestions.push({
+      payment_evidence_id: evidenceRow.id,
+      tenant_id: base.tenant_id,
+      tenant_name: base.tenant_name,
+      tenant_phone: base.tenant_phone,
+      unit_label: base.unit_label,
+      invoice_id: base.invoice_id,
+      invoice_number: base.invoice_number,
+      invoice_status: base.invoice_status,
+      invoice_balance: base.invoice_balance,
+      invoice_due_date: base.invoice_due_date,
+      confidence: getConfidenceLabelFromScore(confidenceScore),
+      confidence_score: confidenceScore,
+      suggestion_type: deriveSuggestionTypeFromSignals(signals),
+      matched_signals: signals.matchedSignals,
+      reasons: Array.isArray(base.match_reasons) ? base.match_reasons : [],
+      warnings
+    });
+  }
+
+  const amountExactSuggestions = rawSuggestions.filter(s => Array.isArray(s.matched_signals) && s.matched_signals.includes('amount_exact'));
+  if (amountExactSuggestions.length > 1) {
+    for (const suggestion of amountExactSuggestions) {
+      suggestion.warnings = Array.isArray(suggestion.warnings) ? suggestion.warnings : [];
+      suggestion.warnings.push('Multiple invoices share the matched amount. Manual review required.');
+    }
+  }
+
+  rawSuggestions.sort((a, b) => {
+    if (b.confidence_score !== a.confidence_score) {
+      return b.confidence_score - a.confidence_score;
+    }
+    if (a.invoice_due_date !== b.invoice_due_date) {
+      return String(b.invoice_due_date || '').localeCompare(String(a.invoice_due_date || ''));
+    }
+    return Number(b.invoice_id || 0) - Number(a.invoice_id || 0);
+  });
+
+  return rawSuggestions.slice(0, maxSuggestions);
+}
+
 function getContext(req) {
   return {
     orgId: req.auth?.organizationId,
@@ -1498,6 +1722,53 @@ export function createPaymentEvidenceRoutes(pgDb) {
     }
 
     res.json(filteredEnrichedRows);
+  }));
+
+  // GET /api/payment-evidence/:id/matching-suggestions
+  // Review-only endpoint. Returns deterministic tenant/invoice matching suggestions
+  // without mutating any payment evidence, invoice, tenant, transaction,
+  // allocation, receipt, ledger, or balance data.
+  router.get('/payment-evidence/:id/matching-suggestions', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
+    const evidenceId = Number(req.params.id);
+
+    if (!Number.isFinite(evidenceId) || evidenceId <= 0) {
+      return res.status(400).json({
+        error: 'INVALID_PAYMENT_EVIDENCE_ID',
+        message: 'A valid payment evidence ID is required.'
+      });
+    }
+
+    const evidenceRow = await activeDb.findOne('payment_evidence', {
+      id: evidenceId,
+      organization_id: orgId
+    });
+
+    if (!evidenceRow) {
+      return res.status(404).json({
+        error: 'PAYMENT_EVIDENCE_NOT_FOUND',
+        message: 'Payment evidence was not found.'
+      });
+    }
+
+    const suggestions = await buildReviewOnlyMatchingSuggestionsForEvidence(activeDb, orgId, evidenceRow, 5);
+    const summary = {
+      total_suggestions: suggestions.length,
+      high_confidence_count: suggestions.filter(s => s.confidence === 'high').length,
+      medium_confidence_count: suggestions.filter(s => s.confidence === 'medium').length,
+      low_confidence_count: suggestions.filter(s => s.confidence === 'low').length,
+      suggestions_with_warnings: suggestions.filter(s => Array.isArray(s.warnings) && s.warnings.length > 0).length
+    };
+
+    return res.json({
+      success: true,
+      payment_evidence_id: evidenceId,
+      mode: 'matching_suggestions_review_only',
+      matching_enabled: false,
+      suggestions,
+      summary,
+      safety_message: 'Matching suggestions are review-only. No transaction, allocation, receipt, ledger, invoice, tenant, or balance record was changed.'
+    });
   }));
 
   // POST /api/payment-evidence/import-csv-preview
@@ -3299,6 +3570,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
       });
 
       const createdPaymentEvidenceIds = [];
+      const insertedEvidenceRows = [];
       const seenComposite = new Set();
       let duplicateRowsSkipped = selection.skippedSummary.duplicate_like;
       let importedRows = 0;
@@ -3422,6 +3694,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
 
         importedRows += 1;
         createdPaymentEvidenceIds.push(inserted.id);
+        insertedEvidenceRows.push(inserted);
       }
 
       const feeRowsSkipped = Math.max(loopParsed.rowsSkipped, selection.skippedSummary.fee_or_charge, Number.isFinite(providedRowsSkipped) ? providedRowsSkipped : 0);
@@ -3435,6 +3708,9 @@ export function createPaymentEvidenceRoutes(pgDb) {
         rows_needing_review: importedRows,
         rows_failed_validation: failedValidationRows
       });
+
+      const matchingSuggestions = await buildPaymentEvidenceMatchingSuggestions(activeDb, orgId, insertedEvidenceRows, 3);
+      const rowsWithSuggestions = matchingSuggestions.filter(item => item.match_count > 0).length;
 
       return res.json({
         success: true,
@@ -3459,6 +3735,11 @@ export function createPaymentEvidenceRoutes(pgDb) {
           fee_rows_skipped: feeRowsSkipped,
           created_payment_evidence_ids: createdPaymentEvidenceIds
         },
+        matching_suggestions: matchingSuggestions,
+        matching_summary: {
+          rows_with_suggestions: rowsWithSuggestions,
+          rows_without_suggestions: Math.max(0, insertedEvidenceRows.length - rowsWithSuggestions)
+        },
         skipped_summary: {
           duplicate_like: selection.skippedSummary.duplicate_like,
           needs_attention: selection.skippedSummary.needs_attention,
@@ -3470,7 +3751,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
           allocation_enabled: false,
           receipt_enabled: false,
           ledger_enabled: false,
-          message: 'Rows were imported into payment evidence review only. Matching, allocation, receipt, and ledger workflows were not executed.'
+          message: 'Rows were imported into payment evidence review only. Matching suggestions are review-only. Allocation, receipt, and ledger workflows were not executed.'
         },
         safety_message: 'Loop PDF import created payment evidence review rows only. No transactions, allocations, receipts, ledger entries, invoices, tenants, or balances were changed.'
       });

@@ -1435,8 +1435,8 @@ async function runTests() {
   );
 
   assert(
-    'Payment Evidence UI renders Suggested Match Explanation header',
-    paymentEvidenceContent.includes('Suggested Match Explanation')
+    'Payment Evidence UI renders Matching Suggestions header',
+    paymentEvidenceContent.includes('Matching Suggestions')
   );
 
   assert(
@@ -3758,6 +3758,26 @@ async function runTests() {
     Object.prototype.hasOwnProperty.call(pdfImportResponse.import_result, 'fee_rows_skipped')
   );
 
+  assert('Loop PDF import returns matching suggestions payload', pdfImportResponse &&
+    Array.isArray(pdfImportResponse.matching_suggestions) &&
+    pdfImportResponse.matching_suggestions.every(item =>
+      Object.prototype.hasOwnProperty.call(item, 'payment_evidence_id') &&
+      Object.prototype.hasOwnProperty.call(item, 'match_count') &&
+      Array.isArray(item.suggestions)
+    )
+  );
+
+  assert('Loop PDF import returns matching suggestions summary', pdfImportResponse &&
+    pdfImportResponse.matching_summary &&
+    typeof pdfImportResponse.matching_summary.rows_with_suggestions === 'number' &&
+    typeof pdfImportResponse.matching_summary.rows_without_suggestions === 'number'
+  );
+
+  assert('Loop PDF import post_import_readiness keeps matching disabled for review-only slice', pdfImportResponse &&
+    pdfImportResponse.post_import_readiness &&
+    pdfImportResponse.post_import_readiness.matching_enabled === false
+  );
+
   assert('Loop PDF import returns safety message', pdfImportResponse && typeof pdfImportResponse.safety_message === 'string' && pdfImportResponse.safety_message.includes('No transactions, allocations, receipts, ledger entries'));
   assert('Loop PDF import creates no transactions', JSON.stringify(apiDb.get('transactions')) === txBeforeImport);
   assert('Loop PDF import creates no payment allocations', JSON.stringify(apiDb.get('payment_allocations')) === allocBeforeImport);
@@ -3771,6 +3791,204 @@ async function runTests() {
     paymentEvidenceContent.includes('CONFIRM LOOP PDF IMPORT') &&
     paymentEvidenceContent.includes('Import to Review Queue') &&
     paymentEvidenceContent.includes('This imports validated Loop rows into Payment Evidence review only')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders matching suggestions summary labels for import result',
+    paymentEvidenceContent.includes('Matching Suggestions') &&
+    paymentEvidenceContent.includes('Rows with suggestions:') &&
+    paymentEvidenceContent.includes('Rows without suggestions:') &&
+    paymentEvidenceContent.includes('Suggestions are review-only. No allocation or receipt is created.')
+  );
+
+  // ==========================================
+  // Test 24: Imported Statement Evidence Matching Suggestions - Review Only
+  // ==========================================
+  console.log('\n24. Imported Statement Evidence Matching Suggestions - Review Only:');
+
+  const matchingDb = new MockDb();
+  matchingDb.seed('payment_evidence', [
+    {
+      id: 1201,
+      organization_id: 1,
+      transaction_code: 'INV-EXACT-001',
+      amount: 4500,
+      transaction_date: '2026-06-25',
+      payer_phone: '0711222333',
+      payer_name: 'Alice Exact',
+      status: 'needs_review',
+      description: 'Rent payment INV-EXACT-001'
+    },
+    {
+      id: 1202,
+      organization_id: 1,
+      transaction_code: 'AMOUNT-PHONE-001',
+      amount: 7000,
+      transaction_date: '2026-06-22',
+      payer_phone: '0700000001',
+      payer_name: 'Phone Match Payer',
+      status: 'needs_review',
+      description: 'Paid rent via transfer'
+    },
+    {
+      id: 1203,
+      organization_id: 1,
+      transaction_code: 'AMOUNT-ONLY-001',
+      amount: 8800,
+      transaction_date: '2026-06-20',
+      payer_phone: null,
+      payer_name: null,
+      status: 'needs_review',
+      description: 'General payment'
+    },
+    {
+      id: 1204,
+      organization_id: 2,
+      transaction_code: 'ORG2-HIDDEN-001',
+      amount: 5000,
+      transaction_date: '2026-06-20',
+      status: 'needs_review',
+      description: 'Cross org row'
+    }
+  ]);
+  matchingDb.seed('tenants', [
+    { id: 2101, organization_id: 1, full_name: 'Alice Exact', phone_number: '0711222333', tenant_account_number: 'TEN-EXACT-01', unit_id: 3101, status: 'active' },
+    { id: 2102, organization_id: 1, full_name: 'Phone Match Tenant', phone_number: '0700000001', tenant_account_number: 'TEN-PHONE-01', unit_id: 3102, status: 'active' },
+    { id: 2103, organization_id: 1, full_name: 'Amount One', phone_number: '0700000003', tenant_account_number: 'TEN-AMT-01', unit_id: 3103, status: 'active' },
+    { id: 2104, organization_id: 1, full_name: 'Amount Two', phone_number: '0700000004', tenant_account_number: 'TEN-AMT-02', unit_id: 3104, status: 'active' },
+    { id: 2201, organization_id: 2, full_name: 'Org Two Tenant', phone_number: '0799999999', tenant_account_number: 'TEN-ORG2-01', unit_id: 3201, status: 'active' }
+  ]);
+  matchingDb.seed('invoices', [
+    { id: 4101, organization_id: 1, tenant_id: 2101, invoice_number: 'INV-EXACT-001', status: 'issued', due_date: '2026-06-24', balance: 4500, total: 4500 },
+    { id: 4102, organization_id: 1, tenant_id: 2102, invoice_number: 'INV-PHONE-001', status: 'issued', due_date: '2026-06-23', balance: 7000, total: 7000 },
+    { id: 4103, organization_id: 1, tenant_id: 2103, invoice_number: 'INV-AMT-001', status: 'issued', due_date: '2026-06-21', balance: 8800, total: 8800 },
+    { id: 4104, organization_id: 1, tenant_id: 2104, invoice_number: 'INV-AMT-002', status: 'issued', due_date: '2026-06-22', balance: 8800, total: 8800 },
+    { id: 4105, organization_id: 1, tenant_id: 2101, invoice_number: 'INV-PAID-001', status: 'paid', due_date: '2026-06-19', balance: 4500, total: 4500 },
+    { id: 4201, organization_id: 2, tenant_id: 2201, invoice_number: 'INV-ORG2-001', status: 'issued', due_date: '2026-06-20', balance: 5000, total: 5000 }
+  ]);
+  matchingDb.seed('properties', [
+    { id: 5101, organization_id: 1, name: 'Alpha Court' },
+    { id: 5201, organization_id: 2, name: 'Beta Court' }
+  ]);
+  matchingDb.seed('units', [
+    { id: 3101, organization_id: 1, property_id: 5101, unit_code: 'A1' },
+    { id: 3102, organization_id: 1, property_id: 5101, unit_code: 'A2' },
+    { id: 3103, organization_id: 1, property_id: 5101, unit_code: 'A3' },
+    { id: 3104, organization_id: 1, property_id: 5101, unit_code: 'A4' },
+    { id: 3201, organization_id: 2, property_id: 5201, unit_code: 'B1' }
+  ]);
+  matchingDb.seed('transactions', []);
+  matchingDb.seed('payment_allocations', []);
+  matchingDb.seed('receipts', []);
+  matchingDb.seed('ledger', []);
+  matchingDb.seed('balances', []);
+
+  const matchingRouter = createPaymentEvidenceRoutes(matchingDb);
+  const matchingRouteLayer = matchingRouter.stack.find(l => l.route && l.route.path === '/payment-evidence/:id/matching-suggestions');
+  const matchingHandler = matchingRouteLayer && matchingRouteLayer.route.stack[matchingRouteLayer.route.stack.length - 1].handle;
+  const matchingMiddlewares = matchingRouteLayer ? matchingRouteLayer.route.stack.slice(0, -1).map(s => s.handle) : [];
+  const matchingRoleMiddleware = matchingMiddlewares[matchingMiddlewares.length - 1];
+
+  assert('Matching suggestions endpoint exists: GET /payment-evidence/:id/matching-suggestions', typeof matchingHandler === 'function');
+
+  for (const allowedRole of ['landlord', 'super_admin']) {
+    let allowStatus = null;
+    let allowNext = false;
+    await matchingRoleMiddleware(
+      { auth: { role: allowedRole, organizationId: 1, userId: 99 } },
+      {
+        status(code) { allowStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { allowNext = true; }
+    );
+    assert(`Matching suggestions allows ${allowedRole}`, allowNext === true && allowStatus === null);
+  }
+
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let blockedStatus = null;
+    let blockedNext = false;
+    await matchingRoleMiddleware(
+      { auth: { role: blockedRole, organizationId: 1, userId: 99 } },
+      {
+        status(code) { blockedStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { blockedNext = true; }
+    );
+    assert(`Matching suggestions blocks ${blockedRole}`, blockedStatus === 403 && blockedNext === false);
+  }
+
+  const runMatchingRequest = async ({ orgId = 1, role = 'landlord', id = 1201 } = {}) => {
+    let responseStatus = null;
+    let responsePayload = null;
+    await matchingHandler(
+      {
+        auth: { organizationId: orgId, role, userId: 99 },
+        params: { id: String(id) }
+      },
+      {
+        status(code) { responseStatus = code; return this; },
+        json(data) { responsePayload = data; return this; }
+      }
+    );
+    return { responseStatus, responsePayload };
+  };
+
+  const beforeMutationSnapshot = {
+    payment_evidence: JSON.stringify(matchingDb.get('payment_evidence')),
+    invoices: JSON.stringify(matchingDb.get('invoices')),
+    tenants: JSON.stringify(matchingDb.get('tenants')),
+    balances: JSON.stringify(matchingDb.get('balances')),
+    transactions: JSON.stringify(matchingDb.get('transactions')),
+    payment_allocations: JSON.stringify(matchingDb.get('payment_allocations')),
+    receipts: JSON.stringify(matchingDb.get('receipts')),
+    ledger: JSON.stringify(matchingDb.get('ledger'))
+  };
+
+  const missingResult = await runMatchingRequest({ orgId: 1, role: 'landlord', id: 999999 });
+  assert('Matching suggestions returns 404 for missing evidence', missingResult.responseStatus === 404);
+
+  const crossOrgResult = await runMatchingRequest({ orgId: 1, role: 'landlord', id: 1204 });
+  assert('Matching suggestions blocks/hides cross-org evidence', crossOrgResult.responseStatus === 404);
+
+  const invoiceRefResult = await runMatchingRequest({ orgId: 1, role: 'landlord', id: 1201 });
+  assert('Matching suggestions returns success for valid evidence', invoiceRefResult.responsePayload && invoiceRefResult.responsePayload.success === true);
+  assert('Matching suggestions response mode is review-only', invoiceRefResult.responsePayload && invoiceRefResult.responsePayload.mode === 'matching_suggestions_review_only');
+  assert('Matching suggestions response has matching_enabled false', invoiceRefResult.responsePayload && invoiceRefResult.responsePayload.matching_enabled === false);
+  assert('Matching suggestions response includes safety_message', invoiceRefResult.responsePayload && typeof invoiceRefResult.responsePayload.safety_message === 'string' && invoiceRefResult.responsePayload.safety_message.includes('review-only'));
+  assert('Exact invoice reference match produces high confidence', invoiceRefResult.responsePayload && Array.isArray(invoiceRefResult.responsePayload.suggestions) && invoiceRefResult.responsePayload.suggestions.some(s => s.invoice_number === 'INV-EXACT-001' && s.confidence === 'high'));
+
+  const phoneAmountResult = await runMatchingRequest({ orgId: 1, role: 'landlord', id: 1202 });
+  assert('Exact amount + tenant phone match produces high confidence', phoneAmountResult.responsePayload && Array.isArray(phoneAmountResult.responsePayload.suggestions) && phoneAmountResult.responsePayload.suggestions.some(s => s.tenant_phone && String(s.tenant_phone).includes('0700000001') && s.confidence === 'high'));
+
+  const amountOnlyResult = await runMatchingRequest({ orgId: 1, role: 'landlord', id: 1203 });
+  assert('Amount-only match produces low/medium confidence', amountOnlyResult.responsePayload && Array.isArray(amountOnlyResult.responsePayload.suggestions) && amountOnlyResult.responsePayload.suggestions.some(s => s.confidence === 'low' || s.confidence === 'medium'));
+  assert('Same-amount invoices produce warning', amountOnlyResult.responsePayload && Array.isArray(amountOnlyResult.responsePayload.suggestions) && amountOnlyResult.responsePayload.suggestions.some(s => Array.isArray(s.warnings) && s.warnings.some(w => /multiple invoices share/i.test(String(w)))));
+
+  assert('Paid invoice candidate produces warning or lower confidence', invoiceRefResult.responsePayload && Array.isArray(invoiceRefResult.responsePayload.suggestions) && invoiceRefResult.responsePayload.suggestions.some(s => s.invoice_number === 'INV-PAID-001' && ((Array.isArray(s.warnings) && s.warnings.length > 0) || s.confidence !== 'high')));
+
+  assert('Matching suggestions are sorted by confidence_score descending', invoiceRefResult.responsePayload && Array.isArray(invoiceRefResult.responsePayload.suggestions) && invoiceRefResult.responsePayload.suggestions.every((s, idx, arr) => idx === 0 || Number(arr[idx - 1].confidence_score || 0) >= Number(s.confidence_score || 0)));
+  assert('Matching suggestions are capped at 5', invoiceRefResult.responsePayload && Array.isArray(invoiceRefResult.responsePayload.suggestions) && invoiceRefResult.responsePayload.suggestions.length <= 5);
+
+  assert('Matching suggestions response does not mutate payment_evidence', JSON.stringify(matchingDb.get('payment_evidence')) === beforeMutationSnapshot.payment_evidence);
+  assert('Matching suggestions response does not mutate invoices', JSON.stringify(matchingDb.get('invoices')) === beforeMutationSnapshot.invoices);
+  assert('Matching suggestions response does not mutate tenants', JSON.stringify(matchingDb.get('tenants')) === beforeMutationSnapshot.tenants);
+  assert('Matching suggestions response does not mutate balances', JSON.stringify(matchingDb.get('balances')) === beforeMutationSnapshot.balances);
+  assert('Matching suggestions creates no transactions', JSON.stringify(matchingDb.get('transactions')) === beforeMutationSnapshot.transactions);
+  assert('Matching suggestions creates no payment allocations', JSON.stringify(matchingDb.get('payment_allocations')) === beforeMutationSnapshot.payment_allocations);
+  assert('Matching suggestions creates no receipts', JSON.stringify(matchingDb.get('receipts')) === beforeMutationSnapshot.receipts);
+  assert('Matching suggestions creates no ledger records', JSON.stringify(matchingDb.get('ledger')) === beforeMutationSnapshot.ledger);
+
+  const matchingPanelSliceMatch = paymentEvidenceContent.match(/Matching Suggestions[\s\S]{0,2200}/);
+  const matchingPanelSlice = matchingPanelSliceMatch ? matchingPanelSliceMatch[0] : '';
+
+  assert('PaymentEvidence.jsx contains Matching Suggestions', paymentEvidenceContent.includes('Matching Suggestions'));
+  assert('PaymentEvidence.jsx contains review-only suggestions message', paymentEvidenceContent.includes('Suggestions are review-only. No allocation or receipt is created.'));
+  assert('PaymentEvidence.jsx contains disabled future Confirm Match label', paymentEvidenceContent.includes('Confirm Match — Coming Later'));
+  assert('PaymentEvidence.jsx calls /matching-suggestions endpoint', paymentEvidenceContent.includes('/matching-suggestions'));
+  assert('Matching suggestions panel does not contain forbidden labels',
+    !/Auto Reconcile|Allocate Now|Confirm Allocation|Issue Receipt|Post Ledger|Mark Invoice Paid|Create Transaction/.test(matchingPanelSlice)
   );
 
   assert(
