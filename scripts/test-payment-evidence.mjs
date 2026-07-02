@@ -3181,22 +3181,35 @@ async function runTests() {
   const pdfInvoiceBefore = JSON.stringify(apiDb.get('invoices'));
   const pdfTenantBefore = JSON.stringify(apiDb.get('tenants'));
 
+  const pdfFixtureBuffer = fs.readFileSync('node_modules/pdf-parse/test/data/01-valid.pdf');
   await runPdfStatementRequest({
     originalname: 'July Statement.pdf',
     mimetype: 'application/pdf',
-    size: 12345,
-    buffer: Buffer.from('%PDF-1.4 preview-only')
+    size: pdfFixtureBuffer.length,
+    buffer: pdfFixtureBuffer
   });
 
   assert('Valid PDF statement preview returns success true', pdfStatementResponse && pdfStatementResponse.success === true);
-  assert('Valid PDF statement preview returns parser contract mode', pdfStatementResponse && pdfStatementResponse.mode === 'parser_contract_only');
-  assert('Valid PDF statement preview returns parser_status not_enabled', pdfStatementResponse && pdfStatementResponse.parser_status === 'not_enabled');
+  assert('Valid PDF statement preview returns text extraction mode', pdfStatementResponse && pdfStatementResponse.mode === 'text_extraction_preview');
+  assert('Valid PDF statement preview returns supported parser_status', pdfStatementResponse && ['text_extraction_enabled', 'no_text_found'].includes(pdfStatementResponse.parser_status));
   assert('Valid PDF statement preview returns PDF_STATEMENT source', pdfStatementResponse && pdfStatementResponse.document_source === 'PDF_STATEMENT');
-  assert('Valid PDF statement preview echoes file metadata', pdfStatementResponse && pdfStatementResponse.file && pdfStatementResponse.file.original_name === 'July Statement.pdf' && pdfStatementResponse.file.mime_type === 'application/pdf' && pdfStatementResponse.file.size_bytes === 12345);
+  assert('Valid PDF statement preview echoes file metadata', pdfStatementResponse && pdfStatementResponse.file && pdfStatementResponse.file.original_name === 'July Statement.pdf' && pdfStatementResponse.file.mime_type === 'application/pdf' && pdfStatementResponse.file.size_bytes === pdfFixtureBuffer.length);
+  assert('Valid PDF statement preview returns extraction object', pdfStatementResponse && pdfStatementResponse.extraction && typeof pdfStatementResponse.extraction === 'object');
+  assert('Extraction object includes text_available', pdfStatementResponse && typeof pdfStatementResponse.extraction.text_available === 'boolean');
+  assert('Extraction object includes text_length', pdfStatementResponse && typeof pdfStatementResponse.extraction.text_length === 'number');
+  assert('Extraction object includes page_count', pdfStatementResponse && typeof pdfStatementResponse.extraction.page_count === 'number');
+  assert('Extraction object includes sample_text', pdfStatementResponse && typeof pdfStatementResponse.extraction.sample_text === 'string');
+  assert('Extraction sample text is capped', pdfStatementResponse && pdfStatementResponse.extraction.sample_text.length <= 2000);
+  assert('Extraction object includes line_count', pdfStatementResponse && typeof pdfStatementResponse.extraction.line_count === 'number');
+  assert('Extraction object includes detected_keywords', pdfStatementResponse && Array.isArray(pdfStatementResponse.extraction.detected_keywords));
+  assert('Provider detection is disabled', pdfStatementResponse && pdfStatementResponse.provider_detection && pdfStatementResponse.provider_detection.enabled === false);
+  assert('Provider detection returns null provider', pdfStatementResponse && pdfStatementResponse.provider_detection.detected_provider === null);
+  assert('Provider detection confidence is not assessed', pdfStatementResponse && pdfStatementResponse.provider_detection.confidence === 'not_assessed');
   assert('Valid PDF statement preview returns no preview rows', pdfStatementResponse && Array.isArray(pdfStatementResponse.preview_rows) && pdfStatementResponse.preview_rows.length === 0);
   assert('Valid PDF statement preview returns warnings', pdfStatementResponse && Array.isArray(pdfStatementResponse.warnings) && pdfStatementResponse.warnings.includes('No payment evidence rows were imported.'));
-  assert('Valid PDF statement preview returns next parser steps', pdfStatementResponse && Array.isArray(pdfStatementResponse.next_parser_steps) && pdfStatementResponse.next_parser_steps.length === 4);
-  assert('Valid PDF statement preview returns safety message', pdfStatementResponse && pdfStatementResponse.safety_message === 'PDF statement upload readiness is preview-only. No payment evidence, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.');
+  assert('Valid PDF statement preview warns row parsing is disabled', pdfStatementResponse && pdfStatementResponse.warnings.includes('Transaction row parsing is not enabled in this release.'));
+  assert('Valid PDF statement preview returns next parser steps', pdfStatementResponse && Array.isArray(pdfStatementResponse.next_parser_steps) && pdfStatementResponse.next_parser_steps.length === 5);
+  assert('Valid PDF statement preview returns safety message', pdfStatementResponse && typeof pdfStatementResponse.safety_message === 'string' && pdfStatementResponse.safety_message.includes('read-only'));
 
   assert('PDF statement preview creates no payment evidence rows', JSON.stringify(apiDb.get('payment_evidence')) === pdfEvidenceBefore);
   assert('PDF statement preview creates no batches', JSON.stringify(apiDb.get('payment_evidence_batches')) === pdfBatchBefore);
@@ -3233,13 +3246,30 @@ async function runTests() {
   );
 
   assert(
-    'PaymentEvidence.jsx renders PDF parser readiness only panel',
+    'PaymentEvidence.jsx renders PDF extraction preview panel',
+    paymentEvidenceContent.includes('PDF text extraction preview') ||
     paymentEvidenceContent.includes('PDF parser readiness only')
   );
 
   assert(
-    'PaymentEvidence.jsx renders Check PDF Parser Readiness action',
-    paymentEvidenceContent.includes('Check PDF Parser Readiness')
+    'PaymentEvidence.jsx renders PDF parser readiness or extraction action',
+    paymentEvidenceContent.includes('Check PDF Parser Readiness') ||
+    paymentEvidenceContent.includes('Extract PDF Text Preview')
+  );
+
+  assert(
+    'PaymentEvidence.jsx clearly states transaction row parsing is not enabled yet',
+    paymentEvidenceContent.includes('Transaction row parsing is not enabled yet')
+  );
+
+  assert(
+    'PaymentEvidence.jsx displays PDF extraction metadata',
+    paymentEvidenceContent.includes('Parser Status') &&
+    paymentEvidenceContent.includes('Page Count') &&
+    paymentEvidenceContent.includes('Text Length') &&
+    paymentEvidenceContent.includes('Line Count') &&
+    paymentEvidenceContent.includes('Detected Keywords') &&
+    paymentEvidenceContent.includes('Sample Text')
   );
 
   assert(
@@ -3269,16 +3299,36 @@ async function runTests() {
   assert(
     'PaymentEvidence.jsx does not contain forbidden PDF action labels',
     !/\bImport PDF Rows\b/.test(paymentEvidenceContent) &&
-    !/\bExtract Transactions\b/.test(paymentEvidenceContent) &&
     !/\bAuto Import\b/.test(paymentEvidenceContent) &&
     !/\bAuto Reconcile\b(?!d)/.test(paymentEvidenceContent) &&
     !/\bPost Ledger\b/.test(paymentEvidenceContent)
   );
 
   assert(
-    'No PDF parser or OCR dependency/import was added',
-    !/from\s+['"](pdf-parse|pdfjs-dist|pdf-lib|tesseract\.js)['"]/i.test(routeContent + paymentEvidenceContent) &&
-    !/(pdf-parse|pdfjs-dist|pdf-lib|tesseract\.js)/i.test(JSON.stringify(JSON.parse(fs.readFileSync('package.json', 'utf8')).dependencies || {}))
+    'PaymentEvidence.jsx PDF flow does not call allocation, receipt, or ledger endpoints',
+    !/pdfReadiness[\s\S]{0,1200}(confirm-allocation|issue-receipt|receipt-result|receipt-print-view|\/api\/ledger)/i.test(paymentEvidenceContent)
+  );
+
+  const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+  const packageLockJson = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+  const dependencyNames = Object.keys(packageJson.dependencies || {});
+  const packageLockPackageNames = Object.keys(packageLockJson.packages || {}).join(' ');
+
+  assert(
+    'Only allowed PDF text extraction dependency is present',
+    dependencyNames.includes('pdf-parse') &&
+    packageJson.dependencies['pdf-parse'] === '^1.1.1'
+  );
+
+  assert(
+    'No OCR, Tesseract, or image/native PDF dependency was added',
+    !/(tesseract|ocr|sharp|canvas|@napi-rs\/canvas|pdf-lib|pdfjs-dist)/i.test(JSON.stringify(packageJson.dependencies || {})) &&
+    !/(tesseract|ocr|sharp|canvas|@napi-rs\/canvas|pdf-lib|pdfjs-dist)/i.test(packageLockPackageNames)
+  );
+
+  assert(
+    'No database migration was added for PDF text extraction',
+    !fs.readdirSync('db/migrations').some(file => /pdf|statement|parser/i.test(file))
   );
 
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);

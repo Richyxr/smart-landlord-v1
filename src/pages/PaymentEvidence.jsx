@@ -3063,7 +3063,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
                       <div>
-                        <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '2px' }}>PDF parser readiness only</div>
+                        <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '2px' }}>PDF text extraction preview</div>
                         <div style={{ color: 'var(--text-muted)' }}>No payment evidence rows will be extracted or imported in this release.</div>
                       </div>
                       <button
@@ -3077,7 +3077,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                           opacity: (!pdfFile || pdfReadinessLoading) ? 0.6 : 1
                         }}
                       >
-                        {pdfReadinessLoading ? 'Checking...' : 'Check PDF Parser Readiness'}
+                        {pdfReadinessLoading ? 'Extracting...' : 'Extract PDF Text Preview'}
                       </button>
                     </div>
 
@@ -3110,6 +3110,37 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                         <span className="text-muted">Document Source:</span>{' '}
                         <strong>{pdfReadinessData?.document_source || 'PDF_STATEMENT'}</strong>
                       </div>
+                      <div>
+                        <span className="text-muted">Page Count:</span>{' '}
+                        <strong>{pdfReadinessData?.extraction?.page_count ?? 'N/A'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-muted">Text Length:</span>{' '}
+                        <strong>{pdfReadinessData?.extraction?.text_length ?? 'N/A'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-muted">Line Count:</span>{' '}
+                        <strong>{pdfReadinessData?.extraction?.line_count ?? 'N/A'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-muted">Detected Keywords:</span>{' '}
+                        <strong>
+                          {pdfReadinessData?.extraction?.detected_keywords?.length
+                            ? pdfReadinessData.extraction.detected_keywords.join(', ')
+                            : 'None'}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}>
+                      <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>Sample Text</div>
+                      <pre style={{ margin: 0, whiteSpace: 'pre-wrap', maxHeight: '140px', overflow: 'auto', fontSize: '10px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                        {pdfReadinessData?.extraction?.sample_text || 'No sample text available yet.'}
+                      </pre>
+                    </div>
+
+                    <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--warning)', borderRadius: '6px', backgroundColor: 'rgba(var(--warning-rgb), 0.06)', color: 'var(--warning)', fontWeight: '700' }}>
+                      Transaction row parsing is not enabled yet
                     </div>
 
                     {pdfReadinessData?.warnings && (

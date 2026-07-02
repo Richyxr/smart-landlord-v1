@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import multer from 'multer';
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import { db as localDb } from '../db.js';
 import { normalizePaymentEvidence } from '../services/payment-evidence/normalizePaymentEvidence.js';
 
@@ -31,6 +32,20 @@ const getDaysDifference = (date1, date2) => {
 };
 
 const RECEIPT_ISSUANCE_CONTRACT_SAFETY_MESSAGE = 'This receipt issuance contract is read-only. No receipt number has been reserved and no receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.';
+const PDF_TEXT_SAMPLE_LIMIT = 2000;
+const PDF_DETECTION_KEYWORDS = [
+  'ACCOUNT STATEMENT',
+  'CUSTOMER ADVICE',
+  'Date',
+  'Debit',
+  'Credit',
+  'Balance',
+  'Transaction',
+  'Ref',
+  'M-PESA',
+  'Pay Bill',
+  'Received'
+];
 
 function buildDraftReceiptNumberPreview(orgId, row) {
   const parsedDate = row && row.transaction_date ? new Date(row.transaction_date) : new Date();
@@ -51,6 +66,47 @@ function receiptYearFromEvidence(row) {
 
 function buildFinalReceiptNumber(orgIdentifier, year, sequence) {
   return `RCP-${orgIdentifier}-${year}-${String(sequence).padStart(6, '0')}`;
+}
+
+function normalizePdfExtractedText(text) {
+  return String(text || '')
+    .replace(/\u0000/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim();
+}
+
+function detectPdfKeywords(text) {
+  const normalized = String(text || '').toLowerCase();
+  return PDF_DETECTION_KEYWORDS.filter(keyword => normalized.includes(keyword.toLowerCase()));
+}
+
+async function buildPdfTextExtractionPreview(file) {
+  let parsed = null;
+  try {
+    parsed = await pdfParse(file.buffer);
+  } catch (_err) {
+    parsed = null;
+  }
+
+  const extractedText = normalizePdfExtractedText(parsed && parsed.text);
+  const lines = extractedText
+    ? extractedText.split('\n').map(line => line.trim()).filter(Boolean)
+    : [];
+  const pageCount = parsed && Number.isFinite(Number(parsed.numpages)) ? Number(parsed.numpages) : 0;
+  const textAvailable = extractedText.length > 0;
+
+  return {
+    parserStatus: textAvailable ? 'text_extraction_enabled' : 'no_text_found',
+    extraction: {
+      text_available: textAvailable,
+      text_length: extractedText.length,
+      page_count: textAvailable ? pageCount : 0,
+      sample_text: extractedText.slice(0, PDF_TEXT_SAMPLE_LIMIT),
+      line_count: lines.length,
+      detected_keywords: textAvailable ? detectPdfKeywords(extractedText) : []
+    }
+  };
 }
 
 async function hasReceiptSchema(activeDb) {
@@ -2306,8 +2362,8 @@ export function createPaymentEvidenceRoutes(pgDb) {
   }));
 
   // POST /api/payment-evidence/pdf-statement-preview
-  // Readiness-only endpoint: accepts PDF, validates it, returns parser contract.
-  // Does NOT parse PDF text, extract rows, create batches, or mutate any records.
+  // Read-only endpoint: accepts PDF, extracts selectable text only, returns parser metadata.
+  // Does NOT OCR, parse transaction rows, create batches, or mutate any records.
   router.post(
     '/payment-evidence/pdf-statement-preview',
     requireAuthenticatedContext,
@@ -2354,43 +2410,84 @@ export function createPaymentEvidenceRoutes(pgDb) {
         });
       }
 
-      // File is in memory buffer — do not save, do not parse.
-      // Explicitly discard the buffer to avoid any accidental use.
+      // File is in memory buffer only. Do not save or parse transaction rows.
       const fileName = req.file.originalname || 'unknown.pdf';
       const fileSize = req.file.size || 0;
       const fileMime = req.file.mimetype;
+      const extractionPreview = await buildPdfTextExtractionPreview(req.file);
 
-      // Return parser contract readiness response.
+      if (!extractionPreview.extraction.text_available) {
+        return res.json({
+          success: true,
+          mode: 'text_extraction_preview',
+          document_source: 'PDF_STATEMENT',
+          parser_status: 'no_text_found',
+          file: {
+            original_name: fileName,
+            mime_type: fileMime,
+            size_bytes: fileSize
+          },
+          extraction: extractionPreview.extraction,
+          provider_detection: {
+            enabled: false,
+            detected_provider: null,
+            confidence: 'not_assessed',
+            message: 'Provider-specific detection is not enabled in this release.'
+          },
+          preview_rows: [],
+          warnings: [
+            'No selectable text was found in this PDF.',
+            'This may be a scanned/image-only PDF.',
+            'OCR is not enabled in this release.',
+            'No payment evidence rows were imported.'
+          ],
+          next_parser_steps: [
+            'Add provider detection for supported statement formats.',
+            'Add Loop statement row parser.',
+            'Add Co-op Bank statement row parser.',
+            'Show extracted transaction rows in preview.',
+            'Allow landlord-confirmed import into review queue.'
+          ],
+          safety_message: 'PDF text extraction preview is read-only. No records were changed.'
+        });
+      }
+
+      // Return text extraction preview only.
       // Zero database mutations — no payment_evidence, batches, transactions,
       // allocations, receipts, invoices, tenants, or ledger records are touched.
       return res.json({
         success: true,
-        mode: 'parser_contract_only',
+        mode: 'text_extraction_preview',
         document_source: 'PDF_STATEMENT',
-        parser_status: 'not_enabled',
+        parser_status: extractionPreview.parserStatus,
         file: {
           original_name: fileName,
           mime_type: fileMime,
           size_bytes: fileSize
         },
-        supported_future_sources: [
-          'MPESA_STATEMENT',
-          'BANK_STATEMENT',
-          'PDF_STATEMENT'
-        ],
+        extraction: extractionPreview.extraction,
+        provider_detection: {
+          enabled: false,
+          detected_provider: null,
+          confidence: 'not_assessed',
+          message: 'Provider-specific detection is not enabled in this release.'
+        },
         preview_rows: [],
         warnings: [
-          'PDF text extraction is not enabled in this release.',
+          'PDF text extraction is enabled for selectable-text PDFs only.',
+          'OCR for scanned PDFs is not enabled.',
+          'Transaction row parsing is not enabled in this release.',
           'No payment evidence rows were imported.',
-          'No invoice, tenant, receipt, ledger, or allocation record was changed.'
+          'No invoice, tenant, receipt, ledger, transaction, allocation, or balance record was changed.'
         ],
         next_parser_steps: [
-          'Add text-based PDF extraction.',
-          'Add provider-specific statement parser.',
-          'Show extracted rows in preview.',
+          'Add provider detection for supported statement formats.',
+          'Add Loop statement row parser.',
+          'Add Co-op Bank statement row parser.',
+          'Show extracted transaction rows in preview.',
           'Allow landlord-confirmed import into review queue.'
         ],
-        safety_message: 'PDF statement upload readiness is preview-only. No payment evidence, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.'
+        safety_message: 'PDF text extraction preview is read-only. No payment evidence, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.'
       });
     })
   );
