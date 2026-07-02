@@ -220,6 +220,40 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [parsedPreviewRows, setParsedPreviewRows] = useState([]);
   const [wizardError, setWizardError] = useState('');
 
+  // PDF Statement Readiness State
+  const [pdfFile, setPdfFile] = useState(null);
+  const [pdfReadinessData, setPdfReadinessData] = useState(null);
+  const [pdfReadinessLoading, setPdfReadinessLoading] = useState(false);
+  const [pdfReadinessError, setPdfReadinessError] = useState('');
+
+  const handlePdfStatementCheck = async () => {
+    if (!pdfFile) {
+      setPdfReadinessError('Please select a PDF file first.');
+      return;
+    }
+    setPdfReadinessLoading(true);
+    setPdfReadinessError('');
+    setPdfReadinessData(null);
+    try {
+      const formData = new FormData();
+      formData.append('statement', pdfFile);
+      const res = await fetch('/api/payment-evidence/pdf-statement-preview', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'PDF readiness check failed.');
+      }
+      setPdfReadinessData(data);
+    } catch (err) {
+      console.error(err);
+      setPdfReadinessError(err.message || 'PDF readiness check failed.');
+    } finally {
+      setPdfReadinessLoading(false);
+    }
+  };
+
   // Fetch batches & evidence rows
   useEffect(() => {
     fetchBatches();
@@ -474,6 +508,24 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       warnings,
       raw_fields: rawRow
     };
+  };
+
+  const handlePdfFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setPdfReadinessError('');
+    setPdfReadinessData(null);
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      setPdfReadinessError('Only PDF files are accepted. Please select a .pdf file.');
+      setPdfFile(null);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setPdfReadinessError('PDF file must not exceed 5 MB for the readiness preview.');
+      setPdfFile(null);
+      return;
+    }
+    setPdfFile(file);
   };
 
   const handleFileChange = (e) => {
@@ -2776,6 +2828,45 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                       </div>
                     )}
                   </div>
+                ) : importSource === 'pdf_bank' || importSource === 'pdf_receipt' || importSource === 'mpesa_statement' ? (
+                  <div style={{
+                    border: '2px dashed var(--primary)',
+                    borderRadius: '8px',
+                    padding: '30px',
+                    textAlign: 'center',
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    marginBottom: '16px',
+                    position: 'relative'
+                  }}>
+                    <Upload size={32} style={{ color: 'var(--primary)', marginBottom: '12px' }} />
+                    <p style={{ fontSize: '13px', fontWeight: '600', margin: '0 0 4px 0' }}>PDF Statement</p>
+                    <p style={{ fontSize: '11px', color: 'var(--primary)', margin: '0 0 4px 0', fontWeight: '700' }}>PDF parser readiness only</p>
+                    <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: '0 0 16px 0' }}>Accepts .pdf files up to 5 MB</p>
+
+                    <input
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      onChange={handlePdfFileChange}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        opacity: 0,
+                        cursor: 'pointer'
+                      }}
+                    />
+
+                    {pdfReadinessError && (
+                      <div style={{ fontSize: '11px', color: 'var(--danger)', fontWeight: '700', marginTop: '8px' }}>{pdfReadinessError}</div>
+                    )}
+                    {pdfFile && !pdfReadinessError && (
+                      <div style={{ fontSize: '12px', color: 'var(--success)', fontWeight: '700', marginTop: '10px' }}>
+                        Selected: {pdfFile.name} ({(pdfFile.size / 1024).toFixed(1)} KB)
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div style={{
                     border: '2px dashed var(--border)',
@@ -2855,7 +2946,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             {wizardStep === 4 && (
               <div>
                 <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 4: Preview Scored Records</h4>
-                {importSource === 'csv' && parsedPreviewRows.length > 0 ? (
+                {importSource === 'csv' ? (
                   <div>
                     {/* Summary counters grid */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '16px' }}>
@@ -2960,6 +3051,91 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                         <li>OCR receipt scanning & digitizing pipeline</li>
                         <li>Automatic matching engine with manual review queue reconciliation</li>
                       </ul>
+                    </div>
+                  </div>
+                ) : importSource === 'pdf_bank' || importSource === 'pdf_receipt' || importSource === 'mpesa_statement' ? (
+                  <div style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    padding: '16px',
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    fontSize: '11px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
+                      <div>
+                        <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '2px' }}>PDF parser readiness only</div>
+                        <div style={{ color: 'var(--text-muted)' }}>No payment evidence rows will be extracted or imported in this release.</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={handlePdfStatementCheck}
+                        disabled={!pdfFile || pdfReadinessLoading}
+                        style={{
+                          whiteSpace: 'nowrap',
+                          cursor: (!pdfFile || pdfReadinessLoading) ? 'not-allowed' : 'pointer',
+                          opacity: (!pdfFile || pdfReadinessLoading) ? 0.6 : 1
+                        }}
+                      >
+                        {pdfReadinessLoading ? 'Checking...' : 'Check PDF Parser Readiness'}
+                      </button>
+                    </div>
+
+                    {pdfReadinessError && (
+                      <div className="alert alert-danger" style={{ fontSize: '11px', padding: '10px', marginBottom: '12px' }}>
+                        {pdfReadinessError}
+                      </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', marginBottom: '12px' }}>
+                      <div>
+                        <span className="text-muted">Original File:</span>{' '}
+                        <strong>{pdfReadinessData?.file?.original_name || pdfFile?.name || 'No PDF selected'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-muted">File Size:</span>{' '}
+                        <strong>
+                          {pdfReadinessData?.file?.size_bytes
+                            ? `${(pdfReadinessData.file.size_bytes / 1024).toFixed(1)} KB`
+                            : pdfFile
+                              ? `${(pdfFile.size / 1024).toFixed(1)} KB`
+                              : 'N/A'}
+                        </strong>
+                      </div>
+                      <div>
+                        <span className="text-muted">Parser Status:</span>{' '}
+                        <strong style={{ color: 'var(--warning)' }}>{pdfReadinessData?.parser_status || 'not_checked'}</strong>
+                      </div>
+                      <div>
+                        <span className="text-muted">Document Source:</span>{' '}
+                        <strong>{pdfReadinessData?.document_source || 'PDF_STATEMENT'}</strong>
+                      </div>
+                    </div>
+
+                    {pdfReadinessData?.warnings && (
+                      <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--warning)', borderRadius: '6px', backgroundColor: 'rgba(var(--warning-rgb), 0.06)' }}>
+                        <div style={{ fontWeight: '700', color: 'var(--warning)', marginBottom: '6px' }}>Warnings</div>
+                        <ul style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-secondary)' }}>
+                          {pdfReadinessData.warnings.map((warning, idx) => (
+                            <li key={idx}>{warning}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {pdfReadinessData?.next_parser_steps && (
+                      <div style={{ marginBottom: '12px' }}>
+                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>Next parser steps</div>
+                        <ol style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-muted)' }}>
+                          {pdfReadinessData.next_parser_steps.map((step, idx) => (
+                            <li key={idx}>{step}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+
+                    <div style={{ padding: '10px', borderRadius: '6px', backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)' }}>
+                      {pdfReadinessData?.safety_message || 'PDF statement upload readiness is preview-only. No payment evidence, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.'}
                     </div>
                   </div>
                 ) : (

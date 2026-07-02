@@ -1,7 +1,14 @@
 import express from 'express';
 import crypto from 'crypto';
+import multer from 'multer';
 import { db as localDb } from '../db.js';
 import { normalizePaymentEvidence } from '../services/payment-evidence/normalizePaymentEvidence.js';
+
+// Memory-only multer instance for PDF readiness preview (no files written to disk)
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 } // 5 MB hard cap
+});
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -2297,6 +2304,96 @@ export function createPaymentEvidenceRoutes(pgDb) {
       safety_message: 'Receipt print view lookup is read-only. No records were changed by this lookup.'
     });
   }));
+
+  // POST /api/payment-evidence/pdf-statement-preview
+  // Readiness-only endpoint: accepts PDF, validates it, returns parser contract.
+  // Does NOT parse PDF text, extract rows, create batches, or mutate any records.
+  router.post(
+    '/payment-evidence/pdf-statement-preview',
+    requireAuthenticatedContext,
+    requireLandlordOrSuperAdmin,
+    (req, res, next) => {
+      pdfUpload.single('statement')(req, res, (err) => {
+        if (err && err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({
+            error: 'FILE_TOO_LARGE',
+            message: 'PDF file must not exceed 5 MB for the readiness preview.'
+          });
+        }
+        if (err) {
+          return res.status(400).json({
+            error: 'UPLOAD_ERROR',
+            message: err.message || 'File upload failed.'
+          });
+        }
+        next();
+      });
+    },
+    asyncHandler(async (req, res) => {
+      // File presence check
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'NO_FILE',
+          message: 'No PDF file was attached. Please upload a file using the "statement" field.'
+        });
+      }
+
+      // MIME type check — must be application/pdf
+      const mime = req.file.mimetype || '';
+      if (mime !== 'application/pdf') {
+        return res.status(400).json({
+          error: 'INVALID_FILE_TYPE',
+          message: `Only PDF files are accepted (received: ${mime || 'unknown'}). Please upload a file with MIME type application/pdf.`
+        });
+      }
+
+      if (Number(req.file.size || 0) > 5 * 1024 * 1024) {
+        return res.status(400).json({
+          error: 'FILE_TOO_LARGE',
+          message: 'PDF file must not exceed 5 MB for the readiness preview.'
+        });
+      }
+
+      // File is in memory buffer — do not save, do not parse.
+      // Explicitly discard the buffer to avoid any accidental use.
+      const fileName = req.file.originalname || 'unknown.pdf';
+      const fileSize = req.file.size || 0;
+      const fileMime = req.file.mimetype;
+
+      // Return parser contract readiness response.
+      // Zero database mutations — no payment_evidence, batches, transactions,
+      // allocations, receipts, invoices, tenants, or ledger records are touched.
+      return res.json({
+        success: true,
+        mode: 'parser_contract_only',
+        document_source: 'PDF_STATEMENT',
+        parser_status: 'not_enabled',
+        file: {
+          original_name: fileName,
+          mime_type: fileMime,
+          size_bytes: fileSize
+        },
+        supported_future_sources: [
+          'MPESA_STATEMENT',
+          'BANK_STATEMENT',
+          'PDF_STATEMENT'
+        ],
+        preview_rows: [],
+        warnings: [
+          'PDF text extraction is not enabled in this release.',
+          'No payment evidence rows were imported.',
+          'No invoice, tenant, receipt, ledger, or allocation record was changed.'
+        ],
+        next_parser_steps: [
+          'Add text-based PDF extraction.',
+          'Add provider-specific statement parser.',
+          'Show extracted rows in preview.',
+          'Allow landlord-confirmed import into review queue.'
+        ],
+        safety_message: 'PDF statement upload readiness is preview-only. No payment evidence, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.'
+      });
+    })
+  );
 
   return router;
 }

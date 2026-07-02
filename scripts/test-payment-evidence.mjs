@@ -3077,6 +3077,210 @@ async function runTests() {
     })()
   );
 
+  // ==========================================
+  // Test 22: PDF Statement Upload Readiness + Parser Contract
+  // ==========================================
+  console.log('\n22. PDF Statement Upload Readiness + Parser Contract:');
+
+  const pdfStatementHandler = getRouteHandler('/payment-evidence/pdf-statement-preview');
+  const pdfStatementMiddlewares = getRouteMiddlewares('/payment-evidence/pdf-statement-preview');
+
+  assert(
+    'PDF statement preview endpoint exists',
+    typeof pdfStatementHandler === 'function'
+  );
+
+  assert(
+    'PDF statement preview endpoint requires landlord or super_admin role',
+    pdfStatementMiddlewares.includes(requireLandlordOrSuperAdminMiddleware)
+  );
+
+  for (const allowedRole of ['landlord', 'super_admin']) {
+    let pdfAllowedNextCalled = false;
+    let pdfAllowedStatus = null;
+    await requireLandlordOrSuperAdminMiddleware(
+      { auth: { role: allowedRole, organizationId: 1, userId: 10 } },
+      {
+        status(code) { pdfAllowedStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { pdfAllowedNextCalled = true; }
+    );
+    assert(`PDF statement preview allows ${allowedRole}`, pdfAllowedNextCalled === true && pdfAllowedStatus === null);
+  }
+
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let pdfBlockedStatus = null;
+    let pdfBlockedNextCalled = false;
+    await requireLandlordOrSuperAdminMiddleware(
+      { auth: { role: blockedRole, organizationId: 1, userId: 99 } },
+      {
+        status(code) { pdfBlockedStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { pdfBlockedNextCalled = true; }
+    );
+    assert(`PDF statement preview blocks ${blockedRole}`, pdfBlockedStatus === 403 && pdfBlockedNextCalled === false);
+  }
+
+  let pdfStatementStatus = null;
+  let pdfStatementResponse = null;
+  const pdfStatementMockRes = {
+    status(code) { pdfStatementStatus = code; return this; },
+    json(data) { pdfStatementResponse = data; return this; }
+  };
+
+  const runPdfStatementRequest = async (file) => {
+    pdfStatementStatus = null;
+    pdfStatementResponse = null;
+    await pdfStatementHandler(
+      {
+        auth: { organizationId: 1, role: 'landlord', userId: 10 },
+        file
+      },
+      pdfStatementMockRes
+    );
+  };
+
+  await runPdfStatementRequest(undefined);
+  assert('PDF statement preview rejects missing file', pdfStatementStatus === 400 && pdfStatementResponse.error === 'NO_FILE');
+
+  await runPdfStatementRequest({
+    originalname: 'statement.txt',
+    mimetype: 'text/plain',
+    size: 1024,
+    buffer: Buffer.from('not a pdf')
+  });
+  assert('PDF statement preview rejects non-PDF file', pdfStatementStatus === 400 && pdfStatementResponse.error === 'INVALID_FILE_TYPE');
+
+  await runPdfStatementRequest({
+    originalname: 'large-statement.pdf',
+    mimetype: 'application/pdf',
+    size: (5 * 1024 * 1024) + 1,
+    buffer: Buffer.alloc(0)
+  });
+  assert('PDF statement preview rejects files larger than 5 MB', pdfStatementStatus === 400 && pdfStatementResponse.error === 'FILE_TOO_LARGE');
+
+  apiDb.seed('payment_evidence', []);
+  apiDb.seed('payment_evidence_batches', []);
+  apiDb.seed('transactions', []);
+  apiDb.seed('payment_allocations', []);
+  apiDb.seed('receipts', []);
+  apiDb.seed('invoices', [
+    { id: 9901, organization_id: 1, tenant_id: 9902, invoice_number: 'INV-PDF-1', status: 'issued', balance: 12000, amount_paid: 0 }
+  ]);
+  apiDb.seed('tenants', [
+    { id: 9902, organization_id: 1, full_name: 'PDF Readiness Tenant', balance: 0 }
+  ]);
+
+  const pdfEvidenceBefore = JSON.stringify(apiDb.get('payment_evidence'));
+  const pdfBatchBefore = JSON.stringify(apiDb.get('payment_evidence_batches'));
+  const pdfTransactionBefore = JSON.stringify(apiDb.get('transactions'));
+  const pdfAllocationBefore = JSON.stringify(apiDb.get('payment_allocations'));
+  const pdfReceiptBefore = JSON.stringify(apiDb.get('receipts'));
+  const pdfInvoiceBefore = JSON.stringify(apiDb.get('invoices'));
+  const pdfTenantBefore = JSON.stringify(apiDb.get('tenants'));
+
+  await runPdfStatementRequest({
+    originalname: 'July Statement.pdf',
+    mimetype: 'application/pdf',
+    size: 12345,
+    buffer: Buffer.from('%PDF-1.4 preview-only')
+  });
+
+  assert('Valid PDF statement preview returns success true', pdfStatementResponse && pdfStatementResponse.success === true);
+  assert('Valid PDF statement preview returns parser contract mode', pdfStatementResponse && pdfStatementResponse.mode === 'parser_contract_only');
+  assert('Valid PDF statement preview returns parser_status not_enabled', pdfStatementResponse && pdfStatementResponse.parser_status === 'not_enabled');
+  assert('Valid PDF statement preview returns PDF_STATEMENT source', pdfStatementResponse && pdfStatementResponse.document_source === 'PDF_STATEMENT');
+  assert('Valid PDF statement preview echoes file metadata', pdfStatementResponse && pdfStatementResponse.file && pdfStatementResponse.file.original_name === 'July Statement.pdf' && pdfStatementResponse.file.mime_type === 'application/pdf' && pdfStatementResponse.file.size_bytes === 12345);
+  assert('Valid PDF statement preview returns no preview rows', pdfStatementResponse && Array.isArray(pdfStatementResponse.preview_rows) && pdfStatementResponse.preview_rows.length === 0);
+  assert('Valid PDF statement preview returns warnings', pdfStatementResponse && Array.isArray(pdfStatementResponse.warnings) && pdfStatementResponse.warnings.includes('No payment evidence rows were imported.'));
+  assert('Valid PDF statement preview returns next parser steps', pdfStatementResponse && Array.isArray(pdfStatementResponse.next_parser_steps) && pdfStatementResponse.next_parser_steps.length === 4);
+  assert('Valid PDF statement preview returns safety message', pdfStatementResponse && pdfStatementResponse.safety_message === 'PDF statement upload readiness is preview-only. No payment evidence, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.');
+
+  assert('PDF statement preview creates no payment evidence rows', JSON.stringify(apiDb.get('payment_evidence')) === pdfEvidenceBefore);
+  assert('PDF statement preview creates no batches', JSON.stringify(apiDb.get('payment_evidence_batches')) === pdfBatchBefore);
+  assert('PDF statement preview creates no transactions', JSON.stringify(apiDb.get('transactions')) === pdfTransactionBefore);
+  assert('PDF statement preview creates no payment allocations', JSON.stringify(apiDb.get('payment_allocations')) === pdfAllocationBefore);
+  assert('PDF statement preview creates no receipts', JSON.stringify(apiDb.get('receipts')) === pdfReceiptBefore);
+  assert('PDF statement preview creates no ledger records', apiDb.get('transactions').filter(t => t.ledger).length === 0);
+  assert('PDF statement preview leaves invoices unchanged', JSON.stringify(apiDb.get('invoices')) === pdfInvoiceBefore);
+  assert('PDF statement preview leaves tenants unchanged', JSON.stringify(apiDb.get('tenants')) === pdfTenantBefore);
+
+  assert(
+    'PDF statement preview uses memory-only multer storage',
+    routeContent.includes('multer.memoryStorage()') &&
+    routeContent.includes("pdfUpload.single('statement')")
+  );
+
+  assert(
+    'PDF statement preview route contains no database write calls in handler block',
+    (() => {
+      const marker = "router.post(\n    '/payment-evidence/pdf-statement-preview'";
+      const startIdx = routeContent.indexOf(marker);
+      if (startIdx === -1) return false;
+      const block = routeContent.slice(startIdx, startIdx + 3500);
+      return !/activeDb\.(insert|update|delete)/i.test(block) &&
+             !/INSERT\s+INTO/i.test(block) &&
+             !/UPDATE\s+/i.test(block) &&
+             !/DELETE\s+FROM/i.test(block);
+    })()
+  );
+
+  assert(
+    'PaymentEvidence.jsx contains PDF Statement import source',
+    paymentEvidenceContent.includes('PDF Statement')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders PDF parser readiness only panel',
+    paymentEvidenceContent.includes('PDF parser readiness only')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders Check PDF Parser Readiness action',
+    paymentEvidenceContent.includes('Check PDF Parser Readiness')
+  );
+
+  assert(
+    'PaymentEvidence.jsx calls PDF statement preview endpoint',
+    paymentEvidenceContent.includes('/api/payment-evidence/pdf-statement-preview') &&
+    paymentEvidenceContent.includes("method: 'POST'")
+  );
+
+  assert(
+    'PaymentEvidence.jsx accepts PDF files only for PDF readiness input',
+    paymentEvidenceContent.includes('accept="application/pdf,.pdf"')
+  );
+
+  assert(
+    'PaymentEvidence.jsx keeps PDF final import disabled by CSV-only isImportEnabled',
+    paymentEvidenceContent.includes("importSource === 'csv'") &&
+    paymentEvidenceContent.includes('disabled={!isImportEnabled || importing}') &&
+    paymentEvidenceContent.includes('Import CSV to Review Queue')
+  );
+
+  assert(
+    'PaymentEvidence.jsx keeps PDF readiness separate from CSV preview counters/table',
+    paymentEvidenceContent.includes("importSource === 'csv' ?") &&
+    !paymentEvidenceContent.includes("importSource === 'csv' || importSource === 'pdf_bank'")
+  );
+
+  assert(
+    'PaymentEvidence.jsx does not contain forbidden PDF action labels',
+    !/\bImport PDF Rows\b/.test(paymentEvidenceContent) &&
+    !/\bExtract Transactions\b/.test(paymentEvidenceContent) &&
+    !/\bAuto Import\b/.test(paymentEvidenceContent) &&
+    !/\bAuto Reconcile\b(?!d)/.test(paymentEvidenceContent) &&
+    !/\bPost Ledger\b/.test(paymentEvidenceContent)
+  );
+
+  assert(
+    'No PDF parser or OCR dependency/import was added',
+    !/from\s+['"](pdf-parse|pdfjs-dist|pdf-lib|tesseract\.js)['"]/i.test(routeContent + paymentEvidenceContent) &&
+    !/(pdf-parse|pdfjs-dist|pdf-lib|tesseract\.js)/i.test(JSON.stringify(JSON.parse(fs.readFileSync('package.json', 'utf8')).dependencies || {}))
+  );
+
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
   if (failures > 0) {
     process.exit(1);
