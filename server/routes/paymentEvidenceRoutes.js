@@ -114,14 +114,23 @@ const PDF_PROVIDER_DETECTION_RULES = [
     provider: 'MPESA_STATEMENT',
     statementType: 'mpesa_statement',
     indicators: [
+      { value: 'M-PESA Statement', weight: 35 },
       { value: 'M-PESA', weight: 30 },
       { value: 'MPESA', weight: 30 },
+      { value: 'Safaricom', weight: 20 },
       { value: 'Receipt No', weight: 15 },
       { value: 'Completion Time', weight: 15 },
       { value: 'Paid In', weight: 5 },
       { value: 'Withdrawn', weight: 5 },
       { value: 'Balance', weight: 5 },
-      { value: 'Transaction Status', weight: 15 }
+      { value: 'Transaction Status', weight: 15 },
+      { value: 'Transaction Type', weight: 10 },
+      { value: 'Pay Bill', weight: 8 },
+      { value: 'Buy Goods', weight: 8 },
+      { value: 'Customer Transfer', weight: 8 },
+      { value: 'Business Payment', weight: 8 },
+      { value: 'Funds received from', weight: 8 },
+      { value: 'Deposit of Funds', weight: 8 }
     ]
   }
 ];
@@ -235,6 +244,27 @@ function normalizePdfExtractedText(text) {
 function detectPdfKeywords(text) {
   const normalized = String(text || '').toLowerCase();
   return PDF_DETECTION_KEYWORDS.filter(keyword => normalized.includes(keyword.toLowerCase()));
+}
+
+function decodeSimplePdfTextLiteral(value) {
+  return String(value || '')
+    .replace(/\\\)/g, ')')
+    .replace(/\\\(/g, '(')
+    .replace(/\\\\/g, '\\');
+}
+
+function extractSimplePdfTextOperators(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) return '';
+  const raw = buffer.toString('latin1');
+  const lines = [];
+  const textObjectPattern = /BT[\s\S]*?\(([^()]*(?:\\.[^()]*)*)\)\s*Tj[\s\S]*?ET/g;
+  let match = textObjectPattern.exec(raw);
+  while (match) {
+    const line = decodeSimplePdfTextLiteral(match[1]).trim();
+    if (line) lines.push(line);
+    match = textObjectPattern.exec(raw);
+  }
+  return lines.join('\n');
 }
 
 function normalizeLoopNumeric(value) {
@@ -546,6 +576,351 @@ export function summarizeLoopParserValidation(rows, skippedCount) {
   return summary;
 }
 
+function normalizeMpesaNumeric(value) {
+  if (value === null || value === undefined) return 0;
+  const cleaned = String(value).replace(/,/g, '').trim();
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeMpesaPhone(rawPhone) {
+  if (!rawPhone) return null;
+  const digits = String(rawPhone).replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.startsWith('254') && digits.length >= 12) return digits.slice(0, 12);
+  if (digits.startsWith('0') && digits.length >= 10) return `254${digits.slice(1, 10)}`;
+  if (digits.length === 9) return `254${digits}`;
+  return digits;
+}
+
+function formatMpesaDateToIso(rawDate) {
+  const text = String(rawDate || '').trim();
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) return text;
+
+  const slashMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    return `${slashMatch[3]}-${String(slashMatch[2]).padStart(2, '0')}-${String(slashMatch[1]).padStart(2, '0')}`;
+  }
+
+  return null;
+}
+
+function extractMpesaMonetaryColumns(text) {
+  const raw = String(text || '').replace(/\s+/g, ' ').trim();
+  const numberPattern = '(-?\\d+(?:,\\d{3})*(?:\\.\\d{1,2})?)';
+  const match = raw.match(new RegExp(`${numberPattern}\\s+${numberPattern}\\s+${numberPattern}\\s*$`));
+  if (!match) return null;
+  return {
+    paidIn: normalizeMpesaNumeric(match[1]),
+    withdrawn: normalizeMpesaNumeric(match[2]),
+    balance: normalizeMpesaNumeric(match[3]),
+    numericTail: match[0]
+  };
+}
+
+function reconstructMpesaLogicalRows(text) {
+  const lines = String(text || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const rows = [];
+  let current = '';
+
+  for (const line of lines) {
+    const startsTransaction = /\b[A-Z0-9]{8,12}\b\s+(?:\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4})\s+\d{2}:\d{2}:\d{2}/i.test(line);
+    if (startsTransaction) {
+      if (current && extractMpesaMonetaryColumns(current)) {
+        rows.push(current.trim());
+      }
+      current = line;
+    } else {
+      current = current ? `${current} ${line}` : line;
+    }
+
+    if (extractMpesaMonetaryColumns(current)) {
+      rows.push(current.trim());
+      current = '';
+    }
+  }
+
+  if (current.trim() && extractMpesaMonetaryColumns(current)) {
+    rows.push(current.trim());
+  }
+
+  return rows;
+}
+
+function isMpesaFeeOrChargeRow(text) {
+  return /(charge|transaction cost|withdrawal charge|pay bill charge|m-pesa charges|mpesa charges|excise duty|fee)/i.test(String(text || ''));
+}
+
+function deriveMpesaTransactionType(text) {
+  const raw = String(text || '').toLowerCase();
+  if (isMpesaFeeOrChargeRow(raw)) return 'fee';
+  if (/(pay\s*bill|paybill)/i.test(raw)) return 'paybill_payment';
+  if (/(buy goods|till)/i.test(raw)) return 'buy_goods';
+  if (/(customer transfer|funds received from|deposit of funds)/i.test(raw)) return 'customer_transfer';
+  if (/business payment/i.test(raw)) return 'business_payment';
+  return 'unknown';
+}
+
+function extractMpesaPayer(description) {
+  const text = String(description || '').replace(/\s+/g, ' ').trim();
+  const phoneMatch = text.match(/\b(254\d{9}|0\d{9})\b/);
+  const payerPhone = phoneMatch ? normalizeMpesaPhone(phoneMatch[1]) : null;
+  let payerName = null;
+
+  if (phoneMatch) {
+    const beforePhone = text.slice(0, phoneMatch.index || 0);
+    const nameMatch = beforePhone.match(/\b(?:from|received from|funds received from|customer transfer from|payment from)\s+([A-Z][A-Z\s'.-]{2,})\s*$/i);
+    if (nameMatch && nameMatch[1]) {
+      payerName = String(nameMatch[1]).replace(/\s+/g, ' ').trim();
+    }
+  }
+
+  return {
+    payer_name: payerName || null,
+    payer_phone: payerPhone || null
+  };
+}
+
+function extractMpesaReferenceAccount(description) {
+  const text = String(description || '');
+  const accountMatch = text.match(/\bAccount\s+([A-Z0-9][A-Z0-9._/-]{1,40})\b/i);
+  if (accountMatch && accountMatch[1]) return accountMatch[1].toUpperCase();
+
+  const referenceMatch = text.match(/\b(?:Reference|Ref|Bill Ref|Account No)\s*[:#-]?\s*([A-Z0-9][A-Z0-9._/-]{1,40})\b/i);
+  if (referenceMatch && referenceMatch[1]) return referenceMatch[1].toUpperCase();
+
+  return null;
+}
+
+function parseMpesaLogicalRow(rowText, sourceRowIndex) {
+  const raw = String(rowText || '').replace(/\s+/g, ' ').trim();
+  const monetary = extractMpesaMonetaryColumns(raw);
+  if (!monetary) return null;
+
+  const withoutTail = raw.replace(monetary.numericTail, '').trim();
+  const match = withoutTail.match(/^([A-Z0-9]{8,12})\s+(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4})\s+(\d{2}:\d{2}:\d{2})\s+(.+?)(?:\s+(Completed|Complete|Successful|Success|Failed|Cancelled|Reversed))?$/i);
+  if (!match) {
+    return {
+      source_row_index: sourceRowIndex,
+      transaction_date: null,
+      transaction_time: null,
+      transaction_code: null,
+      description: withoutTail,
+      payer_name: null,
+      payer_phone: null,
+      paybill_reference: null,
+      reference_account: null,
+      debit: monetary.withdrawn,
+      credit: monetary.paidIn,
+      amount: Math.max(monetary.paidIn, monetary.withdrawn),
+      direction: 'unknown',
+      balance: monetary.balance,
+      collection_channel: 'mpesa',
+      transaction_type: deriveMpesaTransactionType(withoutTail),
+      document_source: 'MPESA_STATEMENT',
+      source_provider: 'MPESA',
+      source_perspective: 'landlord',
+      raw_text: raw.slice(0, PDF_PREVIEW_ROW_RAW_TEXT_LIMIT),
+      warnings: ['Could not parse M-Pesa receipt/date/time fields.']
+    };
+  }
+
+  const transactionCode = String(match[1] || '').toUpperCase();
+  const transactionDate = formatMpesaDateToIso(match[2]);
+  const transactionTime = match[3] || null;
+  const description = String(match[4] || '').replace(/\s+/g, ' ').trim();
+  const payer = extractMpesaPayer(description);
+  const referenceAccount = extractMpesaReferenceAccount(description);
+  const direction = monetary.paidIn > 0 && monetary.withdrawn === 0
+    ? 'money_in'
+    : (monetary.withdrawn > 0 && monetary.paidIn === 0 ? 'money_out' : 'unknown');
+  const amount = direction === 'money_in'
+    ? monetary.paidIn
+    : (direction === 'money_out' ? monetary.withdrawn : Math.max(monetary.paidIn, monetary.withdrawn));
+
+  return {
+    source_row_index: sourceRowIndex,
+    transaction_date: transactionDate,
+    transaction_time: transactionTime,
+    transaction_code: transactionCode,
+    description,
+    payer_name: payer.payer_name,
+    payer_phone: payer.payer_phone,
+    paybill_reference: referenceAccount,
+    reference_account: referenceAccount,
+    debit: monetary.withdrawn,
+    credit: monetary.paidIn,
+    amount,
+    direction,
+    balance: monetary.balance,
+    collection_channel: 'mpesa',
+    transaction_type: deriveMpesaTransactionType(description),
+    document_source: 'MPESA_STATEMENT',
+    source_provider: 'MPESA',
+    source_perspective: 'landlord',
+    raw_text: raw.slice(0, PDF_PREVIEW_ROW_RAW_TEXT_LIMIT),
+    warnings: []
+  };
+}
+
+export function validateMpesaPreviewRow(row, context = {}) {
+  const duplicateLikeCodes = context.duplicateLikeCodes || new Set();
+  const transactionCode = row && row.transaction_code ? String(row.transaction_code).toUpperCase() : '';
+  const amount = Number(row && row.amount);
+  const balance = Number(row && row.balance);
+  const channel = String(row && row.collection_channel || 'unknown');
+  const validation = {
+    is_valid: false,
+    has_valid_date: Boolean(row && typeof row.transaction_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.transaction_date)),
+    has_valid_amount: Number.isFinite(amount) && amount > 0,
+    has_transaction_code: Boolean(transactionCode),
+    has_direction: row && (row.direction === 'money_in' || row.direction === 'money_out'),
+    has_balance: Number.isFinite(balance),
+    has_supported_channel: channel === 'mpesa',
+    is_fee_or_charge: Boolean(row && (row.transaction_type === 'fee' || isMpesaFeeOrChargeRow(row.raw_text || row.description || ''))),
+    is_duplicate_like: transactionCode ? duplicateLikeCodes.has(transactionCode) : false
+  };
+
+  validation.is_valid = validation.has_valid_date &&
+    validation.has_valid_amount &&
+    validation.has_transaction_code &&
+    validation.has_direction &&
+    validation.has_balance &&
+    validation.has_supported_channel &&
+    !validation.is_fee_or_charge &&
+    !validation.is_duplicate_like;
+
+  return validation;
+}
+
+export function scoreMpesaPreviewRow(row, validation) {
+  let score = 0;
+
+  if (validation.has_valid_date) score += 15;
+  if (validation.has_valid_amount) score += 15;
+  if (validation.has_transaction_code) score += 20;
+  if (validation.has_direction) score += 15;
+  if (validation.has_supported_channel) score += 10;
+  if (validation.has_balance) score += 10;
+  if (row && (row.payer_name || row.payer_phone || row.reference_account || row.paybill_reference)) score += 10;
+  if (!validation.is_fee_or_charge) score += 5;
+
+  let parserConfidence = 'unknown';
+  if (score >= 80) parserConfidence = 'high';
+  else if (score >= 55) parserConfidence = 'medium';
+  else if (score >= 25) parserConfidence = 'low';
+
+  return {
+    confidence_score: score,
+    parser_confidence: parserConfidence
+  };
+}
+
+export function parseMpesaStatementPreviewRows(text) {
+  const logicalRows = reconstructMpesaLogicalRows(text);
+  const warnings = [];
+  let rowsDetected = 0;
+  let rowsSkipped = 0;
+  const parsedRows = [];
+
+  for (const rowText of logicalRows) {
+    const monetary = extractMpesaMonetaryColumns(rowText);
+    if (!monetary) continue;
+    rowsDetected += 1;
+
+    if (isMpesaFeeOrChargeRow(rowText)) {
+      rowsSkipped += 1;
+      continue;
+    }
+
+    const row = parseMpesaLogicalRow(rowText, rowsDetected);
+    if (!row) continue;
+    parsedRows.push(row);
+
+    if (parsedRows.length >= PDF_PREVIEW_ROW_LIMIT) {
+      warnings.push(`Preview row limit reached (${PDF_PREVIEW_ROW_LIMIT}). Additional parsed rows were not returned.`);
+      break;
+    }
+  }
+
+  const duplicateLikeCodes = new Set();
+  const codeCounts = parsedRows.reduce((acc, row) => {
+    if (!row.transaction_code) return acc;
+    const key = String(row.transaction_code).toUpperCase();
+    acc.set(key, (acc.get(key) || 0) + 1);
+    return acc;
+  }, new Map());
+
+  for (const [code, count] of codeCounts.entries()) {
+    if (count > 1) duplicateLikeCodes.add(code);
+  }
+
+  const previewRows = parsedRows.map((row) => {
+    const validation = validateMpesaPreviewRow(row, { duplicateLikeCodes });
+    const confidence = scoreMpesaPreviewRow(row, validation);
+    const validationErrors = [];
+    const rowWarnings = [...(Array.isArray(row.warnings) ? row.warnings : [])];
+
+    if (!validation.has_valid_date) validationErrors.push('Missing or invalid transaction_date.');
+    if (!validation.has_valid_amount) validationErrors.push('Missing or invalid amount.');
+    if (!validation.has_transaction_code) validationErrors.push('Missing transaction_code.');
+    if (!validation.has_direction) validationErrors.push('Missing or ambiguous transaction direction.');
+    if (!validation.has_balance) validationErrors.push('Missing or invalid balance value.');
+    if (!validation.has_supported_channel) validationErrors.push('Unsupported or unknown collection channel.');
+    if (validation.is_duplicate_like) {
+      validationErrors.push('Duplicate-like transaction code detected in preview rows.');
+      rowWarnings.push('Duplicate-like transaction code detected in preview rows.');
+    }
+
+    let rowStatus = 'needs_attention';
+    if (validation.is_fee_or_charge) {
+      rowStatus = 'skipped';
+    } else if (validation.is_valid && (confidence.parser_confidence === 'high' || confidence.parser_confidence === 'medium')) {
+      rowStatus = 'ready_for_review';
+    }
+
+    return {
+      ...row,
+      row_status: rowStatus,
+      parser_confidence: confidence.parser_confidence,
+      confidence_score: confidence.confidence_score,
+      validation,
+      validation_errors: validationErrors,
+      warnings: Array.from(new Set(rowWarnings))
+    };
+  });
+
+  if (rowsDetected === 0) {
+    warnings.push('No M-Pesa-style transaction rows with paid-in/withdrawn/balance columns were detected.');
+  }
+
+  return {
+    rowsDetected,
+    rowsSkipped,
+    previewRows,
+    warnings
+  };
+}
+
+export function summarizeMpesaParserValidation(rows, skippedCount) {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  return {
+    ready_for_review_count: safeRows.filter(row => row.row_status === 'ready_for_review').length,
+    needs_attention_count: safeRows.filter(row => row.row_status === 'needs_attention').length,
+    skipped_count: Number(skippedCount) || 0,
+    high_confidence_count: safeRows.filter(row => row.parser_confidence === 'high').length,
+    medium_confidence_count: safeRows.filter(row => row.parser_confidence === 'medium').length,
+    low_confidence_count: safeRows.filter(row => row.parser_confidence === 'low').length,
+    unknown_confidence_count: safeRows.filter(row => row.parser_confidence === 'unknown').length,
+    warnings: ['M-Pesa parser preview is enabled for review only. Import remains disabled.']
+  };
+}
+
 function normalizeLoopImportPhone(rawPhone) {
   if (!rawPhone) return null;
   const digits = String(rawPhone).replace(/\D/g, '');
@@ -629,13 +1004,15 @@ export function buildLoopPdfPaymentEvidenceImportRows(previewRows) {
 
 async function buildPdfTextExtractionPreview(file) {
   let parsed = null;
+  let fallbackText = '';
   try {
     parsed = await pdfParse(file.buffer);
   } catch (_err) {
     parsed = null;
+    fallbackText = extractSimplePdfTextOperators(file && file.buffer);
   }
 
-  const extractedText = normalizePdfExtractedText(parsed && parsed.text);
+  const extractedText = normalizePdfExtractedText((parsed && parsed.text) || fallbackText);
   const lines = extractedText
     ? extractedText.split('\n').map(line => line.trim()).filter(Boolean)
     : [];
@@ -4039,11 +4416,12 @@ export function createPaymentEvidenceRoutes(pgDb) {
       const extractionPreview = await buildPdfTextExtractionPreview(req.file);
       const providerDetection = detectPdfStatementProvider(extractionPreview.extractedText);
       const loopProviderDetected = providerDetection.detected_provider === 'LOOP_STATEMENT';
+      const mpesaProviderDetected = providerDetection.detected_provider === 'MPESA_STATEMENT';
 
       const parserResult = {
-        enabled: loopProviderDetected,
-        parser: loopProviderDetected ? 'LOOP_STATEMENT_V1' : null,
-        status: loopProviderDetected ? 'preview_only' : 'not_enabled_for_provider',
+        enabled: loopProviderDetected || mpesaProviderDetected,
+        parser: loopProviderDetected ? 'LOOP_STATEMENT_V1' : (mpesaProviderDetected ? 'MPESA_STATEMENT_V1' : null),
+        status: (loopProviderDetected || mpesaProviderDetected) ? 'preview_only' : 'not_enabled_for_provider',
         rows_detected: 0,
         rows_returned: 0,
         rows_skipped: 0,
@@ -4054,7 +4432,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
         medium_confidence_count: 0,
         low_confidence_count: 0,
         unknown_confidence_count: 0,
-        warnings: loopProviderDetected
+        warnings: (loopProviderDetected || mpesaProviderDetected)
           ? []
           : ['Parser not enabled for detected provider in this release.']
       };
@@ -4105,8 +4483,8 @@ export function createPaymentEvidenceRoutes(pgDb) {
           ],
           next_parser_steps: [
             'Add Loop statement row parser.',
+            'Add M-Pesa statement row parser.',
             'Add Co-op Bank statement row parser.',
-            'Show extracted transaction rows in preview.',
             'Allow landlord-confirmed import into review queue.'
           ],
           safety_message: 'PDF text extraction preview is read-only. No records were changed.'
@@ -4175,6 +4553,72 @@ export function createPaymentEvidenceRoutes(pgDb) {
         });
       }
 
+      if (mpesaProviderDetected) {
+        const mpesaParsed = parseMpesaStatementPreviewRows(extractionPreview.extractedText);
+        const previewRows = mpesaParsed.previewRows;
+        const validationSummary = summarizeMpesaParserValidation(previewRows, mpesaParsed.rowsSkipped);
+        const mpesaParserResult = {
+          enabled: true,
+          parser: 'MPESA_STATEMENT_V1',
+          status: 'preview_only',
+          rows_detected: mpesaParsed.rowsDetected,
+          rows_returned: previewRows.length,
+          rows_skipped: mpesaParsed.rowsSkipped,
+          ready_for_review_count: validationSummary.ready_for_review_count,
+          needs_attention_count: validationSummary.needs_attention_count,
+          skipped_count: validationSummary.skipped_count,
+          high_confidence_count: validationSummary.high_confidence_count,
+          medium_confidence_count: validationSummary.medium_confidence_count,
+          low_confidence_count: validationSummary.low_confidence_count,
+          unknown_confidence_count: validationSummary.unknown_confidence_count,
+          warnings: [...mpesaParsed.warnings, ...validationSummary.warnings]
+        };
+
+        const mpesaImportReadiness = {
+          enabled: false,
+          reason: 'M-Pesa statement import is not enabled in this release. Preview rows are shown for parser validation only.',
+          validation_required: true,
+          ready_for_future_import_count: validationSummary.ready_for_review_count,
+          blocked_count: validationSummary.needs_attention_count + validationSummary.skipped_count,
+          blocking_reasons: [
+            'Import is intentionally disabled until landlord-confirmed M-Pesa import is implemented.'
+          ]
+        };
+
+        return res.json({
+          success: true,
+          mode: 'mpesa_statement_preview_rows',
+          document_source: 'MPESA_STATEMENT',
+          parser_status: previewRows.length > 0 ? 'mpesa_preview_rows_available' : 'mpesa_preview_rows_unavailable',
+          file: {
+            original_name: fileName,
+            mime_type: fileMime,
+            size_bytes: fileSize
+          },
+          extraction: extractionPreview.extraction,
+          provider_detection: {
+            enabled: true,
+            ...providerDetection,
+            message: 'Statement provider detection is enabled. M-Pesa preview row parsing is enabled for review only.'
+          },
+          parser_result: mpesaParserResult,
+          preview_rows: previewRows,
+          import_readiness: mpesaImportReadiness,
+          warnings: [
+            'M-Pesa statement preview is available. Import to review queue is coming later.',
+            'Rows were not imported.',
+            'No payment evidence rows were created.',
+            'No invoice, tenant, receipt, ledger, transaction, allocation, or balance record was changed.'
+          ],
+          next_parser_steps: [
+            'Review M-Pesa parser confidence and row-level validation.',
+            'Add landlord-confirmed M-Pesa import into payment evidence review queue.',
+            'Add duplicate protection for imported M-Pesa statement rows.'
+          ],
+          safety_message: 'M-Pesa statement row parsing preview is read-only. No payment evidence, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.'
+        });
+      }
+
       // Return text extraction preview only.
       // Zero database mutations — no payment_evidence, batches, transactions,
       // allocations, receipts, invoices, tenants, or ledger records are touched.
@@ -4206,8 +4650,8 @@ export function createPaymentEvidenceRoutes(pgDb) {
         ],
         next_parser_steps: [
           'Add Loop statement row parser.',
+          'Add M-Pesa statement row parser.',
           'Add Co-op Bank statement row parser.',
-          'Show extracted transaction rows in preview.',
           'Allow landlord-confirmed import into review queue.'
         ],
         safety_message: 'PDF text extraction preview is read-only. No payment evidence, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.'

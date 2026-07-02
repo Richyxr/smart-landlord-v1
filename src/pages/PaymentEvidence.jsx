@@ -1282,6 +1282,11 @@ Please split the file into smaller batches or wait for the upcoming server-side 
   };
 
   const stats = getStats();
+  const pdfDetectedProvider = pdfReadinessData?.provider_detection?.detected_provider;
+  const isLoopStatementPreview = pdfDetectedProvider === 'LOOP_STATEMENT';
+  const isMpesaStatementPreview = pdfDetectedProvider === 'MPESA_STATEMENT';
+  const parserResultTitle = isMpesaStatementPreview ? 'M-Pesa Parser Result' : 'Loop Parser Result';
+  const previewRowsTitle = isMpesaStatementPreview ? 'M-Pesa Preview Rows' : 'Loop Preview Rows';
 
   return (
     <div className="payment-evidence-container" style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '20px' }}>
@@ -1316,7 +1321,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' }}>
           Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 24px', fontSize: '11.5px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px 24px', fontSize: '11.5px' }}>
           <div>
             <div style={{ fontWeight: '700', color: 'var(--success)', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px' }}>Supported Now</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -1340,7 +1345,6 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             <div style={{ fontWeight: '700', color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px' }}>Coming Later</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', color: 'var(--text-muted)' }}>
               {[
-                'M-Pesa Statement Adapter',
                 'Co-op Bank Statement Adapter',
                 'KCB Statement Adapter',
                 'Equity Statement Adapter',
@@ -1350,6 +1354,19 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               ].map((item) => (
                 <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>–</span>
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontWeight: '700', color: 'var(--primary)', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px' }}>Preview Only</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', color: 'var(--text-secondary)' }}>
+              {[
+                'M-Pesa Statement Adapter'
+              ].map((item) => (
+                <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ color: 'var(--primary)', fontSize: '10px' }}>✓</span>
                   {item}
                 </div>
               ))}
@@ -3325,6 +3342,43 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                   </div>
                 </div>
 
+                {/* Preview Only */}
+                <div style={{ marginBottom: '14px' }}>
+                  <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--primary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--primary)', display: 'inline-block' }} />
+                    Preview Only
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                    <div
+                      onClick={() => {
+                        setImportSource('mpesa_statement');
+                        setImportProvider('mpesa');
+                      }}
+                      style={{
+                        padding: '14px',
+                        border: importSource === 'mpesa_statement' ? '2px solid var(--primary)' : '1px solid var(--primary)',
+                        borderRadius: '8px',
+                        backgroundColor: importSource === 'mpesa_statement' ? 'var(--primary-glow)' : 'var(--bg-surface-elevated)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s',
+                        boxShadow: importSource === 'mpesa_statement' ? '0 4px 12px rgba(0,0,0,0.12)' : 'none'
+                      }}
+                      className="wizard-card-hover"
+                    >
+                      <div style={{ fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--primary)', backgroundColor: importSource === 'mpesa_statement' ? 'var(--primary)' : 'transparent', transition: 'all 0.1s' }} />
+                          M-Pesa Statement
+                        </div>
+                        <span style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '10px', fontWeight: '700', backgroundColor: 'var(--primary-glow)', color: 'var(--primary)', border: '1px solid var(--primary)', whiteSpace: 'nowrap' }}>Preview Only</span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '18px' }}>
+                        M-Pesa statement preview is available. Import to review queue is coming later.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Coming Later */}
                 <div style={{ marginBottom: '14px' }}>
                   <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -3333,7 +3387,6 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
                     {[
-                      { id: 'mpesa_statement', name: 'M-Pesa Statement',  desc: 'Official Safaricom ledger exports' },
                       { id: 'coop_bank',       name: 'Co-op Bank Statement', desc: 'Co-operative Bank of Kenya PDF' },
                       { id: 'kcb_bank',        name: 'KCB Statement',      desc: 'Kenya Commercial Bank PDF' },
                       { id: 'equity_bank',     name: 'Equity Statement',   desc: 'Equity Bank Group PDF' },
@@ -3500,6 +3553,13 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                       <strong>Local Parse Mode:</strong> The CSV file will be parsed and validated entirely inside your browser. No data will be sent to the server.
                     </span>
                   </div>
+                ) : importSource === 'mpesa_statement' ? (
+                  <div className="alert alert-info" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '11px', margin: 0, padding: '12px' }}>
+                    <HelpCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+                    <span>
+                      <strong>Preview Only:</strong> M-Pesa statement preview is available. Import to review queue is coming later.
+                    </span>
+                  </div>
                 ) : (
                   <div className="alert alert-info" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '11px', margin: 0, padding: '12px' }}>
                     <HelpCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
@@ -3516,12 +3576,12 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               <div>
                 <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '4px' }}>Step 3: Select or Confirm Provider</h4>
                 <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '14px' }}>
-                  Only the Loop adapter is supported for import to the review queue. Other providers are coming later.
+                  Loop is supported for import to the review queue. M-Pesa is preview-only. Other providers are coming later.
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
                   {[
                     { id: 'loop',    name: 'Loop',          desc: 'Loop Digital Banking',              status: 'supported' },
-                    { id: 'mpesa',   name: 'M-Pesa',        desc: 'Safaricom mobile network operator',  status: 'coming_later' },
+                    { id: 'mpesa',   name: 'M-Pesa',        desc: 'Safaricom mobile network operator',  status: 'preview_only' },
                     { id: 'coop',    name: 'Co-op Bank',    desc: 'Co-operative Bank of Kenya',         status: 'coming_later' },
                     { id: 'kcb',     name: 'KCB',           desc: 'Kenya Commercial Bank',              status: 'coming_later' },
                     { id: 'equity',  name: 'Equity',        desc: 'Equity Bank Group',                  status: 'coming_later' },
@@ -3531,12 +3591,15 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                   ].map((prov) => {
                     const isSupported = prov.status === 'supported';
                     const isDisabled  = prov.status === 'disabled';
+                    const isPreviewOnly = prov.status === 'preview_only';
                     const badgeStyle = isSupported
                       ? { backgroundColor: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid var(--success)' }
+                      : isPreviewOnly
+                      ? { backgroundColor: 'var(--primary-glow)', color: 'var(--primary)', border: '1px solid var(--primary)' }
                       : isDisabled
                       ? { backgroundColor: 'rgba(244,67,54,0.1)', color: 'var(--danger)', border: '1px solid var(--danger)' }
                       : { backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' };
-                    const badgeLabel = isSupported ? 'Supported' : isDisabled ? 'Disabled' : 'Coming Later';
+                    const badgeLabel = isSupported ? 'Supported' : isPreviewOnly ? 'Preview Only' : isDisabled ? 'Disabled' : 'Coming Later';
                     return (
                       <div
                         key={prov.id}
@@ -3807,13 +3870,15 @@ Please split the file into smaller batches or wait for the upcoming server-side 
 
                     <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--warning)', borderRadius: '6px', backgroundColor: 'rgba(var(--warning-rgb), 0.06)', color: 'var(--warning)', fontWeight: '700' }}>
                       {pdfReadinessData?.parser_result?.enabled
-                        ? 'Loop preview rows are for validation only. Import is not enabled yet.'
+                        ? (isMpesaStatementPreview
+                          ? 'M-Pesa statement preview is available. Import to review queue is coming later.'
+                          : 'Loop preview rows are for validation only. Import is not enabled yet.')
                         : 'Provider detection is enabled. Transaction row parsing is not enabled yet.'}
                     </div>
 
                     {pdfReadinessData?.parser_result && (
                       <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}>
-                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>Loop Parser Result</div>
+                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>{parserResultTitle}</div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', marginBottom: '8px' }}>
                           <div>
                             <span className="text-muted">Parser name:</span>{' '}
@@ -3871,10 +3936,14 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                           </div>
                         </div>
                         <div style={{ color: 'var(--warning)', fontWeight: '700', marginBottom: '6px' }}>
-                          Loop preview rows are for validation only. Import is not enabled yet.
+                          {isMpesaStatementPreview
+                            ? 'M-Pesa statement preview is available. Import to review queue is coming later.'
+                            : 'Loop preview rows are for validation only. Import is not enabled yet.'}
                         </div>
                         <div style={{ color: 'var(--warning)', fontWeight: '700', marginBottom: '6px' }}>
-                          Loop row validation is for parser review only. Import is not enabled yet.
+                          {isMpesaStatementPreview
+                            ? 'M-Pesa row validation is for parser review only. Import is not enabled yet.'
+                            : 'Loop row validation is for parser review only. Import is not enabled yet.'}
                         </div>
                         {pdfReadinessData?.import_readiness?.reason && (
                           <div style={{ color: 'var(--text-muted)' }}>{pdfReadinessData.import_readiness.reason}</div>
@@ -3929,55 +3998,93 @@ Please split the file into smaller batches or wait for the upcoming server-side 
 
                     {Array.isArray(pdfReadinessData?.preview_rows) && pdfReadinessData.preview_rows.length > 0 && (
                       <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}>
-                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>Loop Preview Rows</div>
+                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>{previewRowsTitle}</div>
                         <div style={{ overflowX: 'auto' }}>
                           <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
                             <thead>
-                              <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', backgroundColor: 'var(--bg-surface-elevated)' }}>
-                                <th style={{ padding: '8px' }}>Date</th>
-                                <th style={{ padding: '8px' }}>Description</th>
-                                <th style={{ padding: '8px' }}>Code</th>
-                                <th style={{ padding: '8px' }}>Partner Ref</th>
-                                <th style={{ padding: '8px' }}>Row Status</th>
-                                <th style={{ padding: '8px' }}>Parser Confidence</th>
-                                <th style={{ padding: '8px', textAlign: 'right' }}>Confidence Score</th>
-                                <th style={{ padding: '8px' }}>Direction</th>
-                                <th style={{ padding: '8px' }}>Channel</th>
-                                <th style={{ padding: '8px', textAlign: 'right' }}>Debit</th>
-                                <th style={{ padding: '8px', textAlign: 'right' }}>Credit</th>
-                                <th style={{ padding: '8px', textAlign: 'right' }}>Amount</th>
-                                <th style={{ padding: '8px', textAlign: 'right' }}>Balance</th>
-                                <th style={{ padding: '8px' }}>Validation Errors</th>
-                                <th style={{ padding: '8px' }}>Warnings</th>
-                              </tr>
+                              {isMpesaStatementPreview ? (
+                                <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', backgroundColor: 'var(--bg-surface-elevated)' }}>
+                                  <th style={{ padding: '8px' }}>Date</th>
+                                  <th style={{ padding: '8px' }}>Time</th>
+                                  <th style={{ padding: '8px' }}>Code</th>
+                                  <th style={{ padding: '8px' }}>Description</th>
+                                  <th style={{ padding: '8px' }}>Payer</th>
+                                  <th style={{ padding: '8px' }}>Phone</th>
+                                  <th style={{ padding: '8px' }}>Reference</th>
+                                  <th style={{ padding: '8px' }}>Type</th>
+                                  <th style={{ padding: '8px' }}>Direction</th>
+                                  <th style={{ padding: '8px', textAlign: 'right' }}>Paid In</th>
+                                  <th style={{ padding: '8px', textAlign: 'right' }}>Withdrawn</th>
+                                  <th style={{ padding: '8px', textAlign: 'right' }}>Balance</th>
+                                  <th style={{ padding: '8px' }}>Confidence</th>
+                                  <th style={{ padding: '8px' }}>Status</th>
+                                </tr>
+                              ) : (
+                                <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', backgroundColor: 'var(--bg-surface-elevated)' }}>
+                                  <th style={{ padding: '8px' }}>Date</th>
+                                  <th style={{ padding: '8px' }}>Description</th>
+                                  <th style={{ padding: '8px' }}>Code</th>
+                                  <th style={{ padding: '8px' }}>Partner Ref</th>
+                                  <th style={{ padding: '8px' }}>Row Status</th>
+                                  <th style={{ padding: '8px' }}>Parser Confidence</th>
+                                  <th style={{ padding: '8px', textAlign: 'right' }}>Confidence Score</th>
+                                  <th style={{ padding: '8px' }}>Direction</th>
+                                  <th style={{ padding: '8px' }}>Channel</th>
+                                  <th style={{ padding: '8px', textAlign: 'right' }}>Debit</th>
+                                  <th style={{ padding: '8px', textAlign: 'right' }}>Credit</th>
+                                  <th style={{ padding: '8px', textAlign: 'right' }}>Amount</th>
+                                  <th style={{ padding: '8px', textAlign: 'right' }}>Balance</th>
+                                  <th style={{ padding: '8px' }}>Validation Errors</th>
+                                  <th style={{ padding: '8px' }}>Warnings</th>
+                                </tr>
+                              )}
                             </thead>
                             <tbody>
                               {pdfReadinessData.preview_rows.map((row, idx) => (
-                                <tr key={`${row.source_row_index || idx}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
-                                  <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>{row.transaction_date || 'N/A'}</td>
-                                  <td style={{ padding: '8px', maxInlineSize: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.description || ''}>{row.description || 'N/A'}</td>
-                                  <td style={{ padding: '8px', fontWeight: '700' }}>{row.transaction_code || 'N/A'}</td>
-                                  <td style={{ padding: '8px' }}>{row.partner_reference || 'N/A'}</td>
-                                  <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.row_status || 'needs_attention').replace(/_/g, ' ')}</td>
-                                  <td style={{ padding: '8px', textTransform: 'capitalize' }}>{row.parser_confidence || 'unknown'}</td>
-                                  <td style={{ padding: '8px', textAlign: 'right' }}>{row.confidence_score ?? 0}</td>
-                                  <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.direction || 'unknown').replace('_', ' ')}</td>
-                                  <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.collection_channel || 'unknown').replace('_', ' ')}</td>
-                                  <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.debit || 0).toLocaleString()}</td>
-                                  <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.credit || 0).toLocaleString()}</td>
-                                  <td style={{ padding: '8px', textAlign: 'right', fontWeight: '700' }}>{Number(row.amount || 0).toLocaleString()}</td>
-                                  <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.balance || 0).toLocaleString()}</td>
-                                  <td style={{ padding: '8px' }}>
-                                    {Array.isArray(row.validation_errors) && row.validation_errors.length > 0
-                                      ? row.validation_errors.join('; ')
-                                      : 'None'}
-                                  </td>
-                                  <td style={{ padding: '8px' }}>
-                                    {Array.isArray(row.warnings) && row.warnings.length > 0
-                                      ? row.warnings.join('; ')
-                                      : 'None'}
-                                  </td>
-                                </tr>
+                                isMpesaStatementPreview ? (
+                                  <tr key={`${row.source_row_index || idx}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                                    <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>{row.transaction_date || 'N/A'}</td>
+                                    <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>{row.transaction_time || 'N/A'}</td>
+                                    <td style={{ padding: '8px', fontWeight: '700' }}>{row.transaction_code || 'N/A'}</td>
+                                    <td style={{ padding: '8px', maxInlineSize: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.description || ''}>{row.description || 'N/A'}</td>
+                                    <td style={{ padding: '8px' }}>{row.payer_name || 'N/A'}</td>
+                                    <td style={{ padding: '8px' }}>{row.payer_phone || 'N/A'}</td>
+                                    <td style={{ padding: '8px' }}>{row.reference_account || row.paybill_reference || 'N/A'}</td>
+                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.transaction_type || 'unknown').replace(/_/g, ' ')}</td>
+                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.direction || 'unknown').replace('_', ' ')}</td>
+                                    <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.credit || 0).toLocaleString()}</td>
+                                    <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.debit || 0).toLocaleString()}</td>
+                                    <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.balance || 0).toLocaleString()}</td>
+                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{row.parser_confidence || 'unknown'} ({row.confidence_score ?? 0})</td>
+                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.row_status || 'needs_attention').replace(/_/g, ' ')}</td>
+                                  </tr>
+                                ) : (
+                                  <tr key={`${row.source_row_index || idx}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                                    <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>{row.transaction_date || 'N/A'}</td>
+                                    <td style={{ padding: '8px', maxInlineSize: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.description || ''}>{row.description || 'N/A'}</td>
+                                    <td style={{ padding: '8px', fontWeight: '700' }}>{row.transaction_code || 'N/A'}</td>
+                                    <td style={{ padding: '8px' }}>{row.partner_reference || 'N/A'}</td>
+                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.row_status || 'needs_attention').replace(/_/g, ' ')}</td>
+                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{row.parser_confidence || 'unknown'}</td>
+                                    <td style={{ padding: '8px', textAlign: 'right' }}>{row.confidence_score ?? 0}</td>
+                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.direction || 'unknown').replace('_', ' ')}</td>
+                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.collection_channel || 'unknown').replace('_', ' ')}</td>
+                                    <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.debit || 0).toLocaleString()}</td>
+                                    <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.credit || 0).toLocaleString()}</td>
+                                    <td style={{ padding: '8px', textAlign: 'right', fontWeight: '700' }}>{Number(row.amount || 0).toLocaleString()}</td>
+                                    <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.balance || 0).toLocaleString()}</td>
+                                    <td style={{ padding: '8px' }}>
+                                      {Array.isArray(row.validation_errors) && row.validation_errors.length > 0
+                                        ? row.validation_errors.join('; ')
+                                        : 'None'}
+                                    </td>
+                                    <td style={{ padding: '8px' }}>
+                                      {Array.isArray(row.warnings) && row.warnings.length > 0
+                                        ? row.warnings.join('; ')
+                                        : 'None'}
+                                    </td>
+                                  </tr>
+                                )
                               ))}
                             </tbody>
                           </table>
@@ -3985,7 +4092,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                       </div>
                     )}
 
-                    {pdfReadinessData?.provider_detection?.detected_provider === 'LOOP_STATEMENT' &&
+                    {isLoopStatementPreview &&
                       Array.isArray(pdfReadinessData?.preview_rows) &&
                       pdfReadinessData.preview_rows.length > 0 &&
                       Number(pdfReadinessData?.parser_result?.ready_for_review_count || 0) > 0 && (
@@ -4143,6 +4250,34 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                     <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>
                       Importing only saves evidence rows for review. It does not reconcile payments or update invoices.
                     </p>
+                  </div>
+                ) : importSource === 'mpesa_statement' ? (
+                  <div style={{
+                    padding: '16px',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
+                      <ShieldAlert size={16} style={{ color: 'var(--warning)', flexShrink: 0 }} />
+                      <span style={{ fontSize: '12px', fontWeight: '600' }}>
+                        M-Pesa statement preview is available. Import to review queue is coming later.
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
+                      M-Pesa preview rows are parser-validation output only. No payment evidence rows, batches, transactions, allocations, receipts, ledger entries, invoices, tenants, or balances are changed.
+                    </p>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      disabled
+                      style={{ width: '100%', cursor: 'not-allowed', opacity: 0.5 }}
+                    >
+                      Import M-Pesa Rows — Coming Later
+                    </button>
                   </div>
                 ) : (
                   <div style={{

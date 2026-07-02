@@ -66,10 +66,10 @@ export const STATEMENT_PROVIDER_ADAPTERS = Object.freeze({
     source_type: 'MPESA_STATEMENT',
     provider: 'MPESA',
     label: 'M-Pesa Statement',
-    status: ADAPTER_STATUS.COMING_LATER,
+    status: ADAPTER_STATUS.PREVIEW_ONLY,
     capabilities: Object.freeze({
-      preview:                false,
-      row_validation:         false,
+      preview:                true,
+      row_validation:         true,
       import_to_review_queue: false,
       matching_suggestions:   false,
       match_selection:        false,

@@ -10,7 +10,11 @@ import {
   parseLoopStatementPreviewRows,
   validateLoopPreviewRow,
   scoreLoopPreviewRow,
-  summarizeLoopParserValidation
+  summarizeLoopParserValidation,
+  parseMpesaStatementPreviewRows,
+  validateMpesaPreviewRow,
+  scoreMpesaPreviewRow,
+  summarizeMpesaParserValidation
 } from '../server/routes/paymentEvidenceRoutes.js';
 import fs from 'fs';
 
@@ -3298,6 +3302,65 @@ async function runTests() {
   assert('Unknown text falls back to UNKNOWN_STATEMENT', unknownDetected.detected_provider === 'UNKNOWN_STATEMENT');
   assert('Unknown text confidence is unknown or low', ['unknown', 'low'].includes(unknownDetected.confidence));
 
+  const mpesaDetected = detectPdfStatementProvider([
+    'M-PESA Statement',
+    'Safaricom',
+    'Receipt No Completion Time Transaction Type Transaction Status Paid In Withdrawn Balance'
+  ].join('\n'));
+  assert('M-Pesa provider detection identifies M-Pesa text', mpesaDetected.detected_provider === 'MPESA_STATEMENT');
+  assert('M-Pesa provider detection is deterministic', mpesaDetected.matched_indicators.includes('M-PESA Statement') || mpesaDetected.matched_indicators.includes('M-PESA'));
+
+  const mpesaParsed = parseMpesaStatementPreviewRows([
+    'M-PESA Statement',
+    'Receipt No Completion Time Details Transaction Status Paid In Withdrawn Balance',
+    'TFO1ABC123 2026-06-24 11:06:09 Pay Bill Payment from JOHN KAMAU 254712345678 Account HOUSE-12 Completed 1,500.00 0.00 12,000.00',
+    'TFO2XYZ789 24/06/2026 11:06:09 Customer Transfer from JOHN KAMAU 254712345678 Completed 1,500.00 0.00 12,000.00',
+    'TFO3BILL22 2026-06-24 11:06:09 Pay Bill to 123456 Account RENT-12 Completed 0.00 1,500.00 10,500.00',
+    'TFO4FEE333 2026-06-24 11:06:09 Pay Bill Charge Completed 0.00 23.00 10,477.00'
+  ].join('\n'));
+  assert('M-Pesa parser helper parses at least one money-in row', Array.isArray(mpesaParsed.previewRows) && mpesaParsed.previewRows.some(row => row.direction === 'money_in'));
+  const firstMpesaRow = mpesaParsed.previewRows[0] || {};
+  assert('M-Pesa parser extracts transaction_code', firstMpesaRow.transaction_code === 'TFO1ABC123');
+  assert('M-Pesa parser extracts transaction_date and transaction_time', firstMpesaRow.transaction_date === '2026-06-24' && firstMpesaRow.transaction_time === '11:06:09');
+  assert('M-Pesa parser extracts payer_name and payer_phone where present', firstMpesaRow.payer_name === 'JOHN KAMAU' && firstMpesaRow.payer_phone === '254712345678');
+  assert('M-Pesa parser extracts reference_account/paybill_reference where present', firstMpesaRow.reference_account === 'HOUSE-12' && firstMpesaRow.paybill_reference === 'HOUSE-12');
+  assert('M-Pesa parser determines money_in', firstMpesaRow.direction === 'money_in' && firstMpesaRow.credit === 1500 && firstMpesaRow.debit === 0);
+  assert('M-Pesa parser determines money_out', mpesaParsed.previewRows.some(row => row.transaction_code === 'TFO3BILL22' && row.direction === 'money_out' && row.debit === 1500));
+  assert('M-Pesa parser skips or marks fee rows', mpesaParsed.rowsSkipped >= 1 && !mpesaParsed.previewRows.some(row => row.transaction_code === 'TFO4FEE333' && row.row_status !== 'skipped'));
+  assert('M-Pesa parser returns row_status/parser_confidence/confidence_score/validation',
+    ['ready_for_review', 'needs_attention', 'skipped'].includes(firstMpesaRow.row_status) &&
+    ['high', 'medium', 'low', 'unknown'].includes(firstMpesaRow.parser_confidence) &&
+    typeof firstMpesaRow.confidence_score === 'number' &&
+    firstMpesaRow.validation &&
+    typeof firstMpesaRow.validation === 'object'
+  );
+  const mpesaValidationProbe = validateMpesaPreviewRow(firstMpesaRow, { duplicateLikeCodes: new Set() });
+  assert('M-Pesa validation helper returns expected keys', mpesaValidationProbe &&
+    Object.prototype.hasOwnProperty.call(mpesaValidationProbe, 'is_valid') &&
+    Object.prototype.hasOwnProperty.call(mpesaValidationProbe, 'has_valid_date') &&
+    Object.prototype.hasOwnProperty.call(mpesaValidationProbe, 'has_valid_amount') &&
+    Object.prototype.hasOwnProperty.call(mpesaValidationProbe, 'has_transaction_code') &&
+    Object.prototype.hasOwnProperty.call(mpesaValidationProbe, 'has_direction') &&
+    Object.prototype.hasOwnProperty.call(mpesaValidationProbe, 'has_balance') &&
+    Object.prototype.hasOwnProperty.call(mpesaValidationProbe, 'has_supported_channel')
+  );
+  const mpesaConfidenceProbe = scoreMpesaPreviewRow(firstMpesaRow, mpesaValidationProbe);
+  assert('M-Pesa confidence helper returns confidence_score and parser_confidence',
+    mpesaConfidenceProbe &&
+    typeof mpesaConfidenceProbe.confidence_score === 'number' &&
+    ['high', 'medium', 'low', 'unknown'].includes(mpesaConfidenceProbe.parser_confidence)
+  );
+  const mpesaSummaryProbe = summarizeMpesaParserValidation(mpesaParsed.previewRows, mpesaParsed.rowsSkipped);
+  assert('M-Pesa parser_result includes row counts and confidence counts',
+    typeof mpesaSummaryProbe.ready_for_review_count === 'number' &&
+    typeof mpesaSummaryProbe.needs_attention_count === 'number' &&
+    typeof mpesaSummaryProbe.skipped_count === 'number' &&
+    typeof mpesaSummaryProbe.high_confidence_count === 'number' &&
+    typeof mpesaSummaryProbe.medium_confidence_count === 'number' &&
+    typeof mpesaSummaryProbe.low_confidence_count === 'number' &&
+    typeof mpesaSummaryProbe.unknown_confidence_count === 'number'
+  );
+
   const loopParsed = parseLoopStatementPreviewRows([
     'Received 2000 Via NCBA for DEPOSIT. LOOP Ref:NHE59HRFDNWW, Partner Ref:FTC260624PSCC, 2026-06-24 11:06:09 0.00 2,000.00 2,008.70',
     'Loop Charge 2026-06-24 12:01:11 50.00 0.00 1,958.70',
@@ -3401,6 +3464,42 @@ async function runTests() {
   );
   assert('Valid PDF statement preview returns no preview rows', pdfStatementResponse && Array.isArray(pdfStatementResponse.preview_rows) && pdfStatementResponse.preview_rows.length === 0);
 
+  const mpesaPreviewBefore = {
+    paymentEvidence: JSON.stringify(apiDb.get('payment_evidence')),
+    batches: JSON.stringify(apiDb.get('payment_evidence_batches')),
+    transactions: JSON.stringify(apiDb.get('transactions')),
+    allocations: JSON.stringify(apiDb.get('payment_allocations')),
+    receipts: JSON.stringify(apiDb.get('receipts')),
+    invoices: JSON.stringify(apiDb.get('invoices')),
+    tenants: JSON.stringify(apiDb.get('tenants'))
+  };
+  const mpesaPdfBuffer = buildSimpleTextPdfBuffer([
+    'M-PESA Statement',
+    'Safaricom',
+    'Receipt No Completion Time Details Transaction Status Paid In Withdrawn Balance',
+    'TFO1ABC123 2026-06-24 11:06:09 Pay Bill Payment from JOHN KAMAU 254712345678 Account HOUSE-12 Completed 1,500.00 0.00 12,000.00',
+    'TFO3BILL22 2026-06-24 11:06:09 Pay Bill to 123456 Account RENT-12 Completed 0.00 1,500.00 10,500.00',
+    'TFO4FEE333 2026-06-24 11:06:09 Pay Bill Charge Completed 0.00 23.00 10,477.00'
+  ]);
+  await runPdfStatementRequest({
+    originalname: 'M-Pesa Statement.pdf',
+    mimetype: 'application/pdf',
+    size: mpesaPdfBuffer.length,
+    buffer: mpesaPdfBuffer
+  });
+  assert('M-Pesa preview response detects M-Pesa provider', pdfStatementResponse && pdfStatementResponse.provider_detection && pdfStatementResponse.provider_detection.detected_provider === 'MPESA_STATEMENT');
+  assert('M-Pesa preview response returns MPESA_STATEMENT_V1 parser', pdfStatementResponse && pdfStatementResponse.parser_result && pdfStatementResponse.parser_result.parser === 'MPESA_STATEMENT_V1');
+  assert('M-Pesa preview response includes preview rows', pdfStatementResponse && Array.isArray(pdfStatementResponse.preview_rows) && pdfStatementResponse.preview_rows.length >= 1);
+  assert('M-Pesa preview response includes import_readiness.enabled false', pdfStatementResponse && pdfStatementResponse.import_readiness && pdfStatementResponse.import_readiness.enabled === false);
+  assert('Valid M-Pesa preview creates no payment_evidence', JSON.stringify(apiDb.get('payment_evidence')) === mpesaPreviewBefore.paymentEvidence);
+  assert('Valid M-Pesa preview creates no payment_evidence_batches', JSON.stringify(apiDb.get('payment_evidence_batches')) === mpesaPreviewBefore.batches);
+  assert('Valid M-Pesa preview creates no transactions', JSON.stringify(apiDb.get('transactions')) === mpesaPreviewBefore.transactions);
+  assert('Valid M-Pesa preview creates no payment_allocations', JSON.stringify(apiDb.get('payment_allocations')) === mpesaPreviewBefore.allocations);
+  assert('Valid M-Pesa preview creates no receipts', JSON.stringify(apiDb.get('receipts')) === mpesaPreviewBefore.receipts);
+  assert('Valid M-Pesa preview creates no ledger records', apiDb.get('transactions').filter(t => t.ledger).length === 0);
+  assert('Valid M-Pesa preview mutates no invoices', JSON.stringify(apiDb.get('invoices')) === mpesaPreviewBefore.invoices);
+  assert('Valid M-Pesa preview mutates no tenants', JSON.stringify(apiDb.get('tenants')) === mpesaPreviewBefore.tenants);
+
   const coopPdfBuffer = buildSimpleTextPdfBuffer([
     'STATEMENT OF ACCOUNT',
     'Money In Money Out Balance',
@@ -3414,6 +3513,7 @@ async function runTests() {
   });
   assert('Non-Loop provider returns empty preview_rows', pdfStatementResponse && Array.isArray(pdfStatementResponse.preview_rows) && pdfStatementResponse.preview_rows.length === 0);
   assert('Non-Loop provider parser_result is disabled', pdfStatementResponse && pdfStatementResponse.parser_result && pdfStatementResponse.parser_result.enabled === false && ['not_enabled_for_provider', 'no_text_available'].includes(pdfStatementResponse.parser_result.status));
+  assert('Non-M-Pesa provider does not use M-Pesa parser', pdfStatementResponse && pdfStatementResponse.parser_result && pdfStatementResponse.parser_result.parser !== 'MPESA_STATEMENT_V1');
 
   assert('Valid PDF statement preview returns warnings', pdfStatementResponse && Array.isArray(pdfStatementResponse.warnings) && pdfStatementResponse.warnings.includes('No payment evidence rows were imported.'));
   assert('Valid PDF statement preview warns row parsing is disabled', pdfStatementResponse && pdfStatementResponse.warnings.includes('Transaction row parsing is not enabled in this release.'));
@@ -4916,9 +5016,14 @@ async function runTests() {
   );
 
   assert(
-    'Registry has MPESA_STATEMENT as coming_later',
+    'Registry has MPESA_STATEMENT as preview_only',
     registryContent.includes("MPESA_STATEMENT:") &&
-    registryContent.includes("status: ADAPTER_STATUS.COMING_LATER")
+    registryContent.includes("status: ADAPTER_STATUS.PREVIEW_ONLY")
+  );
+
+  assert(
+    'Registry marks M-Pesa preview true and import_to_review_queue false',
+    /MPESA_STATEMENT:[\s\S]*?preview:\s+true[\s\S]*?row_validation:\s+true[\s\S]*?import_to_review_queue:\s+false/.test(registryContent)
   );
 
   assert(
@@ -4983,6 +5088,45 @@ async function runTests() {
     'PaymentEvidence.jsx wizard Step 1 shows Loop PDF Statement as supported',
     peContent.includes('Loop PDF Statement') &&
     peContent.includes('Supported')
+  );
+
+  assert(
+    'PaymentEvidence.jsx wizard Step 1 shows M-Pesa Statement as preview only',
+    peContent.includes('M-Pesa Statement') &&
+    peContent.includes('Preview Only')
+  );
+
+  assert(
+    'PaymentEvidence.jsx contains M-Pesa preview-only copy',
+    peContent.includes('M-Pesa statement preview is available. Import to review queue is coming later.')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders M-Pesa Preview Rows section',
+    peContent.includes('M-Pesa Preview Rows')
+  );
+
+  assert(
+    'PaymentEvidence.jsx renders disabled M-Pesa import future label',
+    peContent.includes('Import M-Pesa Rows \u2014 Coming Later')
+  );
+
+  assert(
+    'PaymentEvidence.jsx keeps Co-op/KCB/Equity/Absa as coming later labels',
+    peContent.includes('Co-op Bank Statement') &&
+    peContent.includes('KCB Statement') &&
+    peContent.includes('Equity Statement') &&
+    peContent.includes('Absa Statement') &&
+    peContent.includes('Coming Later')
+  );
+
+  assert(
+    'PaymentEvidence.jsx does not expose working M-Pesa import or final-action labels in M-Pesa preview flow',
+    !/\bImport M-Pesa Rows\b(?!\s+\u2014 Coming Later)/.test(peContent) &&
+    !/M-Pesa[\s\S]{0,1600}\bAuto Reconcile\b(?!d)/.test(peContent) &&
+    !/M-Pesa[\s\S]{0,1600}\bIssue Receipt\b/.test(peContent) &&
+    !/M-Pesa[\s\S]{0,1600}\bPost Ledger\b/.test(peContent) &&
+    !/M-Pesa[\s\S]{0,1600}\bMark Invoice Paid\b/.test(peContent)
   );
 
   assert(
