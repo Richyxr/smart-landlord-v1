@@ -3985,10 +3985,198 @@ async function runTests() {
 
   assert('PaymentEvidence.jsx contains Matching Suggestions', paymentEvidenceContent.includes('Matching Suggestions'));
   assert('PaymentEvidence.jsx contains review-only suggestions message', paymentEvidenceContent.includes('Suggestions are review-only. No allocation or receipt is created.'));
-  assert('PaymentEvidence.jsx contains disabled future Confirm Match label', paymentEvidenceContent.includes('Confirm Match — Coming Later'));
+  assert('PaymentEvidence.jsx contains match-selection review-only safety text', paymentEvidenceContent.includes('Match selection is review-only. No allocation or receipt is created.'));
+  assert('PaymentEvidence.jsx contains allocation preview future label', paymentEvidenceContent.includes('Allocation Preview — Coming Later'));
+  assert('PaymentEvidence.jsx contains Select Match for Review action', paymentEvidenceContent.includes('Select Match for Review'));
+  assert('PaymentEvidence.jsx contains exact match-selection confirmation text', paymentEvidenceContent.includes('CONFIRM MATCH SELECTION'));
   assert('PaymentEvidence.jsx calls /matching-suggestions endpoint', paymentEvidenceContent.includes('/matching-suggestions'));
+  assert('PaymentEvidence.jsx calls /select-match endpoint', paymentEvidenceContent.includes('/select-match'));
   assert('Matching suggestions panel does not contain forbidden labels',
     !/Auto Reconcile|Allocate Now|Confirm Allocation|Issue Receipt|Post Ledger|Mark Invoice Paid|Create Transaction/.test(matchingPanelSlice)
+  );
+  assert('Match-selection flow does not call allocation, receipt, or ledger endpoints',
+    !/handleSelectMatchForReview[\s\S]{0,1400}(confirm-allocation|issue-receipt|receipt-result|receipt-print-view|\/api\/ledger)/i.test(paymentEvidenceContent)
+  );
+
+  // ==========================================
+  // Test 25: Landlord-Confirmed Match Selection - Review Only, No Allocation
+  // ==========================================
+  console.log('\n25. Landlord-Confirmed Match Selection - Review Only, No Allocation:');
+
+  const selectDb = new MockDb();
+  selectDb.seed('payment_evidence', [
+    {
+      id: 1301,
+      organization_id: 1,
+      transaction_code: 'INV-SEL-001',
+      amount: 5000,
+      transaction_date: '2026-06-25',
+      payer_phone: '0711000001',
+      payer_name: 'Select Tenant',
+      status: 'needs_review',
+      raw_fields: { source: 'test' }
+    },
+    {
+      id: 1302,
+      organization_id: 2,
+      transaction_code: 'ORG2-ROW',
+      amount: 5000,
+      transaction_date: '2026-06-25',
+      status: 'needs_review'
+    }
+  ]);
+  selectDb.seed('tenants', [
+    { id: 2301, organization_id: 1, full_name: 'Select Tenant', phone_number: '0711000001', tenant_account_number: 'TEN-SEL-001', unit_id: 3301, status: 'active' },
+    { id: 2302, organization_id: 1, full_name: 'Paid Tenant', phone_number: '0711000002', tenant_account_number: 'TEN-SEL-002', unit_id: 3302, status: 'active' },
+    { id: 2401, organization_id: 2, full_name: 'Other Org Tenant', phone_number: '0799000001', tenant_account_number: 'TEN-ORG2-001', unit_id: 3401, status: 'active' }
+  ]);
+  selectDb.seed('invoices', [
+    { id: 4301, organization_id: 1, tenant_id: 2301, invoice_number: 'INV-SEL-001', status: 'issued', due_date: '2026-06-26', balance: 5000, total: 5000 },
+    { id: 4302, organization_id: 1, tenant_id: 2302, invoice_number: 'INV-SEL-PAID', status: 'paid', due_date: '2026-06-20', balance: 5000, total: 5000 },
+    { id: 4303, organization_id: 1, tenant_id: 2302, invoice_number: 'INV-SEL-VOID', status: 'void', due_date: '2026-06-20', balance: 5000, total: 5000 },
+    { id: 4401, organization_id: 2, tenant_id: 2401, invoice_number: 'INV-ORG2-001', status: 'issued', due_date: '2026-06-26', balance: 5000, total: 5000 }
+  ]);
+  selectDb.seed('properties', [
+    { id: 5301, organization_id: 1, name: 'Select Court' },
+    { id: 5401, organization_id: 2, name: 'Other Court' }
+  ]);
+  selectDb.seed('units', [
+    { id: 3301, organization_id: 1, property_id: 5301, unit_code: 'S1' },
+    { id: 3302, organization_id: 1, property_id: 5301, unit_code: 'S2' },
+    { id: 3401, organization_id: 2, property_id: 5401, unit_code: 'O1' }
+  ]);
+  selectDb.seed('transactions', []);
+  selectDb.seed('payment_allocations', []);
+  selectDb.seed('receipts', []);
+  selectDb.seed('ledger', []);
+  selectDb.seed('balances', []);
+
+  const selectRouter = createPaymentEvidenceRoutes(selectDb);
+  const selectRouteLayer = selectRouter.stack.find(l => l.route && l.route.path === '/payment-evidence/:id/select-match');
+  const selectHandler = selectRouteLayer && selectRouteLayer.route.stack[selectRouteLayer.route.stack.length - 1].handle;
+  const selectMiddlewares = selectRouteLayer ? selectRouteLayer.route.stack.slice(0, -1).map(s => s.handle) : [];
+  const selectRoleMiddleware = selectMiddlewares[selectMiddlewares.length - 1];
+
+  assert('Select-match endpoint exists: POST /payment-evidence/:id/select-match', typeof selectHandler === 'function');
+
+  for (const allowedRole of ['landlord', 'super_admin']) {
+    let allowStatus = null;
+    let allowNext = false;
+    await selectRoleMiddleware(
+      { auth: { role: allowedRole, organizationId: 1, userId: 66 } },
+      {
+        status(code) { allowStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { allowNext = true; }
+    );
+    assert(`Select-match allows ${allowedRole}`, allowNext === true && allowStatus === null);
+  }
+
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let blockedStatus = null;
+    let blockedNext = false;
+    await selectRoleMiddleware(
+      { auth: { role: blockedRole, organizationId: 1, userId: 66 } },
+      {
+        status(code) { blockedStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { blockedNext = true; }
+    );
+    assert(`Select-match blocks ${blockedRole}`, blockedStatus === 403 && blockedNext === false);
+  }
+
+  const runSelectRequest = async ({ orgId = 1, role = 'landlord', id = 1301, body = {} } = {}) => {
+    let responseStatus = null;
+    let responsePayload = null;
+    await selectHandler(
+      {
+        auth: { organizationId: orgId, role, userId: 66 },
+        params: { id: String(id) },
+        body
+      },
+      {
+        status(code) { responseStatus = code; return this; },
+        json(data) { responsePayload = data; return this; }
+      }
+    );
+    return { responseStatus, responsePayload };
+  };
+
+  const selectBeforeSnapshot = {
+    payment_evidence: JSON.stringify(selectDb.get('payment_evidence')),
+    invoices: JSON.stringify(selectDb.get('invoices')),
+    tenants: JSON.stringify(selectDb.get('tenants')),
+    balances: JSON.stringify(selectDb.get('balances')),
+    transactions: JSON.stringify(selectDb.get('transactions')),
+    payment_allocations: JSON.stringify(selectDb.get('payment_allocations')),
+    receipts: JSON.stringify(selectDb.get('receipts')),
+    ledger: JSON.stringify(selectDb.get('ledger'))
+  };
+
+  const missingSelect = await runSelectRequest({ id: 999999, body: { confirmation_text: 'CONFIRM MATCH SELECTION', tenant_id: 2301, invoice_id: 4301 } });
+  assert('Select-match returns 404 for missing evidence', missingSelect.responseStatus === 404);
+
+  const crossOrgSelect = await runSelectRequest({ orgId: 1, id: 1302, body: { confirmation_text: 'CONFIRM MATCH SELECTION', tenant_id: 2301, invoice_id: 4301 } });
+  assert('Select-match blocks/hides cross-org evidence', crossOrgSelect.responseStatus === 404);
+
+  const wrongConfirmation = await runSelectRequest({ body: { confirmation_text: 'CONFIRM SOMETHING ELSE', tenant_id: 2301, invoice_id: 4301 } });
+  assert('Select-match rejects wrong confirmation text', wrongConfirmation.responseStatus === 400 && wrongConfirmation.responsePayload && wrongConfirmation.responsePayload.error === 'INVALID_CONFIRMATION_TEXT');
+
+  const tenantOutsideOrg = await runSelectRequest({ body: { confirmation_text: 'CONFIRM MATCH SELECTION', tenant_id: 2401, invoice_id: 4301 } });
+  assert('Select-match rejects tenant outside organization', tenantOutsideOrg.responseStatus === 400 && tenantOutsideOrg.responsePayload && tenantOutsideOrg.responsePayload.error === 'TENANT_NOT_ALLOWED');
+
+  const invoiceOutsideOrg = await runSelectRequest({ body: { confirmation_text: 'CONFIRM MATCH SELECTION', tenant_id: 2301, invoice_id: 4401 } });
+  assert('Select-match rejects invoice outside organization', invoiceOutsideOrg.responseStatus === 400 && invoiceOutsideOrg.responsePayload && invoiceOutsideOrg.responsePayload.error === 'INVOICE_NOT_ALLOWED');
+
+  const paidInvoiceBlocked = await runSelectRequest({ body: { confirmation_text: 'CONFIRM MATCH SELECTION', tenant_id: 2302, invoice_id: 4302 } });
+  assert('Select-match clearly blocks paid invoice status', paidInvoiceBlocked.responseStatus === 400 && paidInvoiceBlocked.responsePayload && paidInvoiceBlocked.responsePayload.error === 'INVOICE_STATUS_BLOCKED');
+
+  const voidInvoiceBlocked = await runSelectRequest({ body: { confirmation_text: 'CONFIRM MATCH SELECTION', tenant_id: 2302, invoice_id: 4303 } });
+  assert('Select-match clearly blocks void/cancelled invoice status', voidInvoiceBlocked.responseStatus === 400 && voidInvoiceBlocked.responsePayload && voidInvoiceBlocked.responsePayload.error === 'INVOICE_STATUS_BLOCKED');
+
+  const validSelect = await runSelectRequest({
+    body: {
+      confirmation_text: 'CONFIRM MATCH SELECTION',
+      tenant_id: 2301,
+      invoice_id: 4301,
+      suggestion_rank: 1,
+      confidence_score: 88,
+      selection_notes: 'Optional landlord note'
+    }
+  });
+
+  assert('Valid select-match response returns success true', validSelect.responsePayload && validSelect.responsePayload.success === true);
+  assert('Valid select-match response mode is match_selection_review_only', validSelect.responsePayload && validSelect.responsePayload.mode === 'match_selection_review_only');
+  assert('Valid select-match response includes selected_match object', validSelect.responsePayload && validSelect.responsePayload.selected_match && Number(validSelect.responsePayload.selected_match.tenant_id) === 2301 && Number(validSelect.responsePayload.selected_match.invoice_id) === 4301);
+  assert('Valid select-match response includes next_step_readiness object', validSelect.responsePayload && validSelect.responsePayload.next_step_readiness);
+  assert('Valid select-match response includes safety_message', validSelect.responsePayload && typeof validSelect.responsePayload.safety_message === 'string' && validSelect.responsePayload.safety_message.includes('review-only'));
+
+  assert('Select-match next_step_readiness keeps all financial steps disabled',
+    validSelect.responsePayload &&
+    validSelect.responsePayload.next_step_readiness &&
+    validSelect.responsePayload.next_step_readiness.allocation_preview_enabled === false &&
+    validSelect.responsePayload.next_step_readiness.allocation_confirmation_enabled === false &&
+    validSelect.responsePayload.next_step_readiness.receipt_enabled === false &&
+    validSelect.responsePayload.next_step_readiness.ledger_enabled === false
+  );
+
+  const selectedRowAfter = selectDb.get('payment_evidence').find(r => Number(r.id) === 1301);
+  assert('Valid select-match updates payment_evidence suggested match fields', selectedRowAfter && Number(selectedRowAfter.suggested_tenant_id) === 2301 && Number(selectedRowAfter.suggested_invoice_id) === 4301);
+  assert('Valid select-match stores selected match metadata in raw_fields', selectedRowAfter && selectedRowAfter.raw_fields && selectedRowAfter.raw_fields.selected_match && Number(selectedRowAfter.raw_fields.selected_match.tenant_id) === 2301 && Number(selectedRowAfter.raw_fields.selected_match.invoice_id) === 4301);
+  assert('Valid select-match does not set reconciled status', selectedRowAfter && !['auto_reconciled', 'manually_reconciled', 'reconciled', 'paid'].includes(String(selectedRowAfter.status || '').toLowerCase()));
+
+  assert('Select-match does not mutate invoices', JSON.stringify(selectDb.get('invoices')) === selectBeforeSnapshot.invoices);
+  assert('Select-match does not mutate tenants', JSON.stringify(selectDb.get('tenants')) === selectBeforeSnapshot.tenants);
+  assert('Select-match does not mutate balances', JSON.stringify(selectDb.get('balances')) === selectBeforeSnapshot.balances);
+  assert('Select-match creates no transactions', JSON.stringify(selectDb.get('transactions')) === selectBeforeSnapshot.transactions);
+  assert('Select-match creates no payment allocations', JSON.stringify(selectDb.get('payment_allocations')) === selectBeforeSnapshot.payment_allocations);
+  assert('Select-match creates no receipts', JSON.stringify(selectDb.get('receipts')) === selectBeforeSnapshot.receipts);
+  assert('Select-match creates no ledger records', JSON.stringify(selectDb.get('ledger')) === selectBeforeSnapshot.ledger);
+
+  assert('Select-match changes only one payment_evidence row for selected match metadata',
+    JSON.stringify(selectDb.get('payment_evidence').filter(r => Number(r.id) !== 1301)) === JSON.stringify(JSON.parse(selectBeforeSnapshot.payment_evidence).filter(r => Number(r.id) !== 1301))
   );
 
   assert(

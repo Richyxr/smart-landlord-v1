@@ -59,6 +59,12 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [matchingSuggestionsData, setMatchingSuggestionsData] = useState(null);
   const [loadingMatchingSuggestions, setLoadingMatchingSuggestions] = useState(false);
   const [matchingSuggestionsError, setMatchingSuggestionsError] = useState('');
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
+  const [matchSelectionConfirmationText, setMatchSelectionConfirmationText] = useState('');
+  const [matchSelectionNotes, setMatchSelectionNotes] = useState('');
+  const [selectingMatch, setSelectingMatch] = useState(false);
+  const [matchSelectionError, setMatchSelectionError] = useState('');
+  const [matchSelectionResult, setMatchSelectionResult] = useState(null);
 
   // Draft Allocation Preview States
   const [previewData, setPreviewData] = useState(null);
@@ -219,6 +225,68 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     }
   };
 
+  const handleSelectMatchForReview = async () => {
+    if (!selectedRow || !matchingSuggestionsData?.suggestions || selectedSuggestionIndex < 0) {
+      setMatchSelectionError('Please select one suggestion first.');
+      return;
+    }
+
+    if (matchSelectionConfirmationText !== 'CONFIRM MATCH SELECTION') {
+      setMatchSelectionError('Please type CONFIRM MATCH SELECTION exactly to continue.');
+      return;
+    }
+
+    const selectedSuggestion = matchingSuggestionsData.suggestions[selectedSuggestionIndex];
+    if (!selectedSuggestion) {
+      setMatchSelectionError('The selected suggestion could not be resolved.');
+      return;
+    }
+
+    setSelectingMatch(true);
+    setMatchSelectionError('');
+    setMatchSelectionResult(null);
+
+    try {
+      const res = await fetch(`/api/payment-evidence/${selectedRow.id}/select-match`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          confirmation_text: matchSelectionConfirmationText,
+          tenant_id: selectedSuggestion.tenant_id,
+          invoice_id: selectedSuggestion.invoice_id,
+          suggestion_rank: selectedSuggestionIndex + 1,
+          confidence_score: selectedSuggestion.confidence_score,
+          selection_notes: matchSelectionNotes.trim() || null
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to save match selection.');
+      }
+
+      setMatchSelectionResult(data);
+      setMatchSelectionConfirmationText('');
+      await fetchMatchingSuggestions(selectedRow.id);
+      await fetchEvidenceRows();
+      const latestRows = await fetch(`/api/payment-evidence/rows?search=${encodeURIComponent(selectedRow.transaction_code || selectedRow.id)}`);
+      if (latestRows.ok) {
+        const refreshed = await latestRows.json();
+        const exact = Array.isArray(refreshed) ? refreshed.find(r => Number(r.id) === Number(selectedRow.id)) : null;
+        if (exact) {
+          setSelectedRow(exact);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setMatchSelectionError(err.message || 'Failed to save match selection.');
+    } finally {
+      setSelectingMatch(false);
+    }
+  };
+
   const getBrandedConfirmAndNotify = () => {
     const showConfirm = window.showConfirm;
     const notifySuccess = window.notifySuccess;
@@ -355,6 +423,12 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     setConfirmingAllocation(false);
     setReceiptIssueConfirmationText('');
     setIssuingReceipt(false);
+    setSelectedSuggestionIndex(-1);
+    setMatchSelectionConfirmationText('');
+    setMatchSelectionNotes('');
+    setSelectingMatch(false);
+    setMatchSelectionError('');
+    setMatchSelectionResult(null);
 
     if (selectedRow && (role === 'landlord' || role === 'super_admin')) {
       fetchAuditLogs(selectedRow.id);
@@ -2470,16 +2544,8 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               }}>
                 Suggestions are review-only. No allocation or receipt is created.
               </div>
-              <div style={{ marginBottom: '10px' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  disabled
-                  title="This action is intentionally disabled in this review-only slice."
-                  style={{ opacity: 0.65, cursor: 'not-allowed' }}
-                >
-                  Confirm Match — Coming Later
-                </button>
+              <div style={{ marginBottom: '10px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                Allocation Preview — Coming Later
               </div>
               {selectedRow.status === 'ignored' ? (
                 <div style={{ border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -2501,8 +2567,24 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                       padding: '12px',
                       borderRadius: '8px',
                       backgroundColor: 'var(--bg-surface-elevated)',
-                      fontSize: '12px'
+                      fontSize: '12px',
+                      boxShadow: selectedSuggestionIndex === idx ? '0 0 0 1px var(--primary)' : 'none'
                     }}>
+                      <div style={{ marginBottom: '8px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700' }}>
+                          <input
+                            type="radio"
+                            name="match-selection"
+                            checked={selectedSuggestionIndex === idx}
+                            onChange={() => {
+                              setSelectedSuggestionIndex(idx);
+                              setMatchSelectionError('');
+                              setMatchSelectionResult(null);
+                            }}
+                          />
+                          Select Match for Review
+                        </label>
+                      </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                         <span style={{
                           fontSize: '9px',
@@ -2546,6 +2628,62 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                       )}
                     </div>
                   ))}
+
+                  <div style={{ border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-surface)' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                      Type exact confirmation text: <strong>CONFIRM MATCH SELECTION</strong>
+                    </label>
+                    <input
+                      type="text"
+                      value={matchSelectionConfirmationText}
+                      onChange={(e) => {
+                        setMatchSelectionConfirmationText(e.target.value);
+                        setMatchSelectionError('');
+                      }}
+                      placeholder="CONFIRM MATCH SELECTION"
+                      style={{ width: '100%', marginBottom: '8px', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface-elevated)' }}
+                    />
+                    <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                      Selection Notes (optional)
+                    </label>
+                    <textarea
+                      value={matchSelectionNotes}
+                      onChange={(e) => setMatchSelectionNotes(e.target.value)}
+                      rows={2}
+                      style={{ width: '100%', marginBottom: '8px', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface-elevated)' }}
+                      placeholder="Optional landlord note"
+                    />
+
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleSelectMatchForReview}
+                      disabled={selectingMatch || selectedSuggestionIndex < 0 || matchSelectionConfirmationText !== 'CONFIRM MATCH SELECTION'}
+                      style={{
+                        cursor: (selectingMatch || selectedSuggestionIndex < 0 || matchSelectionConfirmationText !== 'CONFIRM MATCH SELECTION') ? 'not-allowed' : 'pointer',
+                        opacity: (selectingMatch || selectedSuggestionIndex < 0 || matchSelectionConfirmationText !== 'CONFIRM MATCH SELECTION') ? 0.6 : 1
+                      }}
+                    >
+                      {selectingMatch ? 'Saving Selection...' : 'Select Match for Review'}
+                    </button>
+
+                    {matchSelectionError && (
+                      <div className="alert alert-danger" style={{ marginTop: '8px', marginBottom: 0, fontSize: '11px', padding: '8px' }}>
+                        {matchSelectionError}
+                      </div>
+                    )}
+
+                    {matchSelectionResult?.selected_match && (
+                      <div style={{ marginTop: '8px', border: '1px solid var(--border)', borderRadius: '6px', padding: '8px', backgroundColor: 'var(--bg-surface-elevated)', fontSize: '11px' }}>
+                        <div><span className="text-muted">Selected Tenant:</span> <strong>{matchSelectionResult.selected_match.tenant_name}</strong></div>
+                        <div><span className="text-muted">Selected Invoice:</span> <strong>{matchSelectionResult.selected_match.invoice_number}</strong></div>
+                        <div><span className="text-muted">Confidence Score:</span> <strong>{matchSelectionResult.selected_match.confidence_score}</strong></div>
+                        <div style={{ marginTop: '4px', color: 'var(--text-muted)' }}>
+                          {matchSelectionResult.safety_message || 'Match selection is review-only. No allocation or receipt is created.'}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div style={{ border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>

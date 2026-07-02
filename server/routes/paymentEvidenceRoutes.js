@@ -32,6 +32,7 @@ const getDaysDifference = (date1, date2) => {
 };
 
 const RECEIPT_ISSUANCE_CONTRACT_SAFETY_MESSAGE = 'This receipt issuance contract is read-only. No receipt number has been reserved and no receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.';
+const MATCH_SELECTION_CONFIRMATION_TEXT = 'CONFIRM MATCH SELECTION';
 const PDF_TEXT_SAMPLE_LIMIT = 2000;
 const PDF_PREVIEW_ROW_LIMIT = 100;
 const PDF_PREVIEW_ROW_RAW_TEXT_LIMIT = 500;
@@ -1768,6 +1769,164 @@ export function createPaymentEvidenceRoutes(pgDb) {
       suggestions,
       summary,
       safety_message: 'Matching suggestions are review-only. No transaction, allocation, receipt, ledger, invoice, tenant, or balance record was changed.'
+    });
+  }));
+
+  // POST /api/payment-evidence/:id/select-match
+  // Review-only selection endpoint: persists selected suggestion metadata on
+  // payment_evidence only. No transaction, allocation, receipt, ledger,
+  // invoice, tenant, or balance mutations are allowed.
+  router.post('/payment-evidence/:id/select-match', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+    const { orgId, userId } = getContext(req);
+    const evidenceId = Number(req.params.id);
+
+    if (!Number.isFinite(evidenceId) || evidenceId <= 0) {
+      return res.status(400).json({
+        error: 'INVALID_PAYMENT_EVIDENCE_ID',
+        message: 'A valid payment evidence ID is required.'
+      });
+    }
+
+    const row = await activeDb.findOne('payment_evidence', { id: evidenceId, organization_id: orgId });
+    if (!row) {
+      return res.status(404).json({
+        error: 'PAYMENT_EVIDENCE_NOT_FOUND',
+        message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    if (String(row.status || '').toLowerCase() === 'ignored') {
+      return res.status(400).json({
+        error: 'IGNORED_ROW_BLOCKED',
+        message: 'Ignored payment evidence rows cannot select a match suggestion.'
+      });
+    }
+
+    const {
+      confirmation_text,
+      tenant_id,
+      invoice_id,
+      suggestion_rank,
+      confidence_score,
+      selection_notes
+    } = req.body || {};
+
+    if (String(confirmation_text || '') !== MATCH_SELECTION_CONFIRMATION_TEXT) {
+      return res.status(400).json({
+        error: 'INVALID_CONFIRMATION_TEXT',
+        message: `Confirmation text is invalid. Please type "${MATCH_SELECTION_CONFIRMATION_TEXT}".`
+      });
+    }
+
+    const selectedTenantId = Number(tenant_id);
+    const selectedInvoiceId = Number(invoice_id);
+    if (!Number.isFinite(selectedTenantId) || selectedTenantId <= 0 || !Number.isFinite(selectedInvoiceId) || selectedInvoiceId <= 0) {
+      return res.status(400).json({
+        error: 'INVALID_SELECTION',
+        message: 'Both tenant_id and invoice_id must be positive integers.'
+      });
+    }
+
+    if (selection_notes && String(selection_notes).length > 1000) {
+      return res.status(400).json({
+        error: 'NOTES_TOO_LONG',
+        message: 'selection_notes must not exceed 1000 characters.'
+      });
+    }
+
+    const tenant = await activeDb.findOne('tenants', { id: selectedTenantId, organization_id: orgId });
+    if (!tenant) {
+      return res.status(400).json({
+        error: 'TENANT_NOT_ALLOWED',
+        message: 'The selected tenant is invalid for this organization.'
+      });
+    }
+
+    const invoice = await activeDb.findOne('invoices', { id: selectedInvoiceId, organization_id: orgId });
+    if (!invoice) {
+      return res.status(400).json({
+        error: 'INVOICE_NOT_ALLOWED',
+        message: 'The selected invoice is invalid for this organization.'
+      });
+    }
+
+    const normalizedInvoiceStatus = String(invoice.status || '').toLowerCase();
+    const allowedInvoiceStatuses = new Set(['unpaid', 'partially_paid', 'overdue', 'open', 'issued']);
+    if (!allowedInvoiceStatuses.has(normalizedInvoiceStatus)) {
+      return res.status(400).json({
+        error: 'INVOICE_STATUS_BLOCKED',
+        message: 'The selected invoice status is not eligible for review-only match selection.'
+      });
+    }
+
+    const suggestions = await buildReviewOnlyMatchingSuggestionsForEvidence(activeDb, orgId, row, 5);
+    const selectedSuggestion = suggestions.find(s => Number(s.tenant_id) === selectedTenantId && Number(s.invoice_id) === selectedInvoiceId);
+    if (!selectedSuggestion) {
+      return res.status(400).json({
+        error: 'SUGGESTION_NOT_FOUND',
+        message: 'The selected tenant/invoice pair is not in current matching suggestions.'
+      });
+    }
+
+    const selectedAt = new Date().toISOString();
+    const resolvedRank = Number.isFinite(Number(suggestion_rank)) && Number(suggestion_rank) > 0
+      ? Number(suggestion_rank)
+      : (suggestions.findIndex(s => Number(s.tenant_id) === selectedTenantId && Number(s.invoice_id) === selectedInvoiceId) + 1);
+    const resolvedScore = Number.isFinite(Number(confidence_score))
+      ? Number(confidence_score)
+      : Number(selectedSuggestion.confidence_score || 0);
+
+    const selectedMatchMetadata = {
+      tenant_id: selectedTenantId,
+      tenant_name: tenant.full_name || null,
+      invoice_id: selectedInvoiceId,
+      invoice_number: invoice.invoice_number || null,
+      suggestion_rank: resolvedRank,
+      confidence_score: resolvedScore,
+      selection_notes: selection_notes ? String(selection_notes) : null,
+      selected_by: userId,
+      selected_at: selectedAt,
+      mode: 'match_selection_review_only',
+      safety_message: 'Match selection is review-only. No transaction, allocation, receipt, ledger, invoice, tenant, or balance record was changed.'
+    };
+
+    const priorRawFields = row.raw_fields && typeof row.raw_fields === 'object' ? row.raw_fields : {};
+    const updatedRawFields = {
+      ...priorRawFields,
+      selected_match: selectedMatchMetadata
+    };
+
+    const updates = {
+      suggested_tenant_id: selectedTenantId,
+      suggested_invoice_id: selectedInvoiceId,
+      review_notes: selection_notes ? String(selection_notes) : (row.review_notes || null),
+      reviewed_by: userId,
+      reviewed_at: selectedAt,
+      raw_fields: updatedRawFields
+    };
+
+    const updatedRows = await activeDb.update('payment_evidence', evidenceId, updates);
+    const updatedRow = Array.isArray(updatedRows) ? updatedRows[0] : null;
+    if (!updatedRow) {
+      return res.status(500).json({
+        error: 'UPDATE_FAILED',
+        message: 'Match selection could not be saved.'
+      });
+    }
+
+    return res.json({
+      success: true,
+      mode: 'match_selection_review_only',
+      payment_evidence_id: evidenceId,
+      selected_match: selectedMatchMetadata,
+      next_step_readiness: {
+        allocation_preview_enabled: false,
+        allocation_confirmation_enabled: false,
+        receipt_enabled: false,
+        ledger_enabled: false,
+        message: 'Match selection was saved for review only. Allocation, receipt, ledger, invoice, tenant, and balance records were not changed.'
+      },
+      safety_message: 'Match selection is review-only. No transaction, allocation, receipt, ledger, invoice, tenant, or balance record was changed.'
     });
   }));
 
