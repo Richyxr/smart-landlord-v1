@@ -43,8 +43,8 @@ export default function DesktopSidebar({ role, activeTab, onChangeTab }) {
           //   ├── Review Queue (payment evidence)
           //   ├── Unmatched Payments
           //   └── Imported Statements
-          { id: 'landlord_reconciliation', label: 'Reconcile', icon: Handshake },
-          { id: 'landlord_payment_evidence', label: 'Review Queue', icon: WalletCards },
+          { id: 'landlord_reconciliation', label: 'Statement Reconciliation', icon: Handshake },
+          { id: 'landlord_payment_evidence', label: 'Payment Evidence', icon: WalletCards },
 
           { id: 'landlord_settings', label: 'Settings', icon: Settings }
         ];

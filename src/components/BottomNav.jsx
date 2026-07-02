@@ -36,6 +36,7 @@ export default function BottomNav({ role, activeTab, onChangeTab }) {
           { id: 'landlord_properties', label: 'Properties', icon: Building2 },
           { id: 'landlord_invoices', label: 'Billing', icon: ReceiptText },
           { id: 'landlord_reconciliation', label: 'Reconcile', icon: Handshake },
+          { id: 'landlord_payment_evidence', label: 'Evidence', icon: WalletCards },
           { id: 'landlord_settings', label: 'Settings', icon: Settings }
         ];
     }

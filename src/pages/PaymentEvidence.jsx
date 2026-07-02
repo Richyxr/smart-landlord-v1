@@ -1281,9 +1281,9 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       {/* HEADER SECTION */}
       <div className="flex-row justify-between align-center">
         <div>
-          <h2 className="page-title" style={{ margin: 0 }}>Review Queue</h2>
+          <h2 className="page-title" style={{ margin: 0 }}>Payment Evidence</h2>
           <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
-            Inspect, classify, and match imported payment evidence records.
+            Process statement payments from PDF upload to receipt preview.
           </p>
         </div>
         <button
@@ -1301,6 +1301,30 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           <Layers size={14} />
           Import Payment Evidence
         </button>
+      </div>
+
+      <div className="card" style={{ padding: '16px', borderLeft: '4px solid var(--primary)' }}>
+        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '800' }}>Payment Evidence Workflow</h4>
+        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+          PDF statement processing for Loop statements: preview, import, match, allocate, and receipt preview.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '6px 10px', fontSize: '11.5px' }}>
+          <div>PDF Upload</div>
+          <div>Provider Detection</div>
+          <div>Loop Preview Rows</div>
+          <div>Row Validation</div>
+          <div>Import to Review Queue</div>
+          <div>Matching Suggestions</div>
+          <div>Match Selection</div>
+          <div>Allocation Preview</div>
+          <div>Confirmed Allocation</div>
+          <div>Receipt Preview</div>
+          <div>Receipt Issuance — Coming Later</div>
+          <div>Ledger Posting — Coming Later</div>
+        </div>
+        <div style={{ marginTop: '10px', fontSize: '11px', color: 'var(--warning)' }}>
+          This workflow is controlled step by step. Receipt issuance and ledger posting are still disabled.
+        </div>
       </div>
 
       {/* SUMMARY METRICS CARDS */}

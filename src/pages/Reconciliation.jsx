@@ -279,7 +279,7 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
         <div className="card" style={{ background: 'linear-gradient(135deg, var(--bg-surface), var(--primary-glow))' }}>
           <h3 className="card-title">Statement Reconciliation</h3>
           <p style={{ fontSize: '12px', marginBottom: '16px' }}>
-            Upload statement CSV file from KCB, Equity, Absa, Co-op, etc. Map columns and reconcile payments.
+            CSV bank statement reconciliation for supported bank templates.
           </p>
 
           <form onSubmit={handleUpload}>

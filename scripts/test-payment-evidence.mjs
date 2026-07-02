@@ -533,8 +533,8 @@ async function runTests() {
   const desktopSidebarContent = fs.readFileSync('src/components/DesktopSidebar.jsx', 'utf8');
 
   assert(
-    'Bottom navigation no longer contains Review Queue tab ID',
-    !bottomNavContent.includes('landlord_payment_evidence')
+    'Bottom navigation contains Payment Evidence tab ID',
+    bottomNavContent.includes('landlord_payment_evidence')
   );
   assert(
     'Desktop sidebar still contains Review Queue tab ID',
@@ -547,6 +547,39 @@ async function runTests() {
   assert(
     'Payment Evidence page renders import wizard trigger button',
     paymentEvidenceContent.includes('Import Payment Evidence') && paymentEvidenceContent.includes('setShowImportWizard(true)')
+  );
+
+  assert(
+    'Navigation/dashboard contains Payment Evidence and legacy Statement Reconciliation labels',
+    paymentEvidenceContent.includes('Payment Evidence') &&
+    fs.readFileSync('src/components/DesktopSidebar.jsx', 'utf8').includes('Statement Reconciliation') &&
+    fs.readFileSync('src/components/DesktopSidebar.jsx', 'utf8').includes('Payment Evidence') &&
+    fs.readFileSync('src/pages/Reconciliation.jsx', 'utf8').includes('Statement Reconciliation') &&
+    fs.readFileSync('src/pages/LandlordDashboard.jsx', 'utf8').includes('Open Payment Evidence')
+  );
+
+  assert(
+    'Payment Evidence page contains workflow visibility checklist and safety copy',
+    paymentEvidenceContent.includes('Payment Evidence Workflow') &&
+    paymentEvidenceContent.includes('PDF Upload') &&
+    paymentEvidenceContent.includes('Provider Detection') &&
+    paymentEvidenceContent.includes('Loop Preview Rows') &&
+    paymentEvidenceContent.includes('Row Validation') &&
+    paymentEvidenceContent.includes('Import to Review Queue') &&
+    paymentEvidenceContent.includes('Matching Suggestions') &&
+    paymentEvidenceContent.includes('Match Selection') &&
+    paymentEvidenceContent.includes('Allocation Preview') &&
+    paymentEvidenceContent.includes('Confirmed Allocation') &&
+    paymentEvidenceContent.includes('Receipt Preview') &&
+    paymentEvidenceContent.includes('Receipt Issuance — Coming Later') &&
+    paymentEvidenceContent.includes('Ledger Posting — Coming Later') &&
+    paymentEvidenceContent.includes('This workflow is controlled step by step. Receipt issuance and ledger posting are still disabled.')
+  );
+
+  assert(
+    'Visibility slice does not introduce forbidden action labels',
+    !/Issue Receipt Now|Post Ledger Now|Mark Invoice Paid Manually|Wallet Credit Now|Send Receipt Now/.test(paymentEvidenceContent) &&
+    !/\bAuto Reconcile\b(?!d)/.test(paymentEvidenceContent)
   );
   assert(
     'Import Wizard shows all five steps',
