@@ -18,6 +18,12 @@ import {
   Check,
   Info
 } from 'lucide-react';
+import {
+  STATEMENT_PROVIDER_ADAPTERS,
+  ADAPTER_STATUS,
+  getAdapterStatusLabel,
+  isSourceImportSupported
+} from '../lib/providerAdapterRegistry.js';
 
 export default function PaymentEvidence({ organization, refreshTrigger, user, role }) {
   const [evidenceRows, setEvidenceRows] = useState([]);
@@ -1258,7 +1264,9 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       candidateFound: 0,
       duplicates: 0,
       ignored: 0,
-      autoReconciled: 0,
+      // Confirmed Allocations: counts both manually_reconciled and auto_reconciled rows.
+      // "auto_reconciled" is a legacy internal status — the KPI label is "Confirmed Allocations".
+      confirmedAllocations: 0,
       total: evidenceRows.length
     };
 
@@ -1267,7 +1275,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       else if (r.status === 'candidate_found') stats.candidateFound++;
       else if (r.status === 'duplicate') stats.duplicates++;
       else if (r.status === 'ignored') stats.ignored++;
-      else if (r.status === 'auto_reconciled') stats.autoReconciled++;
+      else if (r.status === 'auto_reconciled' || r.status === 'manually_reconciled') stats.confirmedAllocations++;
     });
 
     return stats;
@@ -1306,24 +1314,50 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       <div className="card" style={{ padding: '16px', borderLeft: '4px solid var(--primary)' }}>
         <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '800' }}>Payment Evidence Workflow</h4>
         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' }}>
-          PDF statement processing for Loop statements: preview, import, match, allocate, and receipt preview.
+          Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '6px 10px', fontSize: '11.5px' }}>
-          <div>PDF Upload</div>
-          <div>Provider Detection</div>
-          <div>Loop Preview Rows</div>
-          <div>Row Validation</div>
-          <div>Import to Review Queue</div>
-          <div>Matching Suggestions</div>
-          <div>Match Selection</div>
-          <div>Allocation Preview</div>
-          <div>Confirmed Allocation</div>
-          <div>Receipt Preview</div>
-          <div>Receipt Issuance — Coming Later</div>
-          <div>Ledger Posting — Coming Later</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 24px', fontSize: '11.5px' }}>
+          <div>
+            <div style={{ fontWeight: '700', color: 'var(--success)', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px' }}>Supported Now</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              {[
+                'Loop PDF Statement',
+                'Review Queue',
+                'Matching Suggestions',
+                'Match Selection',
+                'Allocation Preview',
+                'Confirmed Allocation',
+                'Receipt Preview'
+              ].map((item) => (
+                <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ color: 'var(--success)', fontSize: '10px' }}>✓</span>
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontWeight: '700', color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px' }}>Coming Later</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', color: 'var(--text-muted)' }}>
+              {[
+                'M-Pesa Statement Adapter',
+                'Co-op Bank Statement Adapter',
+                'KCB Statement Adapter',
+                'Equity Statement Adapter',
+                'Absa Statement Adapter',
+                'Receipt Issuance',
+                'Ledger Posting'
+              ].map((item) => (
+                <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>–</span>
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
         <div style={{ marginTop: '10px', fontSize: '11px', color: 'var(--warning)' }}>
-          This workflow is controlled step by step. Receipt issuance and ledger posting are still disabled.
+          Receipt issuance and ledger posting remain disabled. This workflow is controlled step by step.
         </div>
       </div>
 
@@ -1357,10 +1391,10 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px' }}>{stats.ignored}</div>
         </div>
 
-        {/* Auto Reconciled */}
+        {/* Confirmed Allocations */}
         <div className="card metric-card" style={{ borderLeft: '4px solid var(--success)', padding: '16px' }}>
-          <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Auto Reconciled</div>
-          <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: 'var(--success)' }}>{stats.autoReconciled}</div>
+          <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Confirmed Allocations</div>
+          <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: 'var(--success)' }}>{stats.confirmedAllocations}</div>
         </div>
 
         {/* Total Rows */}
@@ -1370,7 +1404,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
         </div>
       </div>
 
-      {/* FUTURE IMPORT BATCHES UX PLACEHOLDER CARD */}
+      {/* IMPORT BATCHES UX PLACEHOLDER CARD */}
       <div className="card" style={{
         background: 'linear-gradient(135deg, var(--bg-surface), var(--primary-glow))',
         padding: '16px',
@@ -1379,10 +1413,10 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
           <Layers size={18} style={{ color: 'var(--primary)' }} />
-          <h4 style={{ margin: 0, fontWeight: '700', fontSize: '14px' }}>Future Import Batches</h4>
+          <h4 style={{ margin: 0, fontWeight: '700', fontSize: '14px' }}>Import Batches</h4>
         </div>
         <p style={{ fontSize: '12px', margin: 0, color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-          Imported payment files will be grouped into batches. Each batch will show the upload date, provider, imported rows, duplicates, ignored rows, needs review, and reconciled rows. Clicking a batch will open its imported payment evidence.
+          Imported payment files are grouped into batches. Each batch shows the upload date, provider, imported rows, duplicates, ignored rows, needs review, and confirmed allocations. Clicking a batch will open its imported payment evidence.
         </p>
       </div>
 
@@ -1411,7 +1445,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               <option value="candidate_found">Candidate Found</option>
               <option value="duplicate">Duplicate</option>
               <option value="ignored">Ignored</option>
-              <option value="auto_reconciled">Auto Reconciled</option>
+              <option value="auto_reconciled">Confirmed Allocation</option>
               <option value="failed_validation">Failed Validation</option>
             </select>
           </div>
@@ -1610,7 +1644,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             </div>
             <h3 className="sl-empty-state-title" style={{ fontSize: '16px', fontWeight: '800' }}>Queue Empty</h3>
             <p className="sl-empty-state-desc" style={{ maxWidth: '500px', margin: '8px auto 0 auto', fontSize: '12px', lineHeight: '1.6', color: 'var(--text-secondary)' }}>
-              No payment evidence has been imported yet. The system will support importing payment evidence from **CSV**, **PDF bank statements**, **PDF receipts**, **M-Pesa statements**, **Excel files**, **bank exports**, and **OCR (future)**. Once imported, your payments will appear here in the Review Queue for validation before final reconciliation.
+              No payment evidence has been imported yet. Use the <strong>Import Payment Evidence</strong> button and select <strong>Loop PDF Statement</strong> to get started. Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.
             </p>
           </div>
         ) : (
@@ -3253,37 +3287,106 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             {/* STEP 1: CHOOSE SOURCE */}
             {wizardStep === 1 && (
               <div>
-                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 1: Choose Source Template</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
-                  {[
-                    { id: 'csv', name: 'CSV statement', desc: 'Raw spreadsheet exports' },
-                    { id: 'pdf_bank', name: 'PDF bank statement', desc: 'Standard monthly e-statements' },
-                    { id: 'pdf_receipt', name: 'PDF receipt/advice', desc: 'Individual transaction receipts' },
-                    { id: 'mpesa_statement', name: 'M-Pesa statement', desc: 'Official Safaricom ledger exports' },
-                    { id: 'excel', name: 'Excel file', desc: 'XLSX formats or accounting tables' },
-                    { id: 'unknown', name: 'Other/Unknown', desc: 'Unformatted text or other layouts' }
-                  ].map((src) => (
+                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '4px' }}>Step 1: Choose Source Template</h4>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                  Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.
+                </p>
+
+                {/* Supported Now */}
+                <div style={{ marginBottom: '14px' }}>
+                  <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--success)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--success)', display: 'inline-block' }} />
+                    Supported Now
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                    {/* Loop PDF Statement */}
                     <div
-                      key={src.id}
-                      onClick={() => setImportSource(src.id)}
+                      onClick={() => setImportSource('pdf_bank')}
                       style={{
                         padding: '14px',
-                        border: importSource === src.id ? '2px solid var(--primary)' : '1px solid var(--border)',
+                        border: importSource === 'pdf_bank' ? '2px solid var(--success)' : '1px solid var(--success)',
                         borderRadius: '8px',
-                        backgroundColor: importSource === src.id ? 'var(--primary-glow)' : 'var(--bg-surface-elevated)',
+                        backgroundColor: importSource === 'pdf_bank' ? 'rgba(76,175,80,0.1)' : 'var(--bg-surface-elevated)',
                         cursor: 'pointer',
                         transition: 'all 0.15s',
-                        boxShadow: importSource === src.id ? '0 4px 12px rgba(0,0,0,0.15)' : 'none'
+                        boxShadow: importSource === 'pdf_bank' ? '0 4px 12px rgba(0,0,0,0.12)' : 'none'
                       }}
                       className="wizard-card-hover"
                     >
-                      <div style={{ fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--border)', backgroundColor: importSource === src.id ? 'var(--primary)' : 'transparent', transition: 'all 0.1s' }} />
-                        {src.name}
+                      <div style={{ fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--success)', backgroundColor: importSource === 'pdf_bank' ? 'var(--success)' : 'transparent', transition: 'all 0.1s' }} />
+                          Loop PDF Statement
+                        </div>
+                        <span style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '10px', fontWeight: '700', backgroundColor: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid var(--success)', whiteSpace: 'nowrap' }}>Supported</span>
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '18px' }}>{src.desc}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '18px' }}>Loop Digital Banking PDF e-statements</div>
                     </div>
-                  ))}
+                  </div>
+                </div>
+
+                {/* Coming Later */}
+                <div style={{ marginBottom: '14px' }}>
+                  <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--text-muted)', display: 'inline-block' }} />
+                    Coming Later
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                    {[
+                      { id: 'mpesa_statement', name: 'M-Pesa Statement',  desc: 'Official Safaricom ledger exports' },
+                      { id: 'coop_bank',       name: 'Co-op Bank Statement', desc: 'Co-operative Bank of Kenya PDF' },
+                      { id: 'kcb_bank',        name: 'KCB Statement',      desc: 'Kenya Commercial Bank PDF' },
+                      { id: 'equity_bank',     name: 'Equity Statement',   desc: 'Equity Bank Group PDF' },
+                      { id: 'absa_bank',       name: 'Absa Statement',     desc: 'Absa Bank Kenya PDF' },
+                      { id: 'pdf_receipt',     name: 'PDF Receipt/Advice', desc: 'Individual transaction receipts' },
+                      { id: 'excel',           name: 'Excel file',         desc: 'XLSX formats or accounting tables' }
+                    ].map((src) => (
+                      <div
+                        key={src.id}
+                        style={{
+                          padding: '14px',
+                          border: '1px solid var(--border)',
+                          borderRadius: '8px',
+                          backgroundColor: 'var(--bg-surface-elevated)',
+                          cursor: 'not-allowed',
+                          opacity: 0.6,
+                          transition: 'all 0.15s'
+                        }}
+                      >
+                        <div style={{ fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
+                          <span>{src.name}</span>
+                          <span style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '10px', fontWeight: '700', backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Coming Later</span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>{src.desc}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Disabled */}
+                <div>
+                  <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--danger)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--danger)', display: 'inline-block' }} />
+                    Disabled
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                    <div
+                      style={{
+                        padding: '14px',
+                        border: '1px solid var(--border)',
+                        borderRadius: '8px',
+                        backgroundColor: 'var(--bg-surface-elevated)',
+                        cursor: 'not-allowed',
+                        opacity: 0.4
+                      }}
+                    >
+                      <div style={{ fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
+                        <span>Other/Unknown</span>
+                        <span style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '10px', fontWeight: '700', backgroundColor: 'rgba(244,67,54,0.1)', color: 'var(--danger)', border: '1px solid var(--danger)', whiteSpace: 'nowrap' }}>Disabled</span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>This source is not supported yet. Choose a supported provider to continue.</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -3411,38 +3514,54 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             {/* STEP 3: DETECT PROVIDER */}
             {wizardStep === 3 && (
               <div>
-                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 3: Select or Confirm Provider</h4>
+                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '4px' }}>Step 3: Select or Confirm Provider</h4>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '14px' }}>
+                  Only the Loop adapter is supported for import to the review queue. Other providers are coming later.
+                </p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
                   {[
-                    { id: 'mpesa', name: 'M-Pesa', desc: 'Safaricom mobile network operator' },
-                    { id: 'coop', name: 'Co-op Bank', desc: 'Co-operative Bank of Kenya' },
-                    { id: 'loop', name: 'Loop', desc: 'Loop Digital Banking' },
-                    { id: 'kcb', name: 'KCB', desc: 'Kenya Commercial Bank' },
-                    { id: 'equity', name: 'Equity', desc: 'Equity Bank Group' },
-                    { id: 'absa', name: 'Absa', desc: 'Absa Bank Kenya' },
-                    { id: 'ncba', name: 'NCBA', desc: 'NCBA Bank Group' },
-                    { id: 'unknown', name: 'Other/Unknown', desc: 'Other bank or processing channel' }
-                  ].map((prov) => (
-                    <div
-                      key={prov.id}
-                      onClick={() => setImportProvider(prov.id)}
-                      style={{
-                        padding: '12px',
-                        border: importProvider === prov.id ? '2px solid var(--primary)' : '1px solid var(--border)',
-                        borderRadius: '8px',
-                        backgroundColor: importProvider === prov.id ? 'var(--primary-glow)' : 'var(--bg-surface-elevated)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s'
-                      }}
-                      className="wizard-card-hover"
-                    >
-                      <div style={{ fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--border)', backgroundColor: importProvider === prov.id ? 'var(--primary)' : 'transparent', transition: 'all 0.1s' }} />
-                        {prov.name}
+                    { id: 'loop',    name: 'Loop',          desc: 'Loop Digital Banking',              status: 'supported' },
+                    { id: 'mpesa',   name: 'M-Pesa',        desc: 'Safaricom mobile network operator',  status: 'coming_later' },
+                    { id: 'coop',    name: 'Co-op Bank',    desc: 'Co-operative Bank of Kenya',         status: 'coming_later' },
+                    { id: 'kcb',     name: 'KCB',           desc: 'Kenya Commercial Bank',              status: 'coming_later' },
+                    { id: 'equity',  name: 'Equity',        desc: 'Equity Bank Group',                  status: 'coming_later' },
+                    { id: 'absa',    name: 'Absa',          desc: 'Absa Bank Kenya',                    status: 'coming_later' },
+                    { id: 'ncba',    name: 'NCBA',          desc: 'NCBA Bank Group',                    status: 'coming_later' },
+                    { id: 'unknown', name: 'Other/Unknown', desc: 'Other bank or processing channel',   status: 'disabled' }
+                  ].map((prov) => {
+                    const isSupported = prov.status === 'supported';
+                    const isDisabled  = prov.status === 'disabled';
+                    const badgeStyle = isSupported
+                      ? { backgroundColor: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid var(--success)' }
+                      : isDisabled
+                      ? { backgroundColor: 'rgba(244,67,54,0.1)', color: 'var(--danger)', border: '1px solid var(--danger)' }
+                      : { backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' };
+                    const badgeLabel = isSupported ? 'Supported' : isDisabled ? 'Disabled' : 'Coming Later';
+                    return (
+                      <div
+                        key={prov.id}
+                        onClick={() => setImportProvider(prov.id)}
+                        style={{
+                          padding: '12px',
+                          border: importProvider === prov.id ? '2px solid var(--primary)' : '1px solid var(--border)',
+                          borderRadius: '8px',
+                          backgroundColor: importProvider === prov.id ? 'var(--primary-glow)' : 'var(--bg-surface-elevated)',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s'
+                        }}
+                        className="wizard-card-hover"
+                      >
+                        <div style={{ fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--border)', backgroundColor: importProvider === prov.id ? 'var(--primary)' : 'transparent', transition: 'all 0.1s' }} />
+                            {prov.name}
+                          </div>
+                          <span style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '10px', fontWeight: '700', whiteSpace: 'nowrap', ...badgeStyle }}>{badgeLabel}</span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '18px' }}>{prov.desc}</div>
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '18px' }}>{prov.desc}</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -3533,7 +3652,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                       </table>
                     </div>
 
-                    {/* Task 5: User Guidance Panel */}
+                    {/* Provider Adapter Guidance Panel */}
                     <div style={{
                       backgroundColor: 'var(--bg-surface-elevated)',
                       border: '1px solid var(--border)',
@@ -3547,15 +3666,11 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                         Current Phase: Preview Only
                       </div>
                       <p style={{ margin: '0 0 8px 0', color: 'var(--text-secondary)' }}>
-                        This is a browser-only preview. <strong>No data has been saved to the database</strong>, no reconciliation has occurred, and no payment allocations have been created. The final Import button is intentionally disabled.
+                        This is a browser-only preview. <strong>No data has been saved to the database</strong>, no reconciliation has occurred, and no payment allocations have been created.
                       </p>
-                      <div style={{ fontWeight: '700', marginBottom: '4px', color: 'var(--text-primary)' }}>Future phases will enable:</div>
-                      <ul style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-muted)' }}>
-                        <li>CSV, PDF, and Excel Import & validation adapters</li>
-                        <li>Bank and M-Pesa statements file upload</li>
-                        <li>OCR receipt scanning & digitizing pipeline</li>
-                        <li>Automatic matching engine with manual review queue reconciliation</li>
-                      </ul>
+                      <div style={{ fontWeight: '700', marginBottom: '4px', color: 'var(--text-primary)' }}>
+                        Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.
+                      </div>
                     </div>
                   </div>
                 ) : importSource === 'pdf_bank' || importSource === 'pdf_receipt' || importSource === 'mpesa_statement' ? (
@@ -4010,24 +4125,54 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={!isImportEnabled || importing}
-                    onClick={handleImportCSV}
-                    style={{
-                      width: '100%',
-                      cursor: (!isImportEnabled || importing) ? 'not-allowed' : 'pointer',
-                      opacity: (!isImportEnabled || importing) ? 0.6 : 1
-                    }}
-                  >
-                    {importing ? 'Importing...' : 'Import CSV to Review Queue'}
-                  </button>
-                  <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>
-                    Importing only saves evidence rows for review. It does not reconcile payments or update invoices.
-                  </p>
-                </div>
+                {importSource === 'csv' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={!isImportEnabled || importing}
+                      onClick={handleImportCSV}
+                      style={{
+                        width: '100%',
+                        cursor: (!isImportEnabled || importing) ? 'not-allowed' : 'pointer',
+                        opacity: (!isImportEnabled || importing) ? 0.6 : 1
+                      }}
+                    >
+                      {importing ? 'Importing...' : 'Import CSV to Review Queue'}
+                    </button>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>
+                      Importing only saves evidence rows for review. It does not reconcile payments or update invoices.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{
+                    padding: '16px',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    backgroundColor: 'var(--bg-surface-elevated)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '10px'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
+                      <ShieldAlert size={16} style={{ color: 'var(--warning)', flexShrink: 0 }} />
+                      <span style={{ fontSize: '12px', fontWeight: '600' }}>
+                        This source is not enabled for import yet. Provider adapter is coming later.
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
+                      Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.
+                    </p>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      disabled
+                      style={{ width: '100%', cursor: 'not-allowed', opacity: 0.5 }}
+                    >
+                      Import Unavailable — Coming Later
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

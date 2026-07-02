@@ -561,19 +561,18 @@ async function runTests() {
   assert(
     'Payment Evidence page contains workflow visibility checklist and safety copy',
     paymentEvidenceContent.includes('Payment Evidence Workflow') &&
-    paymentEvidenceContent.includes('PDF Upload') &&
-    paymentEvidenceContent.includes('Provider Detection') &&
-    paymentEvidenceContent.includes('Loop Preview Rows') &&
-    paymentEvidenceContent.includes('Row Validation') &&
+    paymentEvidenceContent.includes('Supported Now') &&
+    paymentEvidenceContent.includes('Coming Later') &&
+    paymentEvidenceContent.includes('Loop PDF Statement') &&
     paymentEvidenceContent.includes('Import to Review Queue') &&
     paymentEvidenceContent.includes('Matching Suggestions') &&
     paymentEvidenceContent.includes('Match Selection') &&
     paymentEvidenceContent.includes('Allocation Preview') &&
     paymentEvidenceContent.includes('Confirmed Allocation') &&
     paymentEvidenceContent.includes('Receipt Preview') &&
-    paymentEvidenceContent.includes('Receipt Issuance — Coming Later') &&
-    paymentEvidenceContent.includes('Ledger Posting — Coming Later') &&
-    paymentEvidenceContent.includes('This workflow is controlled step by step. Receipt issuance and ledger posting are still disabled.')
+    paymentEvidenceContent.includes('Receipt Issuance') &&
+    paymentEvidenceContent.includes('Ledger Posting') &&
+    paymentEvidenceContent.includes('Receipt issuance and ledger posting remain disabled. This workflow is controlled step by step.')
   );
 
   assert(
@@ -4876,6 +4875,183 @@ async function runTests() {
   assert(
     'No database migration was added for PDF text extraction',
     !fs.readdirSync('db/migrations').some(file => /pdf|statement|parser/i.test(file))
+  );
+
+  // ==========================================
+  // Test N: Provider Adapter Registry
+  // ==========================================
+  console.log('\nN. Provider Adapter Registry (src/lib/providerAdapterRegistry.js):');
+
+  const registryContent = fs.readFileSync('src/lib/providerAdapterRegistry.js', 'utf8');
+
+  assert(
+    'Registry exports ADAPTER_STATUS constant',
+    registryContent.includes('export const ADAPTER_STATUS')
+  );
+
+  assert(
+    'Registry defines supported status',
+    registryContent.includes("SUPPORTED:    'supported'")
+  );
+
+  assert(
+    'Registry defines coming_later status',
+    registryContent.includes("COMING_LATER: 'coming_later'")
+  );
+
+  assert(
+    'Registry defines disabled status',
+    registryContent.includes("DISABLED:     'disabled'")
+  );
+
+  assert(
+    'Registry exports STATEMENT_PROVIDER_ADAPTERS',
+    registryContent.includes('export const STATEMENT_PROVIDER_ADAPTERS')
+  );
+
+  assert(
+    'Registry has LOOP_PDF adapter as supported',
+    registryContent.includes("LOOP_PDF:") &&
+    registryContent.includes("status: ADAPTER_STATUS.SUPPORTED")
+  );
+
+  assert(
+    'Registry has MPESA_STATEMENT as coming_later',
+    registryContent.includes("MPESA_STATEMENT:") &&
+    registryContent.includes("status: ADAPTER_STATUS.COMING_LATER")
+  );
+
+  assert(
+    'Registry has OTHER_UNKNOWN as disabled',
+    registryContent.includes("OTHER_UNKNOWN:") &&
+    registryContent.includes("status: ADAPTER_STATUS.DISABLED")
+  );
+
+  assert(
+    'Registry exports getSupportedAdapters helper',
+    registryContent.includes('export function getSupportedAdapters()')
+  );
+
+  assert(
+    'Registry exports getComingLaterAdapters helper',
+    registryContent.includes('export function getComingLaterAdapters()')
+  );
+
+  assert(
+    'Registry exports isSourceImportSupported helper',
+    registryContent.includes('export function isSourceImportSupported(')
+  );
+
+  assert(
+    'Registry exports getAdapterStatusLabel helper',
+    registryContent.includes('export function getAdapterStatusLabel(')
+  );
+
+  assert(
+    'Registry has no side effects (no fetch/axios/http calls)',
+    !/\b(fetch|axios|http|https|require\(['"]http)/.test(registryContent)
+  );
+
+  // ==========================================
+  // Test O: PaymentEvidence.jsx UI Registry Integration
+  // ==========================================
+  console.log('\nO. PaymentEvidence.jsx UI Registry Integration (static checks):');
+
+  const peContent = fs.readFileSync('src/pages/PaymentEvidence.jsx', 'utf8');
+
+  assert(
+    'PaymentEvidence.jsx imports from providerAdapterRegistry',
+    peContent.includes("from '../lib/providerAdapterRegistry.js'")
+  );
+
+  assert(
+    'PaymentEvidence.jsx wizard Step 1 has Supported Now section label',
+    peContent.includes('Supported Now')
+  );
+
+  assert(
+    'PaymentEvidence.jsx wizard Step 1 has Coming Later section label',
+    peContent.includes('Coming Later')
+  );
+
+  assert(
+    'PaymentEvidence.jsx wizard Step 1 has Disabled section label',
+    peContent.includes('Disabled')
+  );
+
+  assert(
+    'PaymentEvidence.jsx wizard Step 1 shows Loop PDF Statement as supported',
+    peContent.includes('Loop PDF Statement') &&
+    peContent.includes('Supported')
+  );
+
+  assert(
+    'PaymentEvidence.jsx wizard Step 1 coming-later cards are not-clickable (cursor: not-allowed)',
+    (peContent.match(/cursor: 'not-allowed'/g) || []).length >= 2
+  );
+
+  assert(
+    'PaymentEvidence.jsx wizard Step 3 provider cards have status badges',
+    peContent.includes('badgeLabel') &&
+    peContent.includes('badgeStyle')
+  );
+
+  assert(
+    'PaymentEvidence.jsx KPI card renamed from Auto Reconciled to Confirmed Allocations',
+    peContent.includes('Confirmed Allocations') &&
+    !peContent.includes('Auto Reconciled')
+  );
+
+  assert(
+    'PaymentEvidence.jsx confirmedAllocations KPI counts both auto_reconciled and manually_reconciled',
+    peContent.includes("r.status === 'auto_reconciled' || r.status === 'manually_reconciled'") &&
+    peContent.includes('confirmedAllocations++')
+  );
+
+  assert(
+    'PaymentEvidence.jsx Import Batches card heading renamed (no longer Future Import Batches)',
+    peContent.includes('Import Batches') &&
+    !peContent.includes('Future Import Batches')
+  );
+
+  assert(
+    'PaymentEvidence.jsx workflow checklist has Supported Now column',
+    peContent.includes('Supported Now')
+  );
+
+  assert(
+    'PaymentEvidence.jsx workflow checklist has Coming Later column',
+    peContent.includes('Coming Later')
+  );
+
+  assert(
+    'PaymentEvidence.jsx workflow checklist uses adapter-by-adapter copy',
+    peContent.includes('Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.')
+  );
+
+  assert(
+    'PaymentEvidence.jsx Step 4 guidance panel no longer contains Future phases will enable',
+    !peContent.includes('Future phases will enable:')
+  );
+
+  assert(
+    'PaymentEvidence.jsx Step 4 guidance panel contains adapter-by-adapter copy',
+    peContent.includes('Provider support is enabled adapter by adapter')
+  );
+
+  assert(
+    'PaymentEvidence.jsx Step 5 has This source is not enabled for import yet gate message',
+    peContent.includes('This source is not enabled for import yet. Provider adapter is coming later.')
+  );
+
+  assert(
+    'PaymentEvidence.jsx Step 5 non-CSV sources show Import Unavailable — Coming Later disabled button',
+    peContent.includes('Import Unavailable \u2014 Coming Later')
+  );
+
+  assert(
+    'PaymentEvidence.jsx empty-state copy uses adapter-by-adapter messaging',
+    peContent.includes('Provider support is enabled adapter by adapter')
   );
 
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
