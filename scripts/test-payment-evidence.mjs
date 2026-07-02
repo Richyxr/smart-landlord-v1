@@ -4408,8 +4408,11 @@ async function runTests() {
 
   assert('PaymentEvidence.jsx contains Allocation Preview', paymentEvidenceContent.includes('Allocation Preview'));
   assert('PaymentEvidence.jsx contains allocation preview review-only safety text', paymentEvidenceContent.includes('Allocation preview is review-only. No money is posted yet.'));
-  assert('PaymentEvidence.jsx contains Confirm Allocation — Coming Later', paymentEvidenceContent.includes('Confirm Allocation — Coming Later'));
+  assert('PaymentEvidence.jsx contains Confirm Selected Allocation section', paymentEvidenceContent.includes('Confirm Selected Allocation'));
+  assert('PaymentEvidence.jsx contains selected allocation confirmation phrase', paymentEvidenceContent.includes('CONFIRM SELECTED ALLOCATION'));
+  assert('PaymentEvidence.jsx contains selected allocation disabled follow-up labels', paymentEvidenceContent.includes('Receipt Preview — Coming Later') && paymentEvidenceContent.includes('Ledger Posting — Coming Later'));
   assert('PaymentEvidence.jsx calls /allocation-preview endpoint', paymentEvidenceContent.includes('/allocation-preview'));
+  assert('PaymentEvidence.jsx calls /confirm-selected-allocation endpoint', paymentEvidenceContent.includes('/confirm-selected-allocation'));
   assert('PaymentEvidence.jsx displays allocation preview detail labels',
     paymentEvidenceContent.includes('Selected Tenant:') &&
     paymentEvidenceContent.includes('Selected Invoice:') &&
@@ -4423,9 +4426,238 @@ async function runTests() {
   assert('Allocation preview panel does not contain forbidden labels',
     !/Auto Reconcile|Allocate Now|Confirm Allocation Now|Issue Receipt|Post Ledger|Mark Invoice Paid|Create Transaction/.test(allocationPreviewSlice)
   );
-  assert('Allocation preview panel flow does not call allocation confirmation, receipt, or ledger endpoints',
-    !/Allocation preview is review-only\. No money is posted yet\.[\s\S]{0,2400}(confirm-allocation|issue-receipt|receipt-result|receipt-print-view|\/api\/ledger)/i.test(paymentEvidenceContent)
+  assert('Allocation preview selected-confirmation panel does not expose receipt or ledger actions',
+    !/Type exact confirmation text: <strong>CONFIRM SELECTED ALLOCATION<\/strong>[\s\S]{0,1600}(Issue Receipt|receipt-result|receipt-print-view|Post Ledger|\/api\/ledger)/i.test(paymentEvidenceContent)
   );
+
+  // ==========================================
+  // Test 27: Confirmed Allocation from Selected Evidence - Controlled Financial Posting
+  // ==========================================
+  console.log('\n27. Confirmed Allocation from Selected Evidence - Controlled Financial Posting:');
+
+  const confirmSelectedDb = new MockDb();
+  confirmSelectedDb.seed('payment_evidence', [
+    {
+      id: 1501,
+      organization_id: 1,
+      transaction_code: 'SEL-CONFIRM-001',
+      transaction_date: '2026-06-24',
+      amount: 1500,
+      status: 'needs_review',
+      collection_channel: 'mpesa_paybill',
+      raw_fields: { selected_match: { tenant_id: 2701, invoice_id: 4701 } }
+    },
+    {
+      id: 1502,
+      organization_id: 1,
+      transaction_code: 'SEL-OVERPAY-001',
+      transaction_date: '2026-06-24',
+      amount: 2100,
+      status: 'needs_review',
+      collection_channel: 'bank_transfer',
+      raw_fields: { selected_match: { tenant_id: 2701, invoice_id: 4702 } }
+    },
+    {
+      id: 1503,
+      organization_id: 1,
+      transaction_code: 'SEL-DONE-001',
+      transaction_date: '2026-06-24',
+      amount: 1500,
+      status: 'manually_reconciled',
+      raw_fields: { selected_match: { tenant_id: 2701, invoice_id: 4701 } }
+    },
+    {
+      id: 1504,
+      organization_id: 2,
+      transaction_code: 'SEL-ORG2-001',
+      transaction_date: '2026-06-24',
+      amount: 1500,
+      status: 'needs_review',
+      raw_fields: { selected_match: { tenant_id: 2801, invoice_id: 4801 } }
+    },
+    {
+      id: 1505,
+      organization_id: 1,
+      transaction_code: 'SEL-NOMATCH-001',
+      transaction_date: '2026-06-24',
+      amount: 1200,
+      status: 'needs_review',
+      raw_fields: { source: 'test' }
+    },
+    {
+      id: 1506,
+      organization_id: 1,
+      transaction_code: 'SEL-DUP-EVIDENCE',
+      transaction_date: '2026-06-24',
+      amount: 1500,
+      status: 'needs_review',
+      raw_fields: { selected_match: { tenant_id: 2701, invoice_id: 4701 } }
+    },
+    {
+      id: 1507,
+      organization_id: 1,
+      transaction_code: 'SEL-VOID-001',
+      transaction_date: '2026-06-24',
+      amount: 1500,
+      status: 'needs_review',
+      raw_fields: { selected_match: { tenant_id: 2701, invoice_id: 4703 } }
+    }
+  ]);
+  confirmSelectedDb.seed('tenants', [
+    { id: 2701, organization_id: 1, full_name: 'Confirm Tenant', phone_number: '0711222000', tenant_account_number: 'TEN-CONF-01', property_id: 5701, unit_id: 3701, status: 'active' },
+    { id: 2801, organization_id: 2, full_name: 'Other Org Confirm Tenant', phone_number: '0799111000', tenant_account_number: 'TEN-ORG2-01', property_id: 5801, unit_id: 3801, status: 'active' }
+  ]);
+  confirmSelectedDb.seed('invoices', [
+    { id: 4701, organization_id: 1, tenant_id: 2701, invoice_number: 'INV-CONF-001', status: 'unpaid', total: 1500, amount_paid: 0, balance: 1500 },
+    { id: 4702, organization_id: 1, tenant_id: 2701, invoice_number: 'INV-CONF-002', status: 'issued', total: 1500, amount_paid: 0, balance: 1500 },
+    { id: 4703, organization_id: 1, tenant_id: 2701, invoice_number: 'INV-CONF-003', status: 'void', total: 1500, amount_paid: 0, balance: 1500 },
+    { id: 4801, organization_id: 2, tenant_id: 2801, invoice_number: 'INV-ORG2-001', status: 'unpaid', total: 1500, amount_paid: 0, balance: 1500 }
+  ]);
+  confirmSelectedDb.seed('transactions', [
+    {
+      id: 9901,
+      organization_id: 1,
+      tenant_id: 2701,
+      amount: 1500,
+      transaction_type: 'payment',
+      reference_number: 'SEL-DUP-EVIDENCE',
+      transaction_date: '2026-06-24',
+      raw_payload: JSON.stringify({ evidence_id: 1506, source: 'confirm_selected_allocation' })
+    }
+  ]);
+  confirmSelectedDb.seed('payment_allocations', [
+    { id: 8801, organization_id: 1, transaction_id: 9901, invoice_id: 4701, amount_allocated: 1500 }
+  ]);
+  confirmSelectedDb.seed('receipts', []);
+  confirmSelectedDb.seed('ledger', []);
+  confirmSelectedDb.seed('balances', []);
+
+  const confirmSelectedRouter = createPaymentEvidenceRoutes(confirmSelectedDb);
+  const confirmSelectedRouteLayer = confirmSelectedRouter.stack.find(l => l.route && l.route.path === '/payment-evidence/:id/confirm-selected-allocation');
+  const confirmSelectedHandler = confirmSelectedRouteLayer && confirmSelectedRouteLayer.route.stack[confirmSelectedRouteLayer.route.stack.length - 1].handle;
+  const confirmSelectedMiddlewares = confirmSelectedRouteLayer ? confirmSelectedRouteLayer.route.stack.slice(0, -1).map(s => s.handle) : [];
+  const confirmSelectedRoleMiddleware = confirmSelectedMiddlewares[confirmSelectedMiddlewares.length - 1];
+
+  assert('Confirm selected allocation endpoint exists: POST /payment-evidence/:id/confirm-selected-allocation', typeof confirmSelectedHandler === 'function');
+
+  for (const allowedRole of ['landlord', 'super_admin']) {
+    let allowStatus = null;
+    let allowNext = false;
+    await confirmSelectedRoleMiddleware(
+      { auth: { role: allowedRole, organizationId: 1, userId: 88 } },
+      {
+        status(code) { allowStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { allowNext = true; }
+    );
+    assert(`Confirm selected allocation allows ${allowedRole}`, allowNext === true && allowStatus === null);
+  }
+
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let blockedStatus = null;
+    let blockedNext = false;
+    await confirmSelectedRoleMiddleware(
+      { auth: { role: blockedRole, organizationId: 1, userId: 88 } },
+      {
+        status(code) { blockedStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { blockedNext = true; }
+    );
+    assert(`Confirm selected allocation blocks ${blockedRole}`, blockedStatus === 403 && blockedNext === false);
+  }
+
+  const runConfirmSelectedRequest = async ({ orgId = 1, role = 'landlord', userId = 88, id = 1501, body = {} } = {}) => {
+    let responseStatus = null;
+    let responsePayload = null;
+    await confirmSelectedHandler(
+      {
+        auth: { organizationId: orgId, role, userId },
+        params: { id: String(id) },
+        body
+      },
+      {
+        status(code) { responseStatus = code; return this; },
+        json(data) { responsePayload = data; return this; }
+      }
+    );
+    return { responseStatus, responsePayload };
+  };
+
+  const confirmSelectedBefore = {
+    payment_evidence: JSON.stringify(confirmSelectedDb.get('payment_evidence')),
+    invoices: JSON.stringify(confirmSelectedDb.get('invoices')),
+    tenants: JSON.stringify(confirmSelectedDb.get('tenants')),
+    balances: JSON.stringify(confirmSelectedDb.get('balances')),
+    transactions: JSON.stringify(confirmSelectedDb.get('transactions')),
+    payment_allocations: JSON.stringify(confirmSelectedDb.get('payment_allocations')),
+    receipts: JSON.stringify(confirmSelectedDb.get('receipts')),
+    ledger: JSON.stringify(confirmSelectedDb.get('ledger'))
+  };
+
+  const confirmMissing = await runConfirmSelectedRequest({ id: 999999, body: { confirmation_text: 'CONFIRM SELECTED ALLOCATION' } });
+  assert('Confirm selected allocation returns 404 for missing evidence', confirmMissing.responseStatus === 404);
+
+  const confirmCrossOrg = await runConfirmSelectedRequest({ orgId: 1, id: 1504, body: { confirmation_text: 'CONFIRM SELECTED ALLOCATION' } });
+  assert('Confirm selected allocation blocks/hides cross-org evidence', confirmCrossOrg.responseStatus === 404);
+
+  const confirmWrongText = await runConfirmSelectedRequest({ id: 1501, body: { confirmation_text: 'CONFIRM ALLOCATION' } });
+  assert('Confirm selected allocation rejects wrong confirmation text', confirmWrongText.responseStatus === 400 && confirmWrongText.responsePayload && confirmWrongText.responsePayload.error === 'INVALID_CONFIRMATION_TEXT');
+
+  const confirmNoMatch = await runConfirmSelectedRequest({ id: 1505, body: { confirmation_text: 'CONFIRM SELECTED ALLOCATION' } });
+  assert('Confirm selected allocation requires selected tenant/invoice match', confirmNoMatch.responseStatus === 400 && confirmNoMatch.responsePayload && confirmNoMatch.responsePayload.error === 'SELECTED_MATCH_REQUIRED');
+
+  const confirmVoidInvoice = await runConfirmSelectedRequest({ id: 1507, body: { confirmation_text: 'CONFIRM SELECTED ALLOCATION' } });
+  assert('Confirm selected allocation blocks void invoice', confirmVoidInvoice.responseStatus === 400 && confirmVoidInvoice.responsePayload && confirmVoidInvoice.responsePayload.error === 'INVOICE_STATUS_BLOCKED');
+
+  const confirmOverpayment = await runConfirmSelectedRequest({ id: 1502, body: { confirmation_text: 'CONFIRM SELECTED ALLOCATION' } });
+  assert('Confirm selected allocation blocks overpayment without wallet support', confirmOverpayment.responseStatus === 400 && confirmOverpayment.responsePayload && confirmOverpayment.responsePayload.error === 'OVERPAYMENT_NOT_SUPPORTED');
+
+  const confirmAlreadyAllocated = await runConfirmSelectedRequest({ id: 1503, body: { confirmation_text: 'CONFIRM SELECTED ALLOCATION' } });
+  assert('Confirm selected allocation rejects already reconciled evidence', confirmAlreadyAllocated.responseStatus === 409 && confirmAlreadyAllocated.responsePayload && confirmAlreadyAllocated.responsePayload.error === 'ALREADY_ALLOCATED');
+
+  const confirmDuplicateEvidence = await runConfirmSelectedRequest({ id: 1506, body: { confirmation_text: 'CONFIRM SELECTED ALLOCATION' } });
+  assert('Confirm selected allocation duplicate guard blocks previously posted evidence', confirmDuplicateEvidence.responseStatus === 409 && confirmDuplicateEvidence.responsePayload && confirmDuplicateEvidence.responsePayload.error === 'DUPLICATE_ALLOCATION');
+
+  const validConfirm = await runConfirmSelectedRequest({ id: 1501, body: { confirmation_text: 'CONFIRM SELECTED ALLOCATION' } });
+  assert('Valid confirm selected allocation response returns success true', validConfirm.responsePayload && validConfirm.responsePayload.success === true);
+  assert('Valid confirm selected allocation response mode is confirmed_selected_allocation', validConfirm.responsePayload && validConfirm.responsePayload.mode === 'confirmed_selected_allocation');
+  assert('Valid confirm selected allocation response includes transaction/allocation/invoice_result blocks',
+    validConfirm.responsePayload &&
+    validConfirm.responsePayload.transaction &&
+    validConfirm.responsePayload.allocation &&
+    validConfirm.responsePayload.invoice_result
+  );
+  assert('Valid confirm selected allocation keeps receipt and ledger disabled in readiness',
+    validConfirm.responsePayload &&
+    validConfirm.responsePayload.post_allocation_readiness &&
+    validConfirm.responsePayload.post_allocation_readiness.receipt_preview_enabled === false &&
+    validConfirm.responsePayload.post_allocation_readiness.receipt_issuance_enabled === false &&
+    validConfirm.responsePayload.post_allocation_readiness.ledger_posting_enabled === false
+  );
+
+  const row1501After = confirmSelectedDb.get('payment_evidence').find(r => Number(r.id) === 1501);
+  const invoice4701After = confirmSelectedDb.get('invoices').find(i => Number(i.id) === 4701);
+  assert('Valid confirm selected allocation updates payment evidence status to manually_reconciled', row1501After && row1501After.status === 'manually_reconciled');
+  assert('Valid confirm selected allocation writes raw_fields.confirmed_selected_allocation metadata',
+    row1501After && row1501After.raw_fields && row1501After.raw_fields.confirmed_selected_allocation && Number(row1501After.raw_fields.confirmed_selected_allocation.invoice_id) === 4701
+  );
+  assert('Valid confirm selected allocation updates invoice amount_paid/balance/status',
+    invoice4701After && Number(invoice4701After.amount_paid) === 1500 && Number(invoice4701After.balance) === 0 && String(invoice4701After.status) === 'paid'
+  );
+
+  assert('Valid confirm selected allocation creates one new transaction', confirmSelectedDb.get('transactions').length === JSON.parse(confirmSelectedBefore.transactions).length + 1);
+  assert('Valid confirm selected allocation creates one new payment allocation', confirmSelectedDb.get('payment_allocations').length === JSON.parse(confirmSelectedBefore.payment_allocations).length + 1);
+  assert('Valid confirm selected allocation creates no receipts', JSON.stringify(confirmSelectedDb.get('receipts')) === confirmSelectedBefore.receipts);
+  assert('Valid confirm selected allocation creates no ledger records', JSON.stringify(confirmSelectedDb.get('ledger')) === confirmSelectedBefore.ledger);
+  assert('Valid confirm selected allocation does not mutate tenants or balances',
+    JSON.stringify(confirmSelectedDb.get('tenants')) === confirmSelectedBefore.tenants &&
+    JSON.stringify(confirmSelectedDb.get('balances')) === confirmSelectedBefore.balances
+  );
+
+  const secondConfirm = await runConfirmSelectedRequest({ id: 1501, body: { confirmation_text: 'CONFIRM SELECTED ALLOCATION' } });
+  assert('Confirm selected allocation idempotency blocks second confirmation', secondConfirm.responseStatus === 409 && secondConfirm.responsePayload && secondConfirm.responsePayload.duplicate === true);
 
   assert(
     'PaymentEvidence.jsx calls Loop PDF import endpoint',

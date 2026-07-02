@@ -72,6 +72,10 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [previewError, setPreviewError] = useState('');
   const [typedConfirmationText, setTypedConfirmationText] = useState('');
   const [confirmingAllocation, setConfirmingAllocation] = useState(false);
+  const [selectedAllocationConfirmationText, setSelectedAllocationConfirmationText] = useState('');
+  const [confirmingSelectedAllocation, setConfirmingSelectedAllocation] = useState(false);
+  const [selectedAllocationResult, setSelectedAllocationResult] = useState(null);
+  const [selectedAllocationError, setSelectedAllocationError] = useState('');
 
   // Allocation Result States
   const [allocationResultData, setAllocationResultData] = useState(null);
@@ -421,6 +425,10 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     setSavingReview(false);
     setTypedConfirmationText('');
     setConfirmingAllocation(false);
+    setSelectedAllocationConfirmationText('');
+    setConfirmingSelectedAllocation(false);
+    setSelectedAllocationResult(null);
+    setSelectedAllocationError('');
     setReceiptIssueConfirmationText('');
     setIssuingReceipt(false);
     setSelectedSuggestionIndex(-1);
@@ -466,6 +474,10 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       setReceiptPrintViewData(null);
       setReceiptPrintViewError('');
       setReceiptIssueConfirmationText('');
+      setSelectedAllocationConfirmationText('');
+      setConfirmingSelectedAllocation(false);
+      setSelectedAllocationResult(null);
+      setSelectedAllocationError('');
     }
   }, [selectedRow, role]);
 
@@ -1024,6 +1036,60 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           notifyError('Error', err.message || 'Failed to execute allocation.');
         } finally {
           setConfirmingAllocation(false);
+        }
+      }
+    );
+  };
+
+  const handleConfirmSelectedAllocation = async () => {
+    if (!selectedRow || previewData?.mode !== 'allocation_preview_review_only') {
+      return;
+    }
+
+    if (selectedAllocationConfirmationText !== 'CONFIRM SELECTED ALLOCATION') {
+      const { notifyError } = getBrandedConfirmAndNotify();
+      notifyError('Validation Error', 'Please type CONFIRM SELECTED ALLOCATION exactly.');
+      return;
+    }
+
+    const { showConfirm, notifySuccess, notifyError } = getBrandedConfirmAndNotify();
+
+    showConfirm(
+      'Confirm Selected Allocation',
+      'This will post the allocation to the selected invoice. Receipt and ledger posting remain disabled.',
+      async () => {
+        setConfirmingSelectedAllocation(true);
+        setSelectedAllocationError('');
+        try {
+          const res = await fetch(`/api/payment-evidence/${selectedRow.id}/confirm-selected-allocation`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              confirmation_text: selectedAllocationConfirmationText
+            })
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.message || data.error || 'Failed to confirm selected allocation');
+          }
+
+          setSelectedAllocationResult(data);
+          setSelectedAllocationConfirmationText('');
+          notifySuccess('Selected Allocation Confirmed', data.message || 'Selected allocation was posted successfully.');
+
+          fetchAuditLogs(selectedRow.id);
+          fetchAllocationPreview(selectedRow.id);
+          fetchAllocationResult(selectedRow.id);
+          await fetchEvidenceRows();
+        } catch (err) {
+          console.error(err);
+          setSelectedAllocationError(err.message || 'Failed to confirm selected allocation.');
+          notifyError('Selected Allocation Error', err.message || 'Failed to confirm selected allocation.');
+        } finally {
+          setConfirmingSelectedAllocation(false);
         }
       }
     );
@@ -2691,7 +2757,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                           Allocation preview is review-only. No money is posted yet.
                         </div>
                         <div style={{ marginBottom: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                          Confirm Allocation — Coming Later
+                          This will post the allocation to the selected invoice. Receipt and ledger posting remain disabled.
                         </div>
 
                         {loadingPreview ? (
@@ -2723,6 +2789,64 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                                 </ul>
                               </div>
                             )}
+
+                            <div style={{ gridColumn: '1 / -1', marginTop: '8px', borderTop: '1px dashed var(--border)', paddingTop: '8px' }}>
+                              <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>Confirm Selected Allocation</div>
+                              <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                                Type exact confirmation text: <strong>CONFIRM SELECTED ALLOCATION</strong>
+                              </label>
+                              <input
+                                type="text"
+                                value={selectedAllocationConfirmationText}
+                                onChange={(e) => {
+                                  setSelectedAllocationConfirmationText(e.target.value);
+                                  setSelectedAllocationError('');
+                                }}
+                                placeholder="CONFIRM SELECTED ALLOCATION"
+                                disabled={confirmingSelectedAllocation}
+                                style={{ width: '100%', marginBottom: '8px', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}
+                              />
+
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                onClick={handleConfirmSelectedAllocation}
+                                disabled={confirmingSelectedAllocation || selectedAllocationConfirmationText !== 'CONFIRM SELECTED ALLOCATION'}
+                                style={{
+                                  cursor: (confirmingSelectedAllocation || selectedAllocationConfirmationText !== 'CONFIRM SELECTED ALLOCATION') ? 'not-allowed' : 'pointer',
+                                  opacity: (confirmingSelectedAllocation || selectedAllocationConfirmationText !== 'CONFIRM SELECTED ALLOCATION') ? 0.6 : 1,
+                                  marginBottom: '8px'
+                                }}
+                              >
+                                {confirmingSelectedAllocation ? 'Confirming Selected Allocation...' : 'Confirm Selected Allocation'}
+                              </button>
+
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Receipt Preview — Coming Later</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: selectedAllocationError ? '6px' : '0' }}>Ledger Posting — Coming Later</div>
+
+                              {selectedAllocationError && (
+                                <div style={{ marginTop: '6px', color: 'var(--danger)' }}>{selectedAllocationError}</div>
+                              )}
+
+                              {selectedAllocationResult?.mode === 'confirmed_selected_allocation' && (
+                                <div style={{ marginTop: '8px', padding: '8px', border: '1px solid var(--success)', borderRadius: '6px', backgroundColor: 'rgba(76, 175, 80, 0.08)' }}>
+                                  <div><span className="text-muted">Transaction ID:</span> <strong>{selectedAllocationResult.transaction?.id || 'N/A'}</strong></div>
+                                  <div><span className="text-muted">Allocation ID:</span> <strong>{selectedAllocationResult.allocation?.id || 'N/A'}</strong></div>
+                                  <div><span className="text-muted">Invoice:</span> <strong>{selectedAllocationResult.invoice_result?.invoice_number || 'N/A'}</strong></div>
+                                  <div><span className="text-muted">Allocated Amount:</span> <strong>{formatCurrency(selectedAllocationResult.allocation?.allocated_amount || 0)}</strong></div>
+                                  <div><span className="text-muted">Invoice Balance After:</span> <strong>{formatCurrency(selectedAllocationResult.invoice_result?.balance_after || 0)}</strong></div>
+                                  <div><span className="text-muted">Invoice Status After:</span> <strong>{selectedAllocationResult.invoice_result?.status_after || 'N/A'}</strong></div>
+                                  {Number(selectedAllocationResult.overpayment_amount || 0) > 0 && (
+                                    <div style={{ color: 'var(--warning)', marginTop: '4px' }}>
+                                      Overpayment Warning: {formatCurrency(selectedAllocationResult.overpayment_amount)} exceeds invoice balance and requires a future wallet-credit flow.
+                                    </div>
+                                  )}
+                                  <div style={{ marginTop: '6px', color: 'var(--text-muted)' }}>
+                                    {selectedAllocationResult.safety_message}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         ) : (
                           <div style={{ color: 'var(--text-muted)' }}>Allocation preview data will appear after a selected match exists.</div>

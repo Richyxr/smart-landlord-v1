@@ -37,6 +37,7 @@ const PDF_TEXT_SAMPLE_LIMIT = 2000;
 const PDF_PREVIEW_ROW_LIMIT = 100;
 const PDF_PREVIEW_ROW_RAW_TEXT_LIMIT = 500;
 const LOOP_PDF_IMPORT_CONFIRMATION_TEXT = 'CONFIRM LOOP PDF IMPORT';
+const CONFIRM_SELECTED_ALLOCATION_TEXT = 'CONFIRM SELECTED ALLOCATION';
 const PDF_DETECTION_KEYWORDS = [
   'ACCOUNT STATEMENT',
   'CUSTOMER ADVICE',
@@ -2963,6 +2964,271 @@ export function createPaymentEvidenceRoutes(pgDb) {
       invoice_status_after,
       safety_message: 'Confirmed allocation applied exactly once. Invoice/payment records were updated according to the confirmed preview. No unrelated tenant, ledger, or receipt records were changed.',
       audit_reference: createdAudit ? String(createdAudit.id) : null
+    });
+  }));
+
+  // POST /api/payment-evidence/:id/confirm-selected-allocation
+  // Controlled financial posting from selected evidence match. This endpoint may
+  // create transaction/payment_allocation and update invoice/payment_evidence.
+  // Receipt issuance and ledger posting are intentionally disabled.
+  router.post('/payment-evidence/:id/confirm-selected-allocation', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+    const { orgId, userId, role } = getContext(req);
+    const rowId = Number(req.params.id);
+
+    const row = await activeDb.findOne('payment_evidence', { id: rowId, organization_id: orgId });
+    if (!row) {
+      return res.status(404).json({
+        error: 'ROW_NOT_FOUND',
+        message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    const { confirmation_text, allocation_notes } = req.body || {};
+    if (String(confirmation_text || '') !== CONFIRM_SELECTED_ALLOCATION_TEXT) {
+      return res.status(400).json({
+        error: 'INVALID_CONFIRMATION_TEXT',
+        message: `Confirmation text is invalid. Please type "${CONFIRM_SELECTED_ALLOCATION_TEXT}".`
+      });
+    }
+
+    if (row.status === 'auto_reconciled' || row.status === 'manually_reconciled') {
+      return res.status(409).json({
+        success: false,
+        error: 'ALREADY_ALLOCATED',
+        duplicate: true,
+        message: 'This payment evidence row has already been allocated or reconciled.'
+      });
+    }
+
+    const selectedMatchFromRaw = row.raw_fields && typeof row.raw_fields === 'object'
+      ? row.raw_fields.selected_match
+      : null;
+    const selectedTenantId = Number(selectedMatchFromRaw?.tenant_id || row.suggested_tenant_id || 0);
+    const selectedInvoiceId = Number(selectedMatchFromRaw?.invoice_id || row.suggested_invoice_id || 0);
+
+    if (!Number.isFinite(selectedTenantId) || selectedTenantId <= 0 || !Number.isFinite(selectedInvoiceId) || selectedInvoiceId <= 0) {
+      return res.status(400).json({
+        error: 'SELECTED_MATCH_REQUIRED',
+        message: 'A selected tenant/invoice match is required before confirming allocation.'
+      });
+    }
+
+    const tenant = await activeDb.findOne('tenants', { id: selectedTenantId, organization_id: orgId });
+    if (!tenant) {
+      return res.status(400).json({
+        error: 'TENANT_NOT_ALLOWED',
+        message: 'Selected tenant is missing or outside your organization.'
+      });
+    }
+
+    const invoice = await activeDb.findOne('invoices', { id: selectedInvoiceId, organization_id: orgId });
+    if (!invoice) {
+      return res.status(400).json({
+        error: 'INVOICE_NOT_ALLOWED',
+        message: 'Selected invoice is missing or outside your organization.'
+      });
+    }
+
+    const invoiceStatus = String(invoice.status || '').toLowerCase();
+    if (['void', 'cancelled', 'deleted'].includes(invoiceStatus)) {
+      return res.status(400).json({
+        error: 'INVOICE_STATUS_BLOCKED',
+        message: 'Selected invoice is not eligible for allocation.'
+      });
+    }
+
+    const preview = buildPaymentEvidenceAllocationPreview({ evidence: row, tenant, invoice });
+    if (!preview.canPreview) {
+      return res.status(400).json({
+        error: 'PREVIEW_NOT_CONFIRMABLE',
+        message: 'Allocation preview failed safety checks and cannot be confirmed.',
+        warnings: preview.warnings,
+        mode: 'allocation_preview_review_only'
+      });
+    }
+
+    const allocationAmount = Number(preview.allocationPreview.allocation_amount || 0);
+    if (!Number.isFinite(allocationAmount) || allocationAmount <= 0) {
+      return res.status(400).json({
+        error: 'INVALID_ALLOCATION_AMOUNT',
+        message: 'Computed allocation amount is invalid.'
+      });
+    }
+
+    const overpaymentAmount = Number(preview.allocationPreview.overpayment_amount || 0);
+    if (overpaymentAmount > 0) {
+      return res.status(400).json({
+        error: 'OVERPAYMENT_NOT_SUPPORTED',
+        message: 'Overpayment allocation requires wallet credit support and is not enabled yet.',
+        warnings: preview.warnings,
+        mode: 'allocation_preview_review_only'
+      });
+    }
+
+    const txs = await activeDb.find('transactions', { organization_id: orgId });
+    const existingTxForEvidence = txs.find(t => {
+      try {
+        const payload = typeof t.raw_payload === 'string' ? JSON.parse(t.raw_payload) : t.raw_payload;
+        return payload && Number(payload.evidence_id) === Number(row.id);
+      } catch (_err) {
+        return false;
+      }
+    });
+
+    if (existingTxForEvidence) {
+      const existingAllocation = await activeDb.findOne('payment_allocations', {
+        organization_id: orgId,
+        transaction_id: existingTxForEvidence.id,
+        invoice_id: invoice.id
+      });
+      return res.status(409).json({
+        success: false,
+        error: 'DUPLICATE_ALLOCATION',
+        duplicate: true,
+        message: 'Selected evidence allocation was already confirmed previously.',
+        existing_transaction_id: existingTxForEvidence.id,
+        existing_allocation_id: existingAllocation ? existingAllocation.id : null
+      });
+    }
+
+    const txDuplicateByCode = txs.find(t => (
+      String(t.reference_number || '') === String(row.transaction_code || '') &&
+      Number(t.amount || 0) === allocationAmount &&
+      String(t.transaction_date || '').slice(0, 10) === String(row.transaction_date || '').slice(0, 10)
+    ));
+    if (txDuplicateByCode) {
+      return res.status(409).json({
+        success: false,
+        error: 'DUPLICATE_TRANSACTION_GUARD',
+        duplicate: true,
+        message: 'A transaction with this code/amount/date already exists. Allocation was not posted.'
+      });
+    }
+
+    const invoiceBalanceBefore = Number(preview.invoiceBefore.balance_due || 0);
+    const invoiceStatusBefore = preview.invoiceBefore.status || invoice.status;
+    const invoiceBalanceAfter = Number(preview.allocationPreview.balance_after || 0);
+    const invoiceStatusAfter = preview.allocationPreview.invoice_status_after || invoice.status;
+
+    const txData = {
+      organization_id: orgId,
+      tenant_id: tenant.id,
+      property_id: tenant.property_id || null,
+      unit_id: tenant.unit_id || null,
+      amount: allocationAmount,
+      currency: tenant.currency || 'KES',
+      transaction_type: 'payment',
+      payment_method: row.collection_channel || 'other',
+      source: 'manual',
+      reference_number: row.transaction_code || null,
+      account_number: tenant.tenant_account_number || null,
+      payer_name: tenant.full_name || null,
+      payer_phone: tenant.phone_number || null,
+      transaction_date: row.transaction_date,
+      status: 'reconciled',
+      raw_payload: JSON.stringify({
+        evidence_id: row.id,
+        source: 'confirm_selected_allocation',
+        selected_invoice_id: invoice.id
+      }),
+      created_by: userId
+    };
+
+    const createdTx = await activeDb.insert('transactions', txData);
+
+    const allocationData = {
+      organization_id: orgId,
+      transaction_id: createdTx.id,
+      invoice_id: invoice.id,
+      amount_allocated: allocationAmount,
+      allocated_by: userId,
+      allocated_at: new Date().toISOString()
+    };
+    const createdAllocation = await activeDb.insert('payment_allocations', allocationData);
+
+    const updatedAmountPaid = Number(invoice.amount_paid || 0) + allocationAmount;
+    await activeDb.update('invoices', invoice.id, {
+      amount_paid: updatedAmountPaid,
+      balance: invoiceBalanceAfter,
+      status: invoiceStatusAfter,
+      updated_at: new Date().toISOString()
+    });
+
+    const rowRawFields = row.raw_fields && typeof row.raw_fields === 'object' ? row.raw_fields : {};
+    await activeDb.update('payment_evidence', row.id, {
+      status: 'manually_reconciled',
+      review_notes: allocation_notes ? String(allocation_notes) : (row.review_notes || null),
+      raw_fields: {
+        ...rowRawFields,
+        confirmed_selected_allocation: {
+          transaction_id: createdTx.id,
+          payment_allocation_id: createdAllocation.id,
+          invoice_id: invoice.id,
+          allocated_amount: allocationAmount,
+          allocation_type: preview.allocationPreview.allocation_type,
+          overpayment_amount: Number(preview.allocationPreview.overpayment_amount || 0),
+          confirmed_by: userId,
+          confirmed_at: new Date().toISOString()
+        }
+      },
+      updated_at: new Date().toISOString()
+    });
+
+    const auditRow = {
+      organization_id: orgId,
+      payment_evidence_id: row.id,
+      action: 'confirm_selected_allocation',
+      previous_review_status: row.review_status || null,
+      new_review_status: row.review_status || null,
+      previous_review_decision: row.review_decision || null,
+      new_review_decision: row.review_decision || null,
+      previous_accepted_tenant_id: row.accepted_tenant_id ? Number(row.accepted_tenant_id) : null,
+      new_accepted_tenant_id: row.accepted_tenant_id ? Number(row.accepted_tenant_id) : null,
+      previous_accepted_invoice_id: row.accepted_invoice_id ? Number(row.accepted_invoice_id) : null,
+      new_accepted_invoice_id: row.accepted_invoice_id ? Number(row.accepted_invoice_id) : null,
+      actor_user_id: userId,
+      actor_role: role,
+      actor_ip: req.ip || (req.headers && req.headers['x-forwarded-for']) || '127.0.0.1',
+      user_agent: (req.headers && req.headers['user-agent']) || 'Unknown',
+      safety_message: 'Selected evidence allocation was confirmed. Receipt issuance and ledger posting were not performed.'
+    };
+    await activeDb.insert('payment_evidence_review_audit', auditRow);
+
+    return res.json({
+      success: true,
+      mode: 'confirmed_selected_allocation',
+      message: 'Selected evidence allocation confirmed successfully.',
+      payment_evidence_id: row.id,
+      transaction: {
+        id: createdTx.id,
+        transaction_code: row.transaction_code || null,
+        amount: allocationAmount
+      },
+      allocation: {
+        id: createdAllocation.id,
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        tenant_id: tenant.id,
+        allocated_amount: allocationAmount,
+        allocation_type: preview.allocationPreview.allocation_type
+      },
+      invoice_result: {
+        invoice_id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        balance_before: invoiceBalanceBefore,
+        balance_after: invoiceBalanceAfter,
+        status_before: invoiceStatusBefore,
+        status_after: invoiceStatusAfter
+      },
+      overpayment_amount: overpaymentAmount,
+      warnings: preview.warnings,
+      post_allocation_readiness: {
+        receipt_preview_enabled: false,
+        receipt_issuance_enabled: false,
+        ledger_posting_enabled: false,
+        message: 'Allocation was confirmed. Receipt and ledger posting remain disabled until the next controlled slices.'
+      },
+      safety_message: 'Selected evidence allocation was confirmed. Receipt issuance and ledger posting were not performed.'
     });
   }));
 
