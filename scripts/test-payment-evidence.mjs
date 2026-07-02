@@ -3992,7 +3992,7 @@ async function runTests() {
   assert('PaymentEvidence.jsx calls /matching-suggestions endpoint', paymentEvidenceContent.includes('/matching-suggestions'));
   assert('PaymentEvidence.jsx calls /select-match endpoint', paymentEvidenceContent.includes('/select-match'));
   assert('Matching suggestions panel does not contain forbidden labels',
-    !/Auto Reconcile|Allocate Now|Confirm Allocation|Issue Receipt|Post Ledger|Mark Invoice Paid|Create Transaction/.test(matchingPanelSlice)
+    !/Auto Reconcile|Allocate Now|Confirm Allocation Now|Issue Receipt|Post Ledger|Mark Invoice Paid|Create Transaction/.test(matchingPanelSlice)
   );
   assert('Match-selection flow does not call allocation, receipt, or ledger endpoints',
     !/handleSelectMatchForReview[\s\S]{0,1400}(confirm-allocation|issue-receipt|receipt-result|receipt-print-view|\/api\/ledger)/i.test(paymentEvidenceContent)
@@ -4177,6 +4177,254 @@ async function runTests() {
 
   assert('Select-match changes only one payment_evidence row for selected match metadata',
     JSON.stringify(selectDb.get('payment_evidence').filter(r => Number(r.id) !== 1301)) === JSON.stringify(JSON.parse(selectBeforeSnapshot.payment_evidence).filter(r => Number(r.id) !== 1301))
+  );
+
+  // ==========================================
+  // Test 26: Allocation Preview from Selected Match - Review Only, No Posting
+  // ==========================================
+  console.log('\n26. Allocation Preview from Selected Match - Review Only, No Posting:');
+
+  const allocationPreviewDb = new MockDb();
+  allocationPreviewDb.seed('payment_evidence', [
+    {
+      id: 1401,
+      organization_id: 1,
+      transaction_code: 'NHE59HRFDNWW',
+      transaction_date: '2026-06-24',
+      amount: 1500,
+      source_provider: 'LOOP_STATEMENT',
+      document_source: 'PDF_STATEMENT',
+      status: 'needs_review',
+      suggested_tenant_id: 2501,
+      suggested_invoice_id: 4501,
+      raw_fields: { selected_match: { tenant_id: 2501, invoice_id: 4501 } }
+    },
+    {
+      id: 1402,
+      organization_id: 1,
+      transaction_code: 'PARTIAL-001',
+      transaction_date: '2026-06-24',
+      amount: 900,
+      source_provider: 'LOOP_STATEMENT',
+      document_source: 'PDF_STATEMENT',
+      status: 'needs_review',
+      suggested_tenant_id: 2501,
+      suggested_invoice_id: 4502,
+      raw_fields: { selected_match: { tenant_id: 2501, invoice_id: 4502 } }
+    },
+    {
+      id: 1403,
+      organization_id: 1,
+      transaction_code: 'OVERPAY-001',
+      transaction_date: '2026-06-24',
+      amount: 2000,
+      source_provider: 'LOOP_STATEMENT',
+      document_source: 'PDF_STATEMENT',
+      status: 'needs_review',
+      suggested_tenant_id: 2501,
+      suggested_invoice_id: 4503,
+      raw_fields: { selected_match: { tenant_id: 2501, invoice_id: 4503 } }
+    },
+    {
+      id: 1404,
+      organization_id: 1,
+      transaction_code: 'PAID-001',
+      transaction_date: '2026-06-24',
+      amount: 1500,
+      source_provider: 'LOOP_STATEMENT',
+      document_source: 'PDF_STATEMENT',
+      status: 'needs_review',
+      suggested_tenant_id: 2501,
+      suggested_invoice_id: 4504,
+      raw_fields: { selected_match: { tenant_id: 2501, invoice_id: 4504 } }
+    },
+    {
+      id: 1405,
+      organization_id: 2,
+      transaction_code: 'ORG2-001',
+      transaction_date: '2026-06-24',
+      amount: 1500,
+      status: 'needs_review',
+      suggested_tenant_id: 2601,
+      suggested_invoice_id: 4601,
+      raw_fields: { selected_match: { tenant_id: 2601, invoice_id: 4601 } }
+    },
+    {
+      id: 1406,
+      organization_id: 1,
+      transaction_code: 'NO-MATCH-001',
+      transaction_date: '2026-06-24',
+      amount: 1500,
+      status: 'needs_review',
+      raw_fields: { source: 'no_selected_match' }
+    },
+    {
+      id: 1407,
+      organization_id: 1,
+      transaction_code: 'VOID-001',
+      transaction_date: '2026-06-24',
+      amount: 1500,
+      status: 'needs_review',
+      suggested_tenant_id: 2501,
+      suggested_invoice_id: 4505,
+      raw_fields: { selected_match: { tenant_id: 2501, invoice_id: 4505 } }
+    }
+  ]);
+  allocationPreviewDb.seed('tenants', [
+    { id: 2501, organization_id: 1, full_name: 'John Kamau', status: 'active' },
+    { id: 2601, organization_id: 2, full_name: 'Other Org Tenant', status: 'active' }
+  ]);
+  allocationPreviewDb.seed('invoices', [
+    { id: 4501, organization_id: 1, tenant_id: 2501, invoice_number: 'INV-2026-0012', status: 'unpaid', total: 1500, amount_paid: 0, balance: 1500 },
+    { id: 4502, organization_id: 1, tenant_id: 2501, invoice_number: 'INV-2026-0013', status: 'open', total: 1500, amount_paid: 0, balance: 1500 },
+    { id: 4503, organization_id: 1, tenant_id: 2501, invoice_number: 'INV-2026-0014', status: 'overdue', total: 1500, amount_paid: 0, balance: 1500 },
+    { id: 4504, organization_id: 1, tenant_id: 2501, invoice_number: 'INV-2026-0015', status: 'paid', total: 1500, amount_paid: 1500, balance: 0 },
+    { id: 4505, organization_id: 1, tenant_id: 2501, invoice_number: 'INV-2026-0016', status: 'void', total: 1500, amount_paid: 0, balance: 1500 },
+    { id: 4601, organization_id: 2, tenant_id: 2601, invoice_number: 'INV-ORG2-001', status: 'unpaid', total: 1500, amount_paid: 0, balance: 1500 }
+  ]);
+  allocationPreviewDb.seed('transactions', []);
+  allocationPreviewDb.seed('payment_allocations', []);
+  allocationPreviewDb.seed('receipts', []);
+  allocationPreviewDb.seed('ledger', []);
+  allocationPreviewDb.seed('balances', []);
+
+  const allocationPreviewRouter = createPaymentEvidenceRoutes(allocationPreviewDb);
+  const allocationPreviewRouteLayer = allocationPreviewRouter.stack.find(l => l.route && l.route.path === '/payment-evidence/:id/allocation-preview');
+  const allocationPreviewHandler = allocationPreviewRouteLayer && allocationPreviewRouteLayer.route.stack[allocationPreviewRouteLayer.route.stack.length - 1].handle;
+  const allocationPreviewMiddlewares = allocationPreviewRouteLayer ? allocationPreviewRouteLayer.route.stack.slice(0, -1).map(s => s.handle) : [];
+  const allocationPreviewRoleMiddleware = allocationPreviewMiddlewares[allocationPreviewMiddlewares.length - 1];
+
+  assert('Allocation preview endpoint exists: GET /payment-evidence/:id/allocation-preview', typeof allocationPreviewHandler === 'function');
+
+  for (const allowedRole of ['landlord', 'super_admin']) {
+    let allowStatus = null;
+    let allowNext = false;
+    await allocationPreviewRoleMiddleware(
+      { auth: { role: allowedRole, organizationId: 1, userId: 77 } },
+      {
+        status(code) { allowStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { allowNext = true; }
+    );
+    assert(`Allocation preview allows ${allowedRole}`, allowNext === true && allowStatus === null);
+  }
+
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let blockedStatus = null;
+    let blockedNext = false;
+    await allocationPreviewRoleMiddleware(
+      { auth: { role: blockedRole, organizationId: 1, userId: 77 } },
+      {
+        status(code) { blockedStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { blockedNext = true; }
+    );
+    assert(`Allocation preview blocks ${blockedRole}`, blockedStatus === 403 && blockedNext === false);
+  }
+
+  const runAllocationPreviewRequest = async ({ orgId = 1, role = 'landlord', id = 1401 } = {}) => {
+    let responseStatus = null;
+    let responsePayload = null;
+    await allocationPreviewHandler(
+      {
+        auth: { organizationId: orgId, role, userId: 77 },
+        params: { id: String(id) }
+      },
+      {
+        status(code) { responseStatus = code; return this; },
+        json(data) { responsePayload = data; return this; }
+      }
+    );
+    return { responseStatus, responsePayload };
+  };
+
+  const allocationPreviewBeforeSnapshot = {
+    payment_evidence: JSON.stringify(allocationPreviewDb.get('payment_evidence')),
+    invoices: JSON.stringify(allocationPreviewDb.get('invoices')),
+    tenants: JSON.stringify(allocationPreviewDb.get('tenants')),
+    balances: JSON.stringify(allocationPreviewDb.get('balances')),
+    transactions: JSON.stringify(allocationPreviewDb.get('transactions')),
+    payment_allocations: JSON.stringify(allocationPreviewDb.get('payment_allocations')),
+    receipts: JSON.stringify(allocationPreviewDb.get('receipts')),
+    ledger: JSON.stringify(allocationPreviewDb.get('ledger'))
+  };
+
+  const missingPreview = await runAllocationPreviewRequest({ id: 999999 });
+  assert('Allocation preview returns 404 for missing evidence', missingPreview.responseStatus === 404);
+
+  const crossOrgPreview = await runAllocationPreviewRequest({ orgId: 1, id: 1405 });
+  assert('Allocation preview blocks/hides cross-org evidence', crossOrgPreview.responseStatus === 404);
+
+  const noSelectedMatchPreview = await runAllocationPreviewRequest({ id: 1406 });
+  assert('Allocation preview blocks evidence without selected match', noSelectedMatchPreview.responsePayload && (noSelectedMatchPreview.responseStatus === 400 || noSelectedMatchPreview.responsePayload.ready === false));
+
+  const fullPreview = await runAllocationPreviewRequest({ id: 1401 });
+  assert('Allocation preview response includes mode allocation_preview_review_only', fullPreview.responsePayload && fullPreview.responsePayload.mode === 'allocation_preview_review_only');
+  assert('Full payment preview calculates full_payment allocation type', fullPreview.responsePayload && fullPreview.responsePayload.allocation_preview && fullPreview.responsePayload.allocation_preview.allocation_type === 'full_payment');
+  assert('Full payment preview balance_after is zero', fullPreview.responsePayload && Number(fullPreview.responsePayload.allocation_preview.balance_after) === 0);
+  assert('Full payment preview expected invoice status after is paid', fullPreview.responsePayload && fullPreview.responsePayload.allocation_preview.invoice_status_after === 'paid');
+
+  const partialPreview = await runAllocationPreviewRequest({ id: 1402 });
+  assert('Partial payment preview calculates partial_payment allocation type', partialPreview.responsePayload && partialPreview.responsePayload.allocation_preview && partialPreview.responsePayload.allocation_preview.allocation_type === 'partial_payment');
+  assert('Partial payment preview includes underpayment amount', partialPreview.responsePayload && Number(partialPreview.responsePayload.allocation_preview.underpayment_amount) > 0);
+  assert('Partial payment preview expected invoice status after is partially_paid', partialPreview.responsePayload && partialPreview.responsePayload.allocation_preview.invoice_status_after === 'partially_paid');
+
+  const overpaymentPreview = await runAllocationPreviewRequest({ id: 1403 });
+  assert('Overpayment preview calculates overpayment allocation type', overpaymentPreview.responsePayload && overpaymentPreview.responsePayload.allocation_preview && overpaymentPreview.responsePayload.allocation_preview.allocation_type === 'overpayment');
+  assert('Overpayment preview includes overpayment amount', overpaymentPreview.responsePayload && Number(overpaymentPreview.responsePayload.allocation_preview.overpayment_amount) > 0);
+  assert('Overpayment preview includes warning', overpaymentPreview.responsePayload && Array.isArray(overpaymentPreview.responsePayload.warnings) && overpaymentPreview.responsePayload.warnings.length > 0);
+
+  const paidPreview = await runAllocationPreviewRequest({ id: 1404 });
+  assert('Paid/zero-balance invoice preview returns warning or blocked preview', paidPreview.responsePayload && (Array.isArray(paidPreview.responsePayload.warnings) && paidPreview.responsePayload.warnings.length > 0 || paidPreview.responsePayload.readiness && paidPreview.responsePayload.readiness.can_preview === false));
+
+  const voidBlockedPreview = await runAllocationPreviewRequest({ id: 1407 });
+  assert('Allocation preview blocks void/cancelled/deleted invoice', voidBlockedPreview.responseStatus === 400 && voidBlockedPreview.responsePayload && voidBlockedPreview.responsePayload.error === 'INVOICE_STATUS_BLOCKED');
+
+  assert('Allocation preview response includes readiness and safety_message', fullPreview.responsePayload && fullPreview.responsePayload.readiness && typeof fullPreview.responsePayload.safety_message === 'string');
+  assert('Allocation preview readiness keeps all posting actions disabled',
+    fullPreview.responsePayload &&
+    fullPreview.responsePayload.readiness &&
+    fullPreview.responsePayload.readiness.can_confirm_allocation === false &&
+    fullPreview.responsePayload.readiness.receipt_preview_enabled === false &&
+    fullPreview.responsePayload.readiness.receipt_issuance_enabled === false &&
+    fullPreview.responsePayload.readiness.ledger_posting_enabled === false
+  );
+
+  assert('Allocation preview creates no transactions', JSON.stringify(allocationPreviewDb.get('transactions')) === allocationPreviewBeforeSnapshot.transactions);
+  assert('Allocation preview creates no payment allocations', JSON.stringify(allocationPreviewDb.get('payment_allocations')) === allocationPreviewBeforeSnapshot.payment_allocations);
+  assert('Allocation preview creates no receipts', JSON.stringify(allocationPreviewDb.get('receipts')) === allocationPreviewBeforeSnapshot.receipts);
+  assert('Allocation preview creates no ledger records', JSON.stringify(allocationPreviewDb.get('ledger')) === allocationPreviewBeforeSnapshot.ledger);
+  assert('Allocation preview does not mutate payment_evidence', JSON.stringify(allocationPreviewDb.get('payment_evidence')) === allocationPreviewBeforeSnapshot.payment_evidence);
+  assert('Allocation preview does not mutate invoices', JSON.stringify(allocationPreviewDb.get('invoices')) === allocationPreviewBeforeSnapshot.invoices);
+  assert('Allocation preview does not mutate tenants', JSON.stringify(allocationPreviewDb.get('tenants')) === allocationPreviewBeforeSnapshot.tenants);
+  assert('Allocation preview does not mutate balances', JSON.stringify(allocationPreviewDb.get('balances')) === allocationPreviewBeforeSnapshot.balances);
+  assert('Allocation preview does not change invoice status in storage', allocationPreviewDb.get('invoices').find(i => i.id === 4501)?.status === 'unpaid');
+  assert('Allocation preview does not set payment evidence reconciled status', !['auto_reconciled', 'manually_reconciled', 'reconciled'].includes(String(allocationPreviewDb.get('payment_evidence').find(r => r.id === 1401)?.status || '').toLowerCase()));
+
+  const allocationPreviewSliceMatch = paymentEvidenceContent.match(/Allocation Preview[\s\S]{0,3000}/);
+  const allocationPreviewSlice = allocationPreviewSliceMatch ? allocationPreviewSliceMatch[0] : '';
+
+  assert('PaymentEvidence.jsx contains Allocation Preview', paymentEvidenceContent.includes('Allocation Preview'));
+  assert('PaymentEvidence.jsx contains allocation preview review-only safety text', paymentEvidenceContent.includes('Allocation preview is review-only. No money is posted yet.'));
+  assert('PaymentEvidence.jsx contains Confirm Allocation — Coming Later', paymentEvidenceContent.includes('Confirm Allocation — Coming Later'));
+  assert('PaymentEvidence.jsx calls /allocation-preview endpoint', paymentEvidenceContent.includes('/allocation-preview'));
+  assert('PaymentEvidence.jsx displays allocation preview detail labels',
+    paymentEvidenceContent.includes('Selected Tenant:') &&
+    paymentEvidenceContent.includes('Selected Invoice:') &&
+    paymentEvidenceContent.includes('Payment Amount:') &&
+    paymentEvidenceContent.includes('Invoice Balance Before:') &&
+    paymentEvidenceContent.includes('Allocation Amount:') &&
+    paymentEvidenceContent.includes('Balance After:') &&
+    paymentEvidenceContent.includes('Allocation Type:') &&
+    paymentEvidenceContent.includes('Expected Invoice Status After:')
+  );
+  assert('Allocation preview panel does not contain forbidden labels',
+    !/Auto Reconcile|Allocate Now|Confirm Allocation Now|Issue Receipt|Post Ledger|Mark Invoice Paid|Create Transaction/.test(allocationPreviewSlice)
+  );
+  assert('Allocation preview panel flow does not call allocation confirmation, receipt, or ledger endpoints',
+    !/Allocation preview is review-only\. No money is posted yet\.[\s\S]{0,2400}(confirm-allocation|issue-receipt|receipt-result|receipt-print-view|\/api\/ledger)/i.test(paymentEvidenceContent)
   );
 
   assert(

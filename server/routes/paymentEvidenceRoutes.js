@@ -1344,6 +1344,94 @@ function deriveSuggestionTypeFromSignals(signals) {
   return 'heuristic_candidate';
 }
 
+export function buildPaymentEvidenceAllocationPreview({ evidence, tenant, invoice }) {
+  const warnings = [];
+  const paymentAmount = Number(evidence?.amount || 0);
+
+  const totalAmount = Number(invoice?.total ?? invoice?.total_amount ?? 0);
+  const amountPaid = Number(invoice?.amount_paid ?? 0);
+  let balanceDue = Number(invoice?.balance ?? (totalAmount - amountPaid));
+  if (!Number.isFinite(balanceDue)) balanceDue = 0;
+  balanceDue = Math.max(0, balanceDue);
+
+  const invoiceStatus = String(invoice?.status || 'unknown').toLowerCase();
+  if (invoiceStatus === 'paid') {
+    warnings.push('Selected invoice appears already paid. Preview is shown for review only.');
+  }
+
+  let allocationType = 'blocked';
+  let allocationAmount = 0;
+  let balanceAfter = balanceDue;
+  let invoiceStatusAfter = invoice?.status || 'unknown';
+  let overpaymentAmount = 0;
+  let underpaymentAmount = 0;
+  let canPreview = true;
+
+  if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+    allocationType = 'blocked';
+    canPreview = false;
+    warnings.push('Payment evidence amount is invalid for allocation preview.');
+  } else if (balanceDue <= 0) {
+    allocationType = 'blocked';
+    canPreview = false;
+    balanceAfter = 0;
+    warnings.push('Invoice has no outstanding balance.');
+  } else if (paymentAmount === balanceDue) {
+    allocationType = 'full_payment';
+    allocationAmount = balanceDue;
+    balanceAfter = 0;
+    invoiceStatusAfter = 'paid';
+  } else if (paymentAmount < balanceDue) {
+    allocationType = 'partial_payment';
+    allocationAmount = paymentAmount;
+    balanceAfter = balanceDue - paymentAmount;
+    underpaymentAmount = balanceDue - paymentAmount;
+    invoiceStatusAfter = 'partially_paid';
+  } else {
+    allocationType = 'overpayment';
+    allocationAmount = balanceDue;
+    balanceAfter = 0;
+    overpaymentAmount = paymentAmount - balanceDue;
+    invoiceStatusAfter = 'paid';
+    warnings.push('Payment amount exceeds invoice balance. Excess should remain unallocated or become wallet credit in a later controlled slice.');
+  }
+
+  return {
+    canPreview,
+    selectedMatch: {
+      tenant_id: tenant?.id || null,
+      tenant_name: tenant?.full_name || null,
+      invoice_id: invoice?.id || null,
+      invoice_number: invoice?.invoice_number || null
+    },
+    payment: {
+      amount: paymentAmount,
+      transaction_code: evidence?.transaction_code || null,
+      transaction_date: evidence?.transaction_date || null,
+      source_provider: evidence?.source_provider || null,
+      document_source: evidence?.document_source || null
+    },
+    invoiceBefore: {
+      invoice_id: invoice?.id || null,
+      invoice_number: invoice?.invoice_number || null,
+      status: invoice?.status || null,
+      total_amount: totalAmount,
+      amount_paid: amountPaid,
+      balance_due: balanceDue
+    },
+    allocationPreview: {
+      allocation_amount: allocationAmount,
+      balance_before: balanceDue,
+      balance_after: balanceAfter,
+      invoice_status_after: invoiceStatusAfter,
+      allocation_type: allocationType,
+      overpayment_amount: overpaymentAmount,
+      underpayment_amount: underpaymentAmount
+    },
+    warnings
+  };
+}
+
 async function buildReviewOnlyMatchingSuggestionsForEvidence(activeDb, orgId, evidenceRow, maxSuggestions = 5) {
   if (!evidenceRow || evidenceRow.status === 'ignored') {
     return [];
@@ -2497,6 +2585,66 @@ export function createPaymentEvidenceRoutes(pgDb) {
       return res.status(404).json({
         error: 'ROW_NOT_FOUND',
         message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    const selectedMatchFromRaw = row.raw_fields && typeof row.raw_fields === 'object'
+      ? row.raw_fields.selected_match
+      : null;
+    const selectedTenantId = Number(selectedMatchFromRaw?.tenant_id || row.suggested_tenant_id || 0);
+    const selectedInvoiceId = Number(selectedMatchFromRaw?.invoice_id || row.suggested_invoice_id || 0);
+
+    if (Number.isFinite(selectedTenantId) && selectedTenantId > 0 && Number.isFinite(selectedInvoiceId) && selectedInvoiceId > 0) {
+      const tenant = await activeDb.findOne('tenants', { id: selectedTenantId, organization_id: orgId });
+      if (!tenant) {
+        return res.status(400).json({
+          error: 'SELECTED_TENANT_NOT_FOUND',
+          message: 'Selected match tenant is missing or outside your organization.'
+        });
+      }
+
+      const invoice = await activeDb.findOne('invoices', { id: selectedInvoiceId, organization_id: orgId });
+      if (!invoice) {
+        return res.status(400).json({
+          error: 'SELECTED_INVOICE_NOT_FOUND',
+          message: 'Selected match invoice is missing or outside your organization.'
+        });
+      }
+
+      const invoiceStatus = String(invoice.status || '').toLowerCase();
+      if (['void', 'cancelled', 'deleted'].includes(invoiceStatus)) {
+        return res.status(400).json({
+          error: 'INVOICE_STATUS_BLOCKED',
+          message: 'Selected invoice is not eligible for allocation preview.'
+        });
+      }
+
+      const preview = buildPaymentEvidenceAllocationPreview({ evidence: row, tenant, invoice });
+      const blockingReasons = [
+        'Allocation confirmation is intentionally disabled until the next controlled slice.'
+      ];
+      if (!preview.canPreview) {
+        blockingReasons.push('Allocation preview cannot be confirmed because preview preconditions are not met.');
+      }
+
+      return res.json({
+        success: true,
+        mode: 'allocation_preview_review_only',
+        payment_evidence_id: row.id,
+        selected_match: preview.selectedMatch,
+        payment: preview.payment,
+        invoice_before: preview.invoiceBefore,
+        allocation_preview: preview.allocationPreview,
+        readiness: {
+          can_preview: preview.canPreview,
+          can_confirm_allocation: false,
+          receipt_preview_enabled: false,
+          receipt_issuance_enabled: false,
+          ledger_posting_enabled: false,
+          blocking_reasons: blockingReasons
+        },
+        warnings: preview.warnings,
+        safety_message: 'Allocation preview is review-only. No transaction, allocation, receipt, ledger, invoice, tenant, or balance record was changed.'
       });
     }
 

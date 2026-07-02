@@ -2683,6 +2683,52 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                         </div>
                       </div>
                     )}
+
+                    {(loadingPreview || previewError || previewData?.mode === 'allocation_preview_review_only') && (
+                      <div style={{ marginTop: '10px', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px', backgroundColor: 'var(--bg-surface-elevated)', fontSize: '11px' }}>
+                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>Allocation Preview</div>
+                        <div style={{ marginBottom: '8px', color: 'var(--text-muted)' }}>
+                          Allocation preview is review-only. No money is posted yet.
+                        </div>
+                        <div style={{ marginBottom: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                          Confirm Allocation — Coming Later
+                        </div>
+
+                        {loadingPreview ? (
+                          <div style={{ color: 'var(--text-muted)' }}>Loading allocation preview...</div>
+                        ) : previewError ? (
+                          <div style={{ color: 'var(--danger)' }}>{previewError}</div>
+                        ) : previewData?.mode === 'allocation_preview_review_only' ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
+                            <div><span className="text-muted">Selected Tenant:</span> <strong>{previewData?.selected_match?.tenant_name || 'N/A'}</strong></div>
+                            <div><span className="text-muted">Selected Invoice:</span> <strong>{previewData?.selected_match?.invoice_number || 'N/A'}</strong></div>
+                            <div><span className="text-muted">Payment Amount:</span> <strong>{formatCurrency(previewData?.payment?.amount || 0)}</strong></div>
+                            <div><span className="text-muted">Invoice Balance Before:</span> <strong>{formatCurrency(previewData?.invoice_before?.balance_due || 0)}</strong></div>
+                            <div><span className="text-muted">Allocation Amount:</span> <strong>{formatCurrency(previewData?.allocation_preview?.allocation_amount || 0)}</strong></div>
+                            <div><span className="text-muted">Balance After:</span> <strong>{formatCurrency(previewData?.allocation_preview?.balance_after || 0)}</strong></div>
+                            <div><span className="text-muted">Allocation Type:</span> <strong>{String(previewData?.allocation_preview?.allocation_type || 'unknown').replace(/_/g, ' ')}</strong></div>
+                            <div><span className="text-muted">Expected Invoice Status After:</span> <strong>{previewData?.allocation_preview?.invoice_status_after || 'N/A'}</strong></div>
+                            <div><span className="text-muted">Overpayment Amount:</span> <strong>{formatCurrency(previewData?.allocation_preview?.overpayment_amount || 0)}</strong></div>
+                            <div><span className="text-muted">Underpayment Amount:</span> <strong>{formatCurrency(previewData?.allocation_preview?.underpayment_amount || 0)}</strong></div>
+                            <div style={{ gridColumn: '1 / -1', color: 'var(--text-muted)' }}>
+                              {previewData?.safety_message || 'Allocation preview is review-only. No transaction, allocation, receipt, ledger, invoice, tenant, or balance record was changed.'}
+                            </div>
+                            {Array.isArray(previewData?.warnings) && previewData.warnings.length > 0 && (
+                              <div style={{ gridColumn: '1 / -1', color: 'var(--warning)' }}>
+                                <strong>Warnings:</strong>
+                                <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                                  {previewData.warnings.map((warning, warningIndex) => (
+                                    <li key={warningIndex}>{warning}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ color: 'var(--text-muted)' }}>Allocation preview data will appear after a selected match exists.</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
