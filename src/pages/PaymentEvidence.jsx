@@ -138,6 +138,30 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     }
   };
 
+  // Receipt Print View States
+  const [receiptPrintViewData, setReceiptPrintViewData] = useState(null);
+  const [loadingReceiptPrintView, setLoadingReceiptPrintView] = useState(false);
+  const [receiptPrintViewError, setReceiptPrintViewError] = useState('');
+
+  const fetchReceiptPrintView = async (id) => {
+    setLoadingReceiptPrintView(true);
+    setReceiptPrintViewError('');
+    try {
+      const res = await fetch(`/api/payment-evidence/${id}/receipt-print-view`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to fetch receipt print view');
+      }
+      setReceiptPrintViewData(data);
+    } catch (err) {
+      console.error(err);
+      setReceiptPrintViewError(err.message || 'Failed to fetch receipt print view');
+      setReceiptPrintViewData(null);
+    } finally {
+      setLoadingReceiptPrintView(false);
+    }
+  };
+
   const fetchAllocationPreview = async (id) => {
     setLoadingPreview(true);
     setPreviewError('');
@@ -227,6 +251,7 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
         fetchAllocationResult(selectedRow.id);
         fetchReceiptPreview(selectedRow.id);
         fetchReceiptResult(selectedRow.id);
+        fetchReceiptPrintView(selectedRow.id);
         setPreviewData(null);
         setPreviewError('');
       } else {
@@ -237,6 +262,8 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
         setReceiptPreviewError('');
         setReceiptResultData(null);
         setReceiptResultError('');
+        setReceiptPrintViewData(null);
+        setReceiptPrintViewError('');
       }
     } else {
       setAuditLogs([]);
@@ -248,6 +275,8 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       setReceiptPreviewError('');
       setReceiptResultData(null);
       setReceiptResultError('');
+      setReceiptPrintViewData(null);
+      setReceiptPrintViewError('');
       setReceiptIssueConfirmationText('');
     }
   }, [selectedRow, role]);
@@ -830,6 +859,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           setReceiptIssueConfirmationText('');
           await fetchReceiptPreview(selectedRow.id);
           await fetchReceiptResult(selectedRow.id);
+          await fetchReceiptPrintView(selectedRow.id);
           await fetchAllocationResult(selectedRow.id);
           await fetchEvidenceRows();
         } catch (err) {
@@ -2039,6 +2069,153 @@ Please split the file into smaller batches or wait for the upcoming server-side 
 
                     <div style={{ marginTop: '6px', padding: '6px 8px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '4px', fontSize: '9px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
                       {receiptResultData.safety_message}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {/* Receipt Print View Section */}
+            {(receiptPrintViewData || loadingReceiptPrintView || receiptPrintViewError) && (
+              <div style={{ marginBottom: '16px', border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', backgroundColor: 'var(--bg-surface)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <h4 style={{ fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-primary)', fontWeight: '700' }}>Receipt Print View</h4>
+                  <button
+                    style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg-surface-elevated)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                    onClick={() => selectedRow && fetchReceiptPrintView(selectedRow.id)}
+                    disabled={loadingReceiptPrintView}
+                  >
+                    Refresh Receipt Print View
+                  </button>
+                </div>
+
+                {loadingReceiptPrintView ? (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Loading receipt print view...</div>
+                ) : receiptPrintViewError ? (
+                  <div style={{ fontSize: '11px', color: 'var(--danger)' }}>{receiptPrintViewError}</div>
+                ) : receiptPrintViewData && receiptPrintViewData.print_view && !receiptPrintViewData.print_view.available ? (
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>{receiptPrintViewData.print_view.message || 'No issued receipt available for print view.'}</div>
+                ) : receiptPrintViewData && receiptPrintViewData.print_view && receiptPrintViewData.print_view.available ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+
+                    {/* Watermark badge */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ padding: '2px 10px', borderRadius: '12px', backgroundColor: 'var(--success)', color: '#fff', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                        {receiptPrintViewData.print_view.watermark}
+                      </span>
+                      <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Status: <strong>{receiptPrintViewData.print_view.status}</strong></span>
+                    </div>
+
+                    {/* Receipt Layout */}
+                    <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '12px', backgroundColor: 'var(--bg-surface-elevated)' }}>
+                      {/* Header */}
+                      {receiptPrintViewData.print_view.organization_name && (
+                        <div style={{ textAlign: 'center', marginBottom: '10px' }}>
+                          <strong style={{ fontSize: '13px', display: 'block' }}>{receiptPrintViewData.print_view.organization_name}</strong>
+                          {receiptPrintViewData.print_view.organization_account_number && (
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Account: {receiptPrintViewData.print_view.organization_account_number}</span>
+                          )}
+                        </div>
+                      )}
+
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginBottom: '8px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 12px', fontSize: '11px' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Receipt No:</span>
+                          <strong style={{ fontFamily: 'monospace' }}>{receiptPrintViewData.print_view.receipt_number}</strong>
+                          <span style={{ color: 'var(--text-muted)' }}>Issued Date:</span>
+                          <strong>{receiptPrintViewData.print_view.issued_at ? new Date(receiptPrintViewData.print_view.issued_at).toLocaleString() : '—'}</strong>
+                          <span style={{ color: 'var(--text-muted)' }}>Tenant:</span>
+                          <strong>{receiptPrintViewData.print_view.tenant_name || '—'}</strong>
+                          <span style={{ color: 'var(--text-muted)' }}>Invoice:</span>
+                          <strong>{receiptPrintViewData.print_view.invoice_number || '—'}</strong>
+                          <span style={{ color: 'var(--text-muted)' }}>Payment Date:</span>
+                          <strong>{receiptPrintViewData.print_view.payment_date || '—'}</strong>
+                          <span style={{ color: 'var(--text-muted)' }}>Payment Method:</span>
+                          <strong style={{ textTransform: 'uppercase' }}>{receiptPrintViewData.print_view.payment_method || '—'}</strong>
+                        </div>
+                      </div>
+
+                      {/* Line Items */}
+                      {receiptPrintViewData.print_view.receipt_lines && receiptPrintViewData.print_view.receipt_lines.length > 0 && (
+                        <div style={{ marginBottom: '8px', borderTop: '1px solid var(--border)', paddingTop: '6px' }}>
+                          <span style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Items</span>
+                          {receiptPrintViewData.print_view.receipt_lines.map((line, idx) => (
+                            <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', padding: '2px 0', borderBottom: '1px dashed var(--border)' }}>
+                              <span>{line.label}</span>
+                              <strong>{formatCurrency(line.amount)}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Total */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '700', borderTop: '2px solid var(--border)', paddingTop: '6px', marginBottom: '4px' }}>
+                        <span>Total Received</span>
+                        <span style={{ color: 'var(--primary)' }}>{formatCurrency(receiptPrintViewData.print_view.amount)} {receiptPrintViewData.print_view.currency}</span>
+                      </div>
+                      {receiptPrintViewData.print_view.invoice_balance_after_allocation !== null && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+                          <span>Invoice Balance After Allocation</span>
+                          <strong>{formatCurrency(receiptPrintViewData.print_view.invoice_balance_after_allocation)}</strong>
+                        </div>
+                      )}
+                      {receiptPrintViewData.print_view.invoice_status_at_issue && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
+                          <span>Invoice Status at Issue</span>
+                          <strong>{receiptPrintViewData.print_view.invoice_status_at_issue}</strong>
+                        </div>
+                      )}
+
+                      {/* Footer */}
+                      <div style={{ marginTop: '10px', borderTop: '1px solid var(--border)', paddingTop: '6px', fontSize: '9px', color: 'var(--text-muted)', textAlign: 'center', fontStyle: 'italic' }}>
+                        {receiptPrintViewData.print_view.footer_note}
+                      </div>
+                    </div>
+
+                    {/* Print / PDF Readiness */}
+                    {receiptPrintViewData.print_readiness && (
+                      <div style={{ padding: '8px', backgroundColor: 'var(--bg-surface-elevated)', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                        <strong style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-primary)', display: 'block', marginBottom: '6px' }}>Print / PDF Readiness</strong>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', fontSize: '11px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--danger)', display: 'inline-block', flexShrink: 0 }}></span>
+                            <span style={{ color: 'var(--text-muted)' }}>Browser Print:</span>
+                            <span style={{ color: 'var(--danger)' }}>Disabled</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--danger)', display: 'inline-block', flexShrink: 0 }}></span>
+                            <span style={{ color: 'var(--text-muted)' }}>PDF Download:</span>
+                            <span style={{ color: 'var(--danger)' }}>Disabled</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--danger)', display: 'inline-block', flexShrink: 0 }}></span>
+                            <span style={{ color: 'var(--text-muted)' }}>Send:</span>
+                            <span style={{ color: 'var(--danger)' }}>Disabled</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--danger)', display: 'inline-block', flexShrink: 0 }}></span>
+                            <span style={{ color: 'var(--text-muted)' }}>Ledger Posting:</span>
+                            <span style={{ color: 'var(--danger)' }}>Disabled</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--danger)', display: 'inline-block', flexShrink: 0 }}></span>
+                            <span style={{ color: 'var(--text-muted)' }}>Void:</span>
+                            <span style={{ color: 'var(--danger)' }}>Disabled</span>
+                          </div>
+                        </div>
+                        {receiptPrintViewData.print_readiness.blocking_reasons && receiptPrintViewData.print_readiness.blocking_reasons.length > 0 && (
+                          <div style={{ marginTop: '6px', fontSize: '9px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                            {receiptPrintViewData.print_readiness.blocking_reasons[0]}
+                          </div>
+                        )}
+                        <div style={{ marginTop: '4px', fontSize: '9px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                          {receiptPrintViewData.print_readiness.safety_message}
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ fontSize: '9px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                      {receiptPrintViewData.safety_message}
                     </div>
                   </div>
                 ) : null}

@@ -2863,6 +2863,220 @@ async function runTests() {
     })()
   );
 
+  // ==========================================
+  // Test 21: Receipt Print View Foundation
+  // ==========================================
+  console.log('\n21. Receipt Print View Foundation:');
+
+  const printViewHandler = getRouteHandler('/payment-evidence/:id/receipt-print-view');
+  const printViewMiddlewares = getRouteMiddlewares('/payment-evidence/:id/receipt-print-view');
+
+  assert(
+    'Receipt print view endpoint exists',
+    typeof printViewHandler === 'function'
+  );
+
+  assert(
+    'Receipt print view endpoint requires landlord or super_admin role',
+    printViewMiddlewares.includes(requireLandlordOrSuperAdminMiddleware)
+  );
+
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let pvBlockedStatus = null;
+    let pvBlockedNextCalled = false;
+    await requireLandlordOrSuperAdminMiddleware(
+      { auth: { role: blockedRole, organizationId: 1, userId: 99 } },
+      {
+        status(code) { pvBlockedStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { pvBlockedNextCalled = true; }
+    );
+    assert(`Receipt print view blocks ${blockedRole}`, pvBlockedStatus === 403 && pvBlockedNextCalled === false);
+  }
+
+  let pvStatus = null;
+  let pvResponse = null;
+  const pvMockRes = {
+    status(code) { pvStatus = code; return this; },
+    json(data) { pvResponse = data; return this; }
+  };
+
+  // Seed: evidence + org
+  apiDb.seed('payment_evidence', [
+    { id: 9501, organization_id: 1, amount: 7500, transaction_date: '2026-07-02', status: 'manually_reconciled', review_status: 'accepted_suggestion', accepted_tenant_id: 143, accepted_invoice_id: 243, collection_channel: 'mpesa', transaction_code: 'MPESA9501' }
+  ]);
+  apiDb.seed('organizations', [
+    { id: 1, name: 'Test Organization Ltd', account_number: 'ACC-ORG-0001' }
+  ]);
+  apiDb.seed('receipts', []);
+
+  // Snapshot before
+  const pvInvoiceBefore = JSON.stringify(apiDb.get('invoices'));
+  const pvTenantBefore = JSON.stringify(apiDb.get('tenants'));
+  const pvEvidenceBefore = JSON.stringify(apiDb.get('payment_evidence'));
+  const pvTransactionCountBefore = apiDb.get('transactions').length;
+  const pvAllocationCountBefore = apiDb.get('payment_allocations').length;
+
+  // Wrong org returns 404
+  pvStatus = null; pvResponse = null;
+  await printViewHandler(
+    { auth: { organizationId: 2, role: 'landlord', userId: 10 }, params: { id: '9501' } },
+    pvMockRes
+  );
+  assert('Print view blocks wrong organization with 404', pvStatus === 404 && pvResponse.error === 'ROW_NOT_FOUND');
+
+  // No receipt returns available: false, state: receipt_not_issued
+  pvStatus = null; pvResponse = null;
+  await printViewHandler(
+    { auth: { organizationId: 1, role: 'landlord', userId: 10 }, params: { id: '9501' } },
+    pvMockRes
+  );
+  assert('Print view returns success true when no receipt', pvResponse && pvResponse.success === true);
+  assert('Print view available false when no receipt', pvResponse && pvResponse.print_view && pvResponse.print_view.available === false);
+  assert('Print view state is receipt_not_issued when no receipt', pvResponse && pvResponse.print_view && pvResponse.print_view.state === 'receipt_not_issued');
+  assert('Print view has print_readiness when no receipt', pvResponse && pvResponse.print_readiness && typeof pvResponse.print_readiness === 'object');
+  assert('No-receipt print view creates no new receipt', apiDb.get('receipts').length === 0);
+
+  // Seed issued receipt
+  apiDb.seed('receipts', [
+    {
+      id: 901,
+      organization_id: 1,
+      tenant_id: 143,
+      invoice_id: 243,
+      transaction_id: 552,
+      payment_allocation_id: 652,
+      payment_evidence_id: 9501,
+      receipt_number: 'RCP-SL-ORG-000001-2026-000011',
+      status: 'issued',
+      issued_at: '2026-07-02T09:00:00.000Z',
+      issued_by_user_id: 10,
+      amount: 7500,
+      currency: 'KES',
+      payment_method: 'mpesa',
+      receipt_payload: JSON.stringify({
+        tenant_name: 'Print View Tenant',
+        invoice_number: 'INV-243',
+        payment_date: '2026-07-02',
+        invoice_status_at_issue: 'paid',
+        invoice_balance_after_allocation: 0,
+        receipt_lines: [{ label: 'Monthly rent allocation', amount: 7500 }]
+      }),
+      metadata: {}
+    }
+  ]);
+
+  const pvReceiptCountBefore = apiDb.get('receipts').length;
+
+  pvStatus = null; pvResponse = null;
+  await printViewHandler(
+    { auth: { organizationId: 1, role: 'landlord', userId: 10 }, params: { id: '9501' } },
+    pvMockRes
+  );
+
+  const pv = pvResponse;
+  assert('Print view returns success true', pv && pv.success === true);
+  assert('Print view returns payment_evidence_id', pv && pv.payment_evidence_id === 9501);
+
+  const pvi = pv && pv.print_view;
+  assert('Print view has print_view object', pvi && typeof pvi === 'object');
+  assert('Print view available is true', pvi && pvi.available === true);
+  assert('Print view state is ready_for_print_view', pvi && pvi.state === 'ready_for_print_view');
+  assert('Print view returns receipt_id', pvi && pvi.receipt_id === 901);
+  assert('Print view receipt_number starts with RCP-', pvi && typeof pvi.receipt_number === 'string' && pvi.receipt_number.startsWith('RCP-'));
+  assert('Print view returns issued_at', pvi && pvi.issued_at !== undefined && pvi.issued_at !== null);
+  assert('Print view returns tenant_name from payload', pvi && pvi.tenant_name === 'Print View Tenant');
+  assert('Print view returns invoice_number from payload', pvi && pvi.invoice_number === 'INV-243');
+  assert('Print view returns payment_date from payload', pvi && pvi.payment_date === '2026-07-02');
+  assert('Print view returns payment_method', pvi && pvi.payment_method === 'mpesa');
+  assert('Print view returns correct amount', pvi && Number(pvi.amount) === 7500);
+  assert('Print view returns currency', pvi && pvi.currency === 'KES');
+  assert('Print view returns invoice_status_at_issue', pvi && pvi.invoice_status_at_issue === 'paid');
+  assert('Print view returns invoice_balance_after_allocation', pvi && pvi.invoice_balance_after_allocation === 0);
+  assert('Print view returns receipt_lines from payload', pvi && Array.isArray(pvi.receipt_lines) && pvi.receipt_lines.length === 1);
+  assert('Print view receipt_lines amount matches', pvi && pvi.receipt_lines[0].amount === 7500);
+  assert('Print view returns watermark ISSUED', pvi && pvi.watermark === 'ISSUED');
+  assert('Print view returns footer_note', pvi && typeof pvi.footer_note === 'string' && pvi.footer_note.length > 0);
+  assert('Print view has safety_message', pv && typeof pv.safety_message === 'string' && pv.safety_message.includes('read-only'));
+
+  // Print readiness checks
+  const pr = pv && pv.print_readiness;
+  assert('Print view returns print_readiness block', pr && typeof pr === 'object');
+  assert('Print view browser_print_enabled is false', pr && pr.browser_print_enabled === false);
+  assert('Print view pdf_download_enabled is false', pr && pr.pdf_download_enabled === false);
+  assert('Print view send_enabled is false', pr && pr.send_enabled === false);
+  assert('Print view ledger_posting_enabled is false', pr && pr.ledger_posting_enabled === false);
+  assert('Print view void_enabled is false', pr && pr.void_enabled === false);
+  assert('Print view blocking_reasons is non-empty array', pr && Array.isArray(pr.blocking_reasons) && pr.blocking_reasons.length > 0);
+  assert('Print view print_readiness has safety_message', pr && typeof pr.safety_message === 'string' && pr.safety_message.length > 0);
+
+  // Read-only safety checks
+  assert('Print view lookup leaves invoices unchanged', JSON.stringify(apiDb.get('invoices')) === pvInvoiceBefore);
+  assert('Print view lookup leaves tenants unchanged', JSON.stringify(apiDb.get('tenants')) === pvTenantBefore);
+  assert('Print view lookup leaves payment evidence unchanged', JSON.stringify(apiDb.get('payment_evidence')) === pvEvidenceBefore);
+  assert('Print view lookup leaves transaction count unchanged', apiDb.get('transactions').length === pvTransactionCountBefore);
+  assert('Print view lookup leaves allocation count unchanged', apiDb.get('payment_allocations').length === pvAllocationCountBefore);
+  assert('Print view lookup creates no new receipts', apiDb.get('receipts').length === pvReceiptCountBefore);
+  assert('Print view creates no ledger records', apiDb.get('transactions').filter(t => t.ledger).length === 0);
+
+  // Frontend content checks
+  const pvContent = paymentEvidenceContent;
+  assert('PaymentEvidence.jsx renders Receipt Print View section header', pvContent.includes('Receipt Print View'));
+  assert('PaymentEvidence.jsx renders Print / PDF Readiness subsection', pvContent.includes('Print / PDF Readiness'));
+  assert('PaymentEvidence.jsx renders Refresh Receipt Print View button', pvContent.includes('Refresh Receipt Print View'));
+  assert('PaymentEvidence.jsx fetches receipt-print-view endpoint', pvContent.includes('receipt-print-view'));
+  assert('PaymentEvidence.jsx renders Browser Print disabled', pvContent.includes('Browser Print'));
+  assert('PaymentEvidence.jsx renders PDF Download disabled', pvContent.includes('PDF Download'));
+  assert('PaymentEvidence.jsx renders Send disabled state', pvContent.includes('Send:') || pvContent.includes('Send'));
+  assert('PaymentEvidence.jsx renders Ledger Posting disabled', pvContent.includes('Ledger Posting'));
+  assert('PaymentEvidence.jsx renders Void disabled state', pvContent.includes('Void:') || pvContent.includes('Void'));
+  assert('PaymentEvidence.jsx renders watermark field', pvContent.includes('watermark'));
+  assert('PaymentEvidence.jsx renders footer_note field', pvContent.includes('footer_note'));
+
+  assert(
+    'PaymentEvidence.jsx still has no unsupported action labels',
+    !pvContent.includes('Print Receipt') &&
+    !pvContent.includes('Download Receipt') &&
+    !pvContent.includes('Send Receipt') &&
+    !pvContent.includes('Post Ledger') &&
+    !pvContent.includes('Void Receipt') &&
+    !pvContent.includes('Finalize Receipt') &&
+    !pvContent.includes('Reverse Receipt')
+  );
+
+  assert(
+    'PaymentEvidence.jsx does not call window.print',
+    !pvContent.includes('window.print')
+  );
+
+  assert(
+    'Receipt print view endpoint is GET only (no POST/PATCH/PUT/DELETE)',
+    routeContent.includes("router.get('/payment-evidence/:id/receipt-print-view'") &&
+    !routeContent.includes("router.post('/payment-evidence/:id/receipt-print-view'") &&
+    !routeContent.includes("router.patch('/payment-evidence/:id/receipt-print-view'") &&
+    !routeContent.includes("router.put('/payment-evidence/:id/receipt-print-view'") &&
+    !routeContent.includes("router.delete('/payment-evidence/:id/receipt-print-view'")
+  );
+
+  assert(
+    'No POST/PATCH/PUT/DELETE routes added for print/download/send/ledger/void',
+    !(/router\.(post|patch|put|delete)\s*\(['"`]\/payment-evidence\/:id\/(print|download|send|ledger|void)/i.test(routeContent))
+  );
+
+  assert(
+    'Receipt print view route has no INSERT/UPDATE/DELETE SQL for receipts in handler block',
+    (() => {
+      const marker = "router.get('/payment-evidence/:id/receipt-print-view'";
+      const startIdx = routeContent.indexOf(marker);
+      if (startIdx === -1) return false;
+      const block = routeContent.slice(startIdx, startIdx + 4000);
+      return !/INSERT\s+INTO\s+receipts/i.test(block) &&
+             !/UPDATE\s+receipts/i.test(block) &&
+             !/DELETE\s+FROM\s+receipts/i.test(block);
+    })()
+  );
+
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
   if (failures > 0) {
     process.exit(1);

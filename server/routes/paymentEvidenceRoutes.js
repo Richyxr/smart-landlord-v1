@@ -2193,5 +2193,110 @@ export function createPaymentEvidenceRoutes(pgDb) {
     });
   }));
 
+  // GET /api/payment-evidence/:id/receipt-print-view
+  router.get('/payment-evidence/:id/receipt-print-view', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+    const { orgId } = getContext(req);
+    const rowId = Number(req.params.id);
+
+    // Org-scoped row lookup
+    const row = await activeDb.findOne('payment_evidence', { id: rowId, organization_id: orgId });
+    if (!row) {
+      return res.status(404).json({
+        error: 'ROW_NOT_FOUND',
+        message: 'The requested payment evidence record was not found or is outside your organization.'
+      });
+    }
+
+    // Lookup organization for display name
+    const organization = await activeDb.findOne('organizations', { id: Number(orgId) });
+
+    // Find issued receipt for this evidence row
+    let issuedReceipt = null;
+    if (activeDb.pool && typeof activeDb.pool.connect === 'function') {
+      const result = await activeDb.pool.connect().then(async (client) => {
+        try {
+          return await client.query(
+            `SELECT * FROM receipts WHERE organization_id = $1 AND payment_evidence_id = $2 ORDER BY issued_at DESC LIMIT 1`,
+            [orgId, rowId]
+          );
+        } finally {
+          client.release();
+        }
+      });
+      issuedReceipt = result.rows && result.rows.length > 0 ? result.rows[0] : null;
+    } else {
+      const receipts = typeof activeDb.get === 'function' ? await activeDb.get('receipts') : [];
+      const matches = receipts.filter(r =>
+        Number(r.organization_id) === Number(orgId) &&
+        Number(r.payment_evidence_id) === Number(rowId)
+      );
+      issuedReceipt = matches.length > 0 ? matches[matches.length - 1] : null;
+    }
+
+    // Print readiness block — all output actions disabled in this release
+    const printReadiness = {
+      browser_print_enabled: false,
+      pdf_download_enabled: false,
+      send_enabled: false,
+      ledger_posting_enabled: false,
+      void_enabled: false,
+      blocking_reasons: [
+        'Browser print, PDF download, sending, ledger posting, and void workflows are not enabled in this release.'
+      ],
+      safety_message: 'Receipt print view is read-only. No receipt, ledger, invoice, tenant, transaction, allocation, or payment evidence record has been changed.'
+    };
+
+    if (!issuedReceipt) {
+      return res.json({
+        success: true,
+        payment_evidence_id: rowId,
+        print_view: {
+          available: false,
+          state: 'receipt_not_issued',
+          message: 'No issued receipt found for this payment evidence record. Issue a receipt first.'
+        },
+        print_readiness: printReadiness,
+        safety_message: 'Receipt print view lookup is read-only. No records were changed by this lookup.'
+      });
+    }
+
+    // Parse the stored receipt payload snapshot
+    const payload = typeof issuedReceipt.receipt_payload === 'string'
+      ? JSON.parse(issuedReceipt.receipt_payload)
+      : (issuedReceipt.receipt_payload || {});
+
+    const printView = {
+      available: true,
+      state: 'ready_for_print_view',
+      receipt_id: issuedReceipt.id,
+      receipt_number: issuedReceipt.receipt_number,
+      status: issuedReceipt.status,
+      issued_at: issuedReceipt.issued_at,
+      organization_name: organization ? organization.name : null,
+      organization_account_number: organization ? organization.account_number : null,
+      tenant_name: payload.tenant_name || null,
+      invoice_number: payload.invoice_number || null,
+      payment_date: payload.payment_date || null,
+      payment_method: issuedReceipt.payment_method || payload.payment_method || null,
+      amount: Number(issuedReceipt.amount),
+      currency: issuedReceipt.currency || 'KES',
+      invoice_status_at_issue: payload.invoice_status_at_issue || null,
+      invoice_balance_after_allocation: payload.invoice_balance_after_allocation !== undefined
+        ? Number(payload.invoice_balance_after_allocation)
+        : null,
+      receipt_lines: Array.isArray(payload.receipt_lines) ? payload.receipt_lines : [],
+      footer_note: 'This is a system-generated receipt view.',
+      watermark: 'ISSUED'
+    };
+
+    res.json({
+      success: true,
+      payment_evidence_id: rowId,
+      print_view: printView,
+      print_readiness: printReadiness,
+      safety_message: 'Receipt print view lookup is read-only. No records were changed by this lookup.'
+    });
+  }));
+
   return router;
 }
