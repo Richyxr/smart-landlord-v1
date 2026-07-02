@@ -225,6 +225,10 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [pdfReadinessData, setPdfReadinessData] = useState(null);
   const [pdfReadinessLoading, setPdfReadinessLoading] = useState(false);
   const [pdfReadinessError, setPdfReadinessError] = useState('');
+  const [pdfImportConfirmationText, setPdfImportConfirmationText] = useState('');
+  const [pdfImportLoading, setPdfImportLoading] = useState(false);
+  const [pdfImportError, setPdfImportError] = useState('');
+  const [pdfImportResult, setPdfImportResult] = useState(null);
 
   const handlePdfStatementCheck = async () => {
     if (!pdfFile) {
@@ -234,6 +238,9 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     setPdfReadinessLoading(true);
     setPdfReadinessError('');
     setPdfReadinessData(null);
+    setPdfImportError('');
+    setPdfImportResult(null);
+    setPdfImportConfirmationText('');
     try {
       const formData = new FormData();
       formData.append('statement', pdfFile);
@@ -251,6 +258,54 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       setPdfReadinessError(err.message || 'PDF readiness check failed.');
     } finally {
       setPdfReadinessLoading(false);
+    }
+  };
+
+  const handleImportLoopPdfRows = async () => {
+    if (!pdfFile) {
+      setPdfImportError('Please select a PDF file first.');
+      return;
+    }
+
+    if (pdfImportConfirmationText !== 'CONFIRM LOOP PDF IMPORT') {
+      setPdfImportError('Please type CONFIRM LOOP PDF IMPORT exactly to continue.');
+      return;
+    }
+
+    setPdfImportLoading(true);
+    setPdfImportError('');
+    setPdfImportResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('statement', pdfFile);
+      formData.append('confirmation_text', pdfImportConfirmationText);
+      formData.append('source_label', 'Loop PDF Statement');
+      if (Array.isArray(pdfReadinessData?.preview_rows)) {
+        formData.append('preview_rows_json', JSON.stringify(pdfReadinessData.preview_rows));
+      }
+      if (pdfReadinessData?.parser_result?.rows_skipped !== undefined && pdfReadinessData?.parser_result?.rows_skipped !== null) {
+        formData.append('preview_rows_skipped', String(pdfReadinessData.parser_result.rows_skipped));
+      }
+
+      const res = await fetch('/api/payment-evidence/pdf-statement-import', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Loop PDF import failed.');
+      }
+
+      setPdfImportResult(data);
+      setPdfImportConfirmationText('');
+      fetchBatches();
+      fetchEvidenceRows();
+    } catch (err) {
+      console.error(err);
+      setPdfImportError(err.message || 'Loop PDF import failed.');
+    } finally {
+      setPdfImportLoading(false);
     }
   };
 
@@ -3364,6 +3419,67 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                         </div>
                       </div>
                     )}
+
+                    {pdfReadinessData?.provider_detection?.detected_provider === 'LOOP_STATEMENT' &&
+                      Array.isArray(pdfReadinessData?.preview_rows) &&
+                      pdfReadinessData.preview_rows.length > 0 &&
+                      Number(pdfReadinessData?.parser_result?.ready_for_review_count || 0) > 0 && (
+                        <div style={{ marginBottom: '12px', padding: '12px', border: '1px solid var(--success)', borderRadius: '6px', backgroundColor: 'rgba(var(--success-rgb), 0.06)' }}>
+                          <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>Import Loop PDF Rows to Review Queue</div>
+                          <div style={{ color: 'var(--warning)', fontWeight: '700', marginBottom: '8px' }}>
+                            This imports validated Loop rows into Payment Evidence review only. It will not allocate, receipt, post ledger, or change invoice balances.
+                          </div>
+
+                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                            Type exact confirmation text: <strong>CONFIRM LOOP PDF IMPORT</strong>
+                          </label>
+                          <input
+                            type="text"
+                            value={pdfImportConfirmationText}
+                            onChange={(e) => setPdfImportConfirmationText(e.target.value)}
+                            placeholder="CONFIRM LOOP PDF IMPORT"
+                            style={{ width: '100%', marginBottom: '10px', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}
+                          />
+
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            onClick={handleImportLoopPdfRows}
+                            disabled={pdfImportLoading || pdfImportConfirmationText !== 'CONFIRM LOOP PDF IMPORT'}
+                            style={{
+                              cursor: (pdfImportLoading || pdfImportConfirmationText !== 'CONFIRM LOOP PDF IMPORT') ? 'not-allowed' : 'pointer',
+                              opacity: (pdfImportLoading || pdfImportConfirmationText !== 'CONFIRM LOOP PDF IMPORT') ? 0.6 : 1
+                            }}
+                          >
+                            {pdfImportLoading ? 'Importing...' : 'Import to Review Queue'}
+                          </button>
+
+                          {pdfImportError && (
+                            <div className="alert alert-danger" style={{ marginTop: '10px', marginBottom: 0, fontSize: '11px', padding: '8px' }}>
+                              {pdfImportError}
+                            </div>
+                          )}
+
+                          {pdfImportResult && (
+                            <div style={{ marginTop: '10px', padding: '10px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}>
+                              <div style={{ fontWeight: '700', marginBottom: '6px', color: 'var(--text-primary)' }}>Import Result</div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', fontSize: '11px' }}>
+                                <div><span className="text-muted">Batch ID:</span> <strong>{pdfImportResult?.batch?.id ?? 'N/A'}</strong></div>
+                                <div><span className="text-muted">Rows detected:</span> <strong>{pdfImportResult?.import_result?.rows_detected ?? 0}</strong></div>
+                                <div><span className="text-muted">Rows eligible:</span> <strong>{pdfImportResult?.import_result?.rows_eligible ?? 0}</strong></div>
+                                <div><span className="text-muted">Rows imported:</span> <strong>{pdfImportResult?.import_result?.rows_imported ?? 0}</strong></div>
+                                <div><span className="text-muted">Rows skipped:</span> <strong>{pdfImportResult?.import_result?.rows_skipped ?? 0}</strong></div>
+                                <div><span className="text-muted">Duplicate rows skipped:</span> <strong>{pdfImportResult?.import_result?.duplicate_rows_skipped ?? 0}</strong></div>
+                                <div><span className="text-muted">Needs attention rows skipped:</span> <strong>{pdfImportResult?.import_result?.needs_attention_rows_skipped ?? 0}</strong></div>
+                                <div><span className="text-muted">Fee rows skipped:</span> <strong>{pdfImportResult?.import_result?.fee_rows_skipped ?? 0}</strong></div>
+                              </div>
+                              <div style={{ marginTop: '8px', color: 'var(--text-muted)' }}>
+                                {pdfImportResult?.safety_message || 'Loop PDF import created payment evidence review rows only. No transactions, allocations, receipts, ledger entries, invoices, tenants, or balances were changed.'}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                     {pdfReadinessData?.warnings && (
                       <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--warning)', borderRadius: '6px', backgroundColor: 'rgba(var(--warning-rgb), 0.06)' }}>

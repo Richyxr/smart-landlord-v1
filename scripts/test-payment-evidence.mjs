@@ -3410,7 +3410,7 @@ async function runTests() {
       const startIdx = routeContent.indexOf(marker);
       if (startIdx === -1) return false;
       const tail = routeContent.slice(startIdx);
-      const endIdx = tail.indexOf('return router;');
+      const endIdx = tail.indexOf("'/payment-evidence/pdf-statement-import'");
       if (endIdx === -1) return false;
       const block = tail.slice(0, endIdx);
       return !/activeDb\.(insert|update|delete)/i.test(block) &&
@@ -3540,6 +3540,255 @@ async function runTests() {
   assert(
     'PaymentEvidence.jsx PDF flow does not call allocation, receipt, or ledger endpoints',
     !/pdfReadiness[\s\S]{0,1200}(confirm-allocation|issue-receipt|receipt-result|receipt-print-view|\/api\/ledger)/i.test(paymentEvidenceContent)
+  );
+
+  // ==========================================
+  // Test 23: Landlord-Confirmed Loop PDF Import to Review Queue
+  // ==========================================
+  console.log('\n23. Landlord-Confirmed Loop PDF Import to Review Queue:');
+
+  const pdfImportHandler = getRouteHandler('/payment-evidence/pdf-statement-import');
+  const pdfImportMiddlewares = getRouteMiddlewares('/payment-evidence/pdf-statement-import');
+
+  assert(
+    'PDF statement import endpoint exists',
+    typeof pdfImportHandler === 'function'
+  );
+
+  assert(
+    'PDF statement import endpoint requires landlord or super_admin role',
+    pdfImportMiddlewares.includes(requireLandlordOrSuperAdminMiddleware)
+  );
+
+  for (const allowedRole of ['landlord', 'super_admin']) {
+    let importAllowedNextCalled = false;
+    let importAllowedStatus = null;
+    await requireLandlordOrSuperAdminMiddleware(
+      { auth: { role: allowedRole, organizationId: 1, userId: 10 } },
+      {
+        status(code) { importAllowedStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { importAllowedNextCalled = true; }
+    );
+    assert(`PDF statement import allows ${allowedRole}`, importAllowedNextCalled === true && importAllowedStatus === null);
+  }
+
+  for (const blockedRole of ['caretaker', 'tenant', 'resident']) {
+    let importBlockedStatus = null;
+    let importBlockedNextCalled = false;
+    await requireLandlordOrSuperAdminMiddleware(
+      { auth: { role: blockedRole, organizationId: 1, userId: 88 } },
+      {
+        status(code) { importBlockedStatus = code; return this; },
+        json() { return this; }
+      },
+      () => { importBlockedNextCalled = true; }
+    );
+    assert(`PDF statement import blocks ${blockedRole}`, importBlockedStatus === 403 && importBlockedNextCalled === false);
+  }
+
+  let pdfImportStatus = null;
+  let pdfImportResponse = null;
+  const pdfImportMockRes = {
+    status(code) { pdfImportStatus = code; return this; },
+    json(data) { pdfImportResponse = data; return this; }
+  };
+
+  const runPdfImportRequest = async ({ file, confirmation_text = 'CONFIRM LOOP PDF IMPORT', source_label = 'Loop PDF Statement', import_notes = '', previewRows = null, previewRowsSkipped = null } = {}) => {
+    pdfImportStatus = null;
+    pdfImportResponse = null;
+    const body = { confirmation_text, source_label, import_notes };
+    if (Array.isArray(previewRows)) {
+      body.preview_rows_json = JSON.stringify(previewRows);
+    }
+    if (previewRowsSkipped !== null && previewRowsSkipped !== undefined) {
+      body.preview_rows_skipped = String(previewRowsSkipped);
+    }
+    await pdfImportHandler(
+      {
+        auth: { organizationId: 1, role: 'landlord', userId: 10 },
+        body,
+        file
+      },
+      pdfImportMockRes
+    );
+  };
+
+  await runPdfImportRequest({ file: undefined });
+  assert('PDF statement import rejects missing file', pdfImportStatus === 400 && pdfImportResponse.error === 'NO_FILE');
+
+  await runPdfImportRequest({
+    file: {
+      originalname: 'statement.txt',
+      mimetype: 'text/plain',
+      size: 64,
+      buffer: Buffer.from('not a pdf')
+    }
+  });
+  assert('PDF statement import rejects non-PDF file', pdfImportStatus === 400 && pdfImportResponse.error === 'INVALID_FILE_TYPE');
+
+  await runPdfImportRequest({
+    file: {
+      originalname: 'large-loop.pdf',
+      mimetype: 'application/pdf',
+      size: (5 * 1024 * 1024) + 2,
+      buffer: Buffer.alloc(0)
+    }
+  });
+  assert('PDF statement import rejects files larger than 5 MB', pdfImportStatus === 400 && pdfImportResponse.error === 'FILE_TOO_LARGE');
+
+  await runPdfImportRequest({
+    confirmation_text: 'CONFIRM SOMETHING ELSE',
+    file: {
+      originalname: 'loop.pdf',
+      mimetype: 'application/pdf',
+      size: 100,
+      buffer: buildSimpleTextPdfBuffer(['ACCOUNT STATEMENT'])
+    }
+  });
+  assert('PDF statement import rejects wrong confirmation text', pdfImportStatus === 400 && pdfImportResponse.error === 'INVALID_CONFIRMATION_TEXT');
+
+  const nonLoopImportPdf = buildSimpleTextPdfBuffer([
+    'STATEMENT OF ACCOUNT',
+    'Money In Money Out Balance',
+    'Transaction Details'
+  ]);
+  await runPdfImportRequest({
+    file: {
+      originalname: 'co-op.pdf',
+      mimetype: 'application/pdf',
+      size: nonLoopImportPdf.length,
+      buffer: nonLoopImportPdf
+    }
+  });
+  assert('PDF statement import rejects non-Loop provider', pdfImportStatus === 400 && pdfImportResponse.error === 'UNSUPPORTED_PROVIDER');
+
+  apiDb.seed('payment_evidence_batches', []);
+  apiDb.seed('payment_evidence', [
+    {
+      id: 7001,
+      organization_id: 1,
+      transaction_code: 'EXIST123',
+      amount: 1200,
+      transaction_date: '2026-06-24',
+      status: 'needs_review'
+    }
+  ]);
+  apiDb.seed('transactions', [
+    { id: 8001, organization_id: 1, reference_number: 'POSTED1', amount: 1800, status: 'reconciled' }
+  ]);
+  apiDb.seed('payment_allocations', []);
+  apiDb.seed('receipts', []);
+  apiDb.seed('invoices', [
+    { id: 9901, organization_id: 1, tenant_id: 9902, invoice_number: 'INV-PDF-IMPORT-1', status: 'issued', balance: 4500, amount_paid: 0 }
+  ]);
+  apiDb.seed('tenants', [
+    { id: 9902, organization_id: 1, full_name: 'Import Tenant', balance: 0 }
+  ]);
+
+  const txBeforeImport = JSON.stringify(apiDb.get('transactions'));
+  const allocBeforeImport = JSON.stringify(apiDb.get('payment_allocations'));
+  const receiptsBeforeImport = JSON.stringify(apiDb.get('receipts'));
+  const invoicesBeforeImport = JSON.stringify(apiDb.get('invoices'));
+  const tenantsBeforeImport = JSON.stringify(apiDb.get('tenants'));
+  const evidenceBeforeImportCount = apiDb.get('payment_evidence').length;
+
+  const loopImportRowsText = [
+    'ACCOUNT STATEMENT LOOP Ref Customer Number Account Number WLTBNK Via NCBA Pay Bill Bill Payment',
+    'Received 2100 Via NCBA LOOP Ref:NEWIMP1 Partner Ref:PRN1 2026-06-24 11:06:09 0.00 2,100.00 2,008.70',
+    'Received 1200 Via NCBA LOOP Ref:EXIST123 Partner Ref:PREX 2026-06-24 12:06:09 0.00 1,200.00 3,700.00',
+    'Received 1800 Via NCBA LOOP Ref:POSTED1 Partner Ref:PRTX 2026-06-24 12:16:09 0.00 1,800.00 5,500.00',
+    'Received 1700 Via NCBA LOOP Ref:DUPSAME1 Partner Ref:PRD1 2026-06-24 12:26:09 0.00 1,700.00 7,200.00',
+    'Received 1600 Via NCBA LOOP Ref:DUPSAME1 Partner Ref:PRD2 2026-06-24 12:36:09 0.00 1,600.00 8,800.00',
+    'Payment In LOOP Ref:ATTN001 Partner Ref:PRAT 2026-06-24 12:46:09 0.00 1,400.00 10,200.00',
+    'Loop Charge 2026-06-24 12:56:09 40.00 0.00 10,160.00'
+  ].join('\n');
+
+  const loopImportPreview = parseLoopStatementPreviewRows(loopImportRowsText);
+  const loopImportPdf = buildSimpleTextPdfBuffer(loopImportRowsText.split('\n'));
+
+  await runPdfImportRequest({
+    file: {
+      originalname: 'Loop Statement Import.pdf',
+      mimetype: 'application/pdf',
+      size: loopImportPdf.length,
+      buffer: loopImportPdf
+    },
+    previewRows: loopImportPreview.previewRows,
+    previewRowsSkipped: loopImportPreview.rowsSkipped
+  });
+
+  assert('Loop PDF import returns success true', pdfImportResponse && pdfImportResponse.success === true);
+  assert('Loop PDF import returns non-error status', pdfImportStatus === null || pdfImportStatus === 200);
+  assert('Loop PDF import returns expected mode', pdfImportResponse && pdfImportResponse.mode === 'loop_pdf_import_to_review_queue');
+  assert('Loop PDF import returns LOOP source provider', pdfImportResponse && pdfImportResponse.source_provider === 'LOOP_STATEMENT');
+  assert('Loop PDF import creates one payment evidence batch', Array.isArray(apiDb.get('payment_evidence_batches')) && apiDb.get('payment_evidence_batches').length === 1);
+  assert('Loop PDF import creates payment evidence rows for eligible rows', apiDb.get('payment_evidence').length > evidenceBeforeImportCount);
+
+  const importedRows = apiDb.get('payment_evidence').filter(r => Number(r.batch_id) === Number(pdfImportResponse?.batch?.id));
+  assert('Imported PDF rows map required payment evidence fields', importedRows.length > 0 && importedRows.every(r =>
+    Number(r.organization_id) === 1 &&
+    Number(r.batch_id) === Number(pdfImportResponse.batch.id) &&
+    typeof r.transaction_code === 'string' && r.transaction_code.length > 0 &&
+    Number(r.amount) > 0 &&
+    /^\d{4}-\d{2}-\d{2}$/.test(String(r.transaction_date || '')) &&
+    typeof r.description === 'string' &&
+    typeof r.collection_channel === 'string' &&
+    r.document_source === 'PDF_STATEMENT' &&
+    r.source_provider === 'LOOP_STATEMENT' &&
+    r.source_perspective === 'landlord' &&
+    r.status === 'needs_review'
+  ));
+
+  assert('Loop PDF import skips needs_attention rows', pdfImportResponse && Number(pdfImportResponse?.import_result?.needs_attention_rows_skipped ?? 0) >= 1);
+  assert('Loop PDF import skips fee rows', pdfImportResponse && Number(pdfImportResponse?.import_result?.fee_rows_skipped ?? 0) >= 1);
+  assert('Loop PDF import skips duplicate-like rows', pdfImportResponse && Number(pdfImportResponse?.import_result?.duplicate_rows_skipped ?? 0) >= 1);
+  assert('Loop PDF import skips existing duplicate payment evidence rows', !importedRows.some(r => r.transaction_code === 'EXIST123'));
+  assert('Loop PDF import does not import posted transaction duplicate code', !importedRows.some(r => r.transaction_code === 'POSTED1'));
+
+  assert('Loop PDF import result contains expected counters', pdfImportResponse &&
+    pdfImportResponse.import_result &&
+    Object.prototype.hasOwnProperty.call(pdfImportResponse.import_result, 'rows_detected') &&
+    Object.prototype.hasOwnProperty.call(pdfImportResponse.import_result, 'rows_eligible') &&
+    Object.prototype.hasOwnProperty.call(pdfImportResponse.import_result, 'rows_imported') &&
+    Object.prototype.hasOwnProperty.call(pdfImportResponse.import_result, 'rows_skipped') &&
+    Object.prototype.hasOwnProperty.call(pdfImportResponse.import_result, 'duplicate_rows_skipped') &&
+    Object.prototype.hasOwnProperty.call(pdfImportResponse.import_result, 'needs_attention_rows_skipped') &&
+    Object.prototype.hasOwnProperty.call(pdfImportResponse.import_result, 'fee_rows_skipped')
+  );
+
+  assert('Loop PDF import returns safety message', pdfImportResponse && typeof pdfImportResponse.safety_message === 'string' && pdfImportResponse.safety_message.includes('No transactions, allocations, receipts, ledger entries'));
+  assert('Loop PDF import creates no transactions', JSON.stringify(apiDb.get('transactions')) === txBeforeImport);
+  assert('Loop PDF import creates no payment allocations', JSON.stringify(apiDb.get('payment_allocations')) === allocBeforeImport);
+  assert('Loop PDF import creates no receipts', JSON.stringify(apiDb.get('receipts')) === receiptsBeforeImport);
+  assert('Loop PDF import leaves invoices unchanged', JSON.stringify(apiDb.get('invoices')) === invoicesBeforeImport);
+  assert('Loop PDF import leaves tenants unchanged', JSON.stringify(apiDb.get('tenants')) === tenantsBeforeImport);
+
+  assert(
+    'PaymentEvidence.jsx renders Loop PDF guarded import section labels',
+    paymentEvidenceContent.includes('Import Loop PDF Rows to Review Queue') &&
+    paymentEvidenceContent.includes('CONFIRM LOOP PDF IMPORT') &&
+    paymentEvidenceContent.includes('Import to Review Queue') &&
+    paymentEvidenceContent.includes('This imports validated Loop rows into Payment Evidence review only')
+  );
+
+  assert(
+    'PaymentEvidence.jsx calls Loop PDF import endpoint',
+    paymentEvidenceContent.includes('/api/payment-evidence/pdf-statement-import')
+  );
+
+  assert(
+    'PaymentEvidence.jsx avoids forbidden final action labels in PDF import flow',
+    !/\bAuto Reconcile\b/.test(paymentEvidenceContent) &&
+    !/\bPost Ledger\b/.test(paymentEvidenceContent) &&
+    !/\bCreate Transaction\b/.test(paymentEvidenceContent) &&
+    !/\bMark Invoice Paid\b/.test(paymentEvidenceContent)
+  );
+
+  assert(
+    'PaymentEvidence.jsx PDF import flow does not call allocation, receipt, or ledger APIs',
+    !/pdfImport[\s\S]{0,900}(confirm-allocation|issue-receipt|receipt-result|receipt-print-view|\/api\/ledger)/i.test(paymentEvidenceContent)
   );
 
   const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));

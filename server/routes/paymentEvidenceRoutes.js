@@ -35,6 +35,7 @@ const RECEIPT_ISSUANCE_CONTRACT_SAFETY_MESSAGE = 'This receipt issuance contract
 const PDF_TEXT_SAMPLE_LIMIT = 2000;
 const PDF_PREVIEW_ROW_LIMIT = 100;
 const PDF_PREVIEW_ROW_RAW_TEXT_LIMIT = 500;
+const LOOP_PDF_IMPORT_CONFIRMATION_TEXT = 'CONFIRM LOOP PDF IMPORT';
 const PDF_DETECTION_KEYWORDS = [
   'ACCOUNT STATEMENT',
   'CUSTOMER ADVICE',
@@ -132,6 +133,8 @@ function resolveProviderDetectionConfidence(score) {
 
 export function detectPdfStatementProvider(text) {
   const normalized = String(text || '').toUpperCase();
+  const strongLoopIndicators = ['LOOP REF', 'VIA NCBA', 'CUSTOMER NUMBER', 'WLTBNK', 'PAY BILL BILL PAYMENT'];
+  const strongLoopMatchCount = strongLoopIndicators.filter(indicator => normalized.includes(indicator)).length;
   const results = PDF_PROVIDER_DETECTION_RULES.map((rule) => {
     const matched = [];
     let score = 0;
@@ -143,11 +146,18 @@ export function detectPdfStatementProvider(text) {
       }
     }
 
+    let adjustedScore = Math.min(100, score);
+    if (rule.provider === 'LOOP_STATEMENT' && strongLoopMatchCount > 0) {
+      // Bias toward LOOP when Loop-specific markers are present to avoid false
+      // positives from generic "statement/account" wording.
+      adjustedScore = Math.min(100, adjustedScore + (strongLoopMatchCount * 12));
+    }
+
     return {
       provider: rule.provider,
       statementType: rule.statementType,
       matched,
-      score: Math.min(100, score)
+      score: adjustedScore
     };
   });
 
@@ -270,7 +280,8 @@ function extractLoopTransactionDate(text) {
 
 function extractLoopMonetaryColumns(text) {
   const raw = String(text || '').replace(/\s+/g, ' ').trim();
-  const match = raw.match(/(-?\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s+(-?\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s+(-?\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\s*$/);
+  const numberPattern = '(-?\\d+(?:,\\d{3})*(?:\\.\\d{1,2})?)';
+  const match = raw.match(new RegExp(`${numberPattern}\\s+${numberPattern}\\s+${numberPattern}\\s*$`));
   if (!match) return null;
   return {
     debit: normalizeLoopNumeric(match[1]),
@@ -531,6 +542,87 @@ export function summarizeLoopParserValidation(rows, skippedCount) {
   };
 
   return summary;
+}
+
+function normalizeLoopImportPhone(rawPhone) {
+  if (!rawPhone) return null;
+  const digits = String(rawPhone).replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.startsWith('254') && digits.length >= 12) return digits.slice(0, 12);
+  if (digits.startsWith('0') && digits.length >= 10) return `254${digits.slice(1, 10)}`;
+  if (digits.length === 9) return `254${digits}`;
+  return digits;
+}
+
+function extractLoopPayerFromRawText(rawText) {
+  const text = String(rawText || '');
+  const phoneMatch = text.match(/\b(254\d{9}|0\d{9})\b/);
+  const phone = phoneMatch ? normalizeLoopImportPhone(phoneMatch[1]) : null;
+
+  let payerName = null;
+  if (phoneMatch) {
+    const left = text.slice(0, phoneMatch.index || 0);
+    const nameMatch = left.match(/([A-Z][A-Z\s'.-]{2,})\s*,?\s*$/i);
+    if (nameMatch && nameMatch[1]) {
+      payerName = String(nameMatch[1]).replace(/\s+/g, ' ').trim();
+    }
+  }
+
+  return {
+    payer_name: payerName || null,
+    payer_phone: phone || null
+  };
+}
+
+export function buildLoopPdfPaymentEvidenceImportRows(previewRows) {
+  const rows = Array.isArray(previewRows) ? previewRows : [];
+  const eligibleRows = [];
+  const skippedSummary = {
+    duplicate_like: 0,
+    needs_attention: 0,
+    fee_or_charge: 0,
+    missing_required_fields: 0
+  };
+
+  for (const row of rows) {
+    const validation = row && row.validation ? row.validation : {};
+    const amount = Number(row && row.amount);
+    const hasValidDate = typeof (row && row.transaction_date) === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.transaction_date);
+    const hasCode = Boolean(row && row.transaction_code);
+
+    if (validation.is_fee_or_charge) {
+      skippedSummary.fee_or_charge += 1;
+      continue;
+    }
+
+    if (validation.is_duplicate_like) {
+      skippedSummary.duplicate_like += 1;
+      continue;
+    }
+
+    if (
+      row.row_status !== 'ready_for_review' ||
+      !['high', 'medium'].includes(row.parser_confidence) ||
+      validation.is_valid !== true ||
+      validation.is_fee_or_charge === true ||
+      validation.is_duplicate_like === true
+    ) {
+      skippedSummary.needs_attention += 1;
+      continue;
+    }
+
+    if (!hasCode || !hasValidDate || !Number.isFinite(amount) || amount <= 0) {
+      skippedSummary.missing_required_fields += 1;
+      continue;
+    }
+
+    eligibleRows.push(row);
+  }
+
+  return {
+    eligibleRows,
+    skippedSummary
+  };
 }
 
 async function buildPdfTextExtractionPreview(file) {
@@ -3043,6 +3135,344 @@ export function createPaymentEvidenceRoutes(pgDb) {
           'Allow landlord-confirmed import into review queue.'
         ],
         safety_message: 'PDF text extraction preview is read-only. No payment evidence, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.'
+      });
+    })
+  );
+
+  // POST /api/payment-evidence/pdf-statement-import
+  // Controlled mutation endpoint: imports only validated Loop preview rows into
+  // payment_evidence review queue. No allocations, receipts, ledger, transaction,
+  // invoice, tenant, or balance mutations occur here.
+  router.post(
+    '/payment-evidence/pdf-statement-import',
+    requireAuthenticatedContext,
+    requireLandlordOrSuperAdmin,
+    (req, res, next) => {
+      pdfUpload.single('statement')(req, res, (err) => {
+        if (err && err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({
+            error: 'FILE_TOO_LARGE',
+            message: 'PDF file must not exceed 5 MB for Loop import.'
+          });
+        }
+        if (err) {
+          return res.status(400).json({
+            error: 'UPLOAD_ERROR',
+            message: err.message || 'File upload failed.'
+          });
+        }
+        next();
+      });
+    },
+    asyncHandler(async (req, res) => {
+      const { orgId, userId } = getContext(req);
+      const body = req.body || {};
+      const confirmationText = String(body.confirmation_text || '');
+      const sourceLabel = String(body.source_label || 'Loop PDF Statement').trim() || 'Loop PDF Statement';
+      let providedPreviewRows = [];
+      if (typeof body.preview_rows_json === 'string' && body.preview_rows_json.trim()) {
+        try {
+          const parsed = JSON.parse(body.preview_rows_json);
+          if (Array.isArray(parsed)) {
+            providedPreviewRows = parsed;
+          }
+        } catch (_err) {
+          providedPreviewRows = [];
+        }
+      } else if (Array.isArray(body.preview_rows)) {
+        providedPreviewRows = body.preview_rows;
+      }
+      const providedRowsSkipped = Number(body.preview_rows_skipped || 0);
+
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'NO_FILE',
+          message: 'No PDF file was attached. Please upload a file using the "statement" field.'
+        });
+      }
+
+      const mime = req.file.mimetype || '';
+      if (mime !== 'application/pdf') {
+        return res.status(400).json({
+          error: 'INVALID_FILE_TYPE',
+          message: `Only PDF files are accepted (received: ${mime || 'unknown'}). Please upload a file with MIME type application/pdf.`
+        });
+      }
+
+      if (Number(req.file.size || 0) > 5 * 1024 * 1024) {
+        return res.status(400).json({
+          error: 'FILE_TOO_LARGE',
+          message: 'PDF file must not exceed 5 MB for Loop import.'
+        });
+      }
+
+      if (confirmationText !== LOOP_PDF_IMPORT_CONFIRMATION_TEXT) {
+        return res.status(400).json({
+          error: 'INVALID_CONFIRMATION_TEXT',
+          message: `Confirmation text is invalid. Please type "${LOOP_PDF_IMPORT_CONFIRMATION_TEXT}".`
+        });
+      }
+
+      const extractionPreview = await buildPdfTextExtractionPreview(req.file);
+      if (!extractionPreview.extraction.text_available) {
+        return res.status(400).json({
+          error: 'NO_TEXT_FOUND',
+          message: 'No selectable text was found in this PDF. OCR is not enabled in this release.'
+        });
+      }
+
+      const providerDetection = detectPdfStatementProvider(extractionPreview.extractedText);
+      const loopParsed = parseLoopStatementPreviewRows(extractionPreview.extractedText);
+      const candidatePreviewRows = providedPreviewRows.length > 0 ? providedPreviewRows : loopParsed.previewRows;
+      const selection = buildLoopPdfPaymentEvidenceImportRows(candidatePreviewRows);
+      const detectedRowsCount = Math.max(loopParsed.rowsDetected, candidatePreviewRows.length);
+
+      if (providerDetection.detected_provider !== 'LOOP_STATEMENT' && selection.eligibleRows.length === 0) {
+        return res.status(400).json({
+          error: 'UNSUPPORTED_PROVIDER',
+          message: 'Only Loop statements are supported for PDF import in this release.',
+          provider_detection: {
+            detected_provider: providerDetection.detected_provider,
+            detected_statement_type: providerDetection.detected_statement_type,
+            confidence: providerDetection.confidence,
+            score: providerDetection.score
+          }
+        });
+      }
+
+      const eligibleRows = selection.eligibleRows;
+
+      if (eligibleRows.length === 0) {
+        const feeRowsSkipped = Math.max(loopParsed.rowsSkipped, selection.skippedSummary.fee_or_charge, Number.isFinite(providedRowsSkipped) ? providedRowsSkipped : 0);
+        const totalSkipped = detectedRowsCount;
+        return res.json({
+          success: true,
+          mode: 'loop_pdf_import_to_review_queue',
+          document_source: 'PDF_STATEMENT',
+          source_provider: 'LOOP_STATEMENT',
+          import_status: 'nothing_imported',
+          batch: null,
+          import_result: {
+            rows_detected: detectedRowsCount,
+            rows_eligible: 0,
+            rows_imported: 0,
+            rows_skipped: totalSkipped,
+            duplicate_rows_skipped: selection.skippedSummary.duplicate_like,
+            needs_attention_rows_skipped: selection.skippedSummary.needs_attention + selection.skippedSummary.missing_required_fields,
+            fee_rows_skipped: feeRowsSkipped,
+            created_payment_evidence_ids: []
+          },
+          skipped_summary: {
+            duplicate_like: selection.skippedSummary.duplicate_like,
+            needs_attention: selection.skippedSummary.needs_attention,
+            fee_or_charge: feeRowsSkipped,
+            missing_required_fields: selection.skippedSummary.missing_required_fields
+          },
+          post_import_readiness: {
+            matching_enabled: false,
+            allocation_enabled: false,
+            receipt_enabled: false,
+            ledger_enabled: false,
+            message: 'Rows were imported into payment evidence review only. Matching, allocation, receipt, and ledger workflows were not executed.'
+          },
+          safety_message: 'Loop PDF import created payment evidence review rows only. No transactions, allocations, receipts, ledger entries, invoices, tenants, or balances were changed.'
+        });
+      }
+
+      const fileName = req.file.originalname || 'statement.pdf';
+      const nowIso = new Date().toISOString();
+      const batch = await activeDb.insert('payment_evidence_batches', {
+        organization_id: orgId,
+        upload_filename: fileName,
+        import_timestamp: nowIso,
+        uploaded_by: userId,
+        detected_provider: 'LOOP_STATEMENT',
+        detected_format: 'PDF_STATEMENT',
+        parser_version: 'LOOP_STATEMENT_V1',
+        total_rows: detectedRowsCount,
+        rows_imported: 0,
+        rows_ignored: 0,
+        rows_duplicated: 0,
+        rows_reconciled: 0,
+        rows_needing_review: 0,
+        rows_failed_validation: 0
+      });
+
+      const createdPaymentEvidenceIds = [];
+      const seenComposite = new Set();
+      let duplicateRowsSkipped = selection.skippedSummary.duplicate_like;
+      let importedRows = 0;
+      let failedValidationRows = selection.skippedSummary.missing_required_fields;
+
+      for (const row of eligibleRows) {
+        const transactionCode = String(row.transaction_code || '').toUpperCase().trim();
+        const amount = Number(row.amount);
+        const transactionDate = row.transaction_date;
+        const compositeKey = `${transactionCode}|${transactionDate}|${amount.toFixed(2)}`;
+
+        if (seenComposite.has(compositeKey)) {
+          duplicateRowsSkipped += 1;
+          continue;
+        }
+
+        const existingEvidenceWithCode = await activeDb.find('payment_evidence', {
+          organization_id: orgId,
+          transaction_code: transactionCode
+        });
+        const existingEvidenceDuplicate = existingEvidenceWithCode.some(existing =>
+          String(existing.transaction_date || '').slice(0, 10) === transactionDate &&
+          Number(existing.amount) === amount
+        );
+        if (existingEvidenceDuplicate) {
+          duplicateRowsSkipped += 1;
+          continue;
+        }
+
+        const txByReference = await activeDb.find('transactions', {
+          organization_id: orgId,
+          reference_number: transactionCode
+        });
+        const txByCode = await activeDb.find('transactions', {
+          organization_id: orgId,
+          transaction_code: transactionCode
+        });
+        const txDuplicate = [...txByReference, ...txByCode].some(tx => String(tx.status || '').toLowerCase() !== 'failed');
+        if (txDuplicate) {
+          duplicateRowsSkipped += 1;
+          continue;
+        }
+
+        seenComposite.add(compositeKey);
+
+        let normalizedRow;
+        try {
+          const payer = extractLoopPayerFromRawText(row.raw_text || row.description || '');
+          normalizedRow = normalizePaymentEvidence({
+            amount,
+            transaction_date: transactionDate,
+            transaction_code: transactionCode,
+            payer_name: payer.payer_name,
+            payer_phone: payer.payer_phone,
+            reference_account: row.partner_reference || null,
+            paybill_reference: null,
+            invoice_reference: null,
+            description: row.description || '',
+            collection_channel: row.collection_channel || 'unknown',
+            direction: row.direction === 'money_out' ? 'debit' : 'credit',
+            raw_text: row.raw_text || row.description || '',
+            raw_fields: {
+              loop_preview_row: row,
+              parser_confidence: row.parser_confidence,
+              confidence_score: row.confidence_score,
+              parser_validation: row.validation || null,
+              parser_validation_errors: row.validation_errors || []
+            }
+          }, {
+            organization_id: orgId,
+            batch_id: batch.id,
+            source_provider: 'LOOP_STATEMENT',
+            source_type: 'PDF_STATEMENT',
+            source_perspective: 'landlord',
+            document_source: 'PDF_STATEMENT'
+          });
+        } catch (_err) {
+          failedValidationRows += 1;
+          continue;
+        }
+
+        const evidenceStrength = row.parser_confidence === 'high'
+          ? 'high'
+          : (row.parser_confidence === 'medium' ? 'medium' : 'unknown');
+
+        const inserted = await activeDb.insert('payment_evidence', {
+          organization_id: orgId,
+          batch_id: batch.id,
+          source_provider: 'LOOP_STATEMENT',
+          source_type: 'PDF_STATEMENT',
+          source_perspective: 'landlord',
+          collection_channel: normalizedRow.collection_channel || 'unknown',
+          document_source: 'PDF_STATEMENT',
+          transaction_date: normalizedRow.transaction_date,
+          transaction_time: normalizedRow.transaction_time || null,
+          amount: normalizedRow.amount,
+          direction: normalizedRow.direction,
+          transaction_code: normalizedRow.transaction_code,
+          payer_name: normalizedRow.payer_name,
+          payer_phone: normalizedRow.payer_phone,
+          recipient_name: normalizedRow.recipient_name,
+          recipient_phone: normalizedRow.recipient_phone,
+          paybill_number: normalizedRow.paybill_number,
+          till_number: normalizedRow.till_number,
+          agent_number: normalizedRow.agent_number,
+          reference_account: normalizedRow.reference_account,
+          description: normalizedRow.description || '',
+          raw_text: normalizedRow.raw_text,
+          raw_fields: normalizedRow.raw_fields,
+          row_hash: normalizedRow.row_hash,
+          confidence: Number(row.confidence_score || 0),
+          evidence_strength: evidenceStrength,
+          status: 'needs_review',
+          ignored_reason: null,
+          paybill_reference: normalizedRow.paybill_reference,
+          bank_reference: normalizedRow.bank_reference,
+          recipient_account: normalizedRow.recipient_account,
+          invoice_reference: normalizedRow.invoice_reference,
+          landlord_account_number: normalizedRow.landlord_account_number
+        });
+
+        importedRows += 1;
+        createdPaymentEvidenceIds.push(inserted.id);
+      }
+
+      const feeRowsSkipped = Math.max(loopParsed.rowsSkipped, selection.skippedSummary.fee_or_charge, Number.isFinite(providedRowsSkipped) ? providedRowsSkipped : 0);
+      const needsAttentionRowsSkipped = selection.skippedSummary.needs_attention + selection.skippedSummary.missing_required_fields;
+      const totalRowsSkipped = Math.max(0, detectedRowsCount - importedRows);
+
+      await activeDb.update('payment_evidence_batches', batch.id, {
+        rows_imported: importedRows,
+        rows_ignored: feeRowsSkipped,
+        rows_duplicated: duplicateRowsSkipped,
+        rows_needing_review: importedRows,
+        rows_failed_validation: failedValidationRows
+      });
+
+      return res.json({
+        success: true,
+        mode: 'loop_pdf_import_to_review_queue',
+        document_source: 'PDF_STATEMENT',
+        source_provider: 'LOOP_STATEMENT',
+        import_status: importedRows > 0 ? 'completed_with_review_rows' : 'nothing_imported',
+        batch: {
+          id: batch.id,
+          upload_filename: fileName,
+          source_label: sourceLabel,
+          rows_imported: importedRows,
+          rows_skipped: totalRowsSkipped
+        },
+        import_result: {
+          rows_detected: detectedRowsCount,
+          rows_eligible: eligibleRows.length,
+          rows_imported: importedRows,
+          rows_skipped: totalRowsSkipped,
+          duplicate_rows_skipped: duplicateRowsSkipped,
+          needs_attention_rows_skipped: needsAttentionRowsSkipped,
+          fee_rows_skipped: feeRowsSkipped,
+          created_payment_evidence_ids: createdPaymentEvidenceIds
+        },
+        skipped_summary: {
+          duplicate_like: selection.skippedSummary.duplicate_like,
+          needs_attention: selection.skippedSummary.needs_attention,
+          fee_or_charge: feeRowsSkipped,
+          missing_required_fields: selection.skippedSummary.missing_required_fields
+        },
+        post_import_readiness: {
+          matching_enabled: false,
+          allocation_enabled: false,
+          receipt_enabled: false,
+          ledger_enabled: false,
+          message: 'Rows were imported into payment evidence review only. Matching, allocation, receipt, and ledger workflows were not executed.'
+        },
+        safety_message: 'Loop PDF import created payment evidence review rows only. No transactions, allocations, receipts, ledger entries, invoices, tenants, or balances were changed.'
       });
     })
   );
