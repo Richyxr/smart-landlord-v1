@@ -6,6 +6,7 @@ import Properties from './pages/Properties.jsx';
 import Invoices from './pages/Invoices.jsx';
 import Reconciliation from './pages/Reconciliation.jsx';
 import PaymentEvidence from './pages/PaymentEvidence.jsx';
+import Stats from './pages/Stats.jsx';
 import Settings from './pages/Settings.jsx';
 import Caretaker from './pages/Caretaker.jsx';
 import SuperAdmin from './pages/SuperAdmin.jsx';
@@ -386,6 +387,8 @@ export default function App() {
         return <Reconciliation organization={organization} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
       case 'landlord_payment_evidence':
         return <PaymentEvidence organization={organization} refreshTrigger={refreshTrigger} user={user} role={role} />;
+      case 'landlord_stats':
+        return <Stats />;
       case 'landlord_settings':
         return (
           <Settings

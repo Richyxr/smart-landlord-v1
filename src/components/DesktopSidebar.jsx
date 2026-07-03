@@ -8,9 +8,7 @@ import {
   ReceiptText,
   Settings,
   Tags,
-  WalletCards,
-  Zap,
-  Handshake
+  Zap
 } from 'lucide-react';
 
 export default function DesktopSidebar({ role, activeTab, onChangeTab }) {
@@ -35,17 +33,7 @@ export default function DesktopSidebar({ role, activeTab, onChangeTab }) {
           { id: 'landlord_dashboard', label: 'Home', icon: Home },
           { id: 'landlord_properties', label: 'Properties', icon: Building2 },
           { id: 'landlord_invoices', label: 'Billing', icon: ReceiptText },
-
-          // --- RECONCILIATION MODULE FAMILY ---
-          // Future Sub-Navigation Hierarchy:
-          // Reconciliation
-          //   ├── Payment Automation
-          //   ├── Review Queue (payment evidence)
-          //   ├── Unmatched Payments
-          //   └── Imported Statements
-          { id: 'landlord_reconciliation', label: 'Statement Reconciliation', icon: Handshake },
-          { id: 'landlord_payment_evidence', label: 'Payment Evidence', icon: WalletCards },
-
+          { id: 'landlord_stats', label: 'Stats', icon: BarChart3 },
           { id: 'landlord_settings', label: 'Settings', icon: Settings }
         ];
     }

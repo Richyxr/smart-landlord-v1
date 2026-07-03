@@ -1206,6 +1206,71 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
               </button>
             </div>
           </div>
+
+          <div className="sl-card">
+            <h4 style={{ fontWeight: '700', fontSize: '14px', marginBottom: '6px' }}>Billing Operations</h4>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+              Open invoice, payment, reconciliation, evidence, allocation, receipt, and billing settings workflows from one place.
+            </p>
+            <div className="grid-2">
+              {[
+                {
+                  title: 'Invoices',
+                  description: 'Create, review, and manage tenant invoices.',
+                  action: 'Open Invoices',
+                  onClick: () => setActiveSubTab('invoices')
+                },
+                {
+                  title: 'Payments',
+                  description: 'Record manual payments and review payment receipts.',
+                  action: 'Open Payments',
+                  onClick: () => setShowPaymentForm(true)
+                },
+                {
+                  title: 'Statement Reconciliation',
+                  description: 'CSV bank statement reconciliation for supported bank templates.',
+                  action: 'Open Statement Reconciliation',
+                  onClick: () => onNavigate?.('landlord_reconciliation')
+                },
+                {
+                  title: 'Payment Evidence',
+                  description: 'Import statement evidence, review matches, allocate payments, and preview receipts.',
+                  action: 'Open Payment Evidence',
+                  onClick: () => onNavigate?.('landlord_payment_evidence')
+                },
+                {
+                  title: 'Allocations',
+                  description: 'Review payment allocation readiness and confirmed allocation records.',
+                  action: 'Open Payment Evidence',
+                  onClick: () => onNavigate?.('landlord_payment_evidence')
+                },
+                {
+                  title: 'Receipts',
+                  description: 'Preview receipt details after controlled payment allocation.',
+                  action: 'Open Payment Evidence',
+                  onClick: () => onNavigate?.('landlord_payment_evidence')
+                },
+                {
+                  title: 'Billing Settings',
+                  description: 'Configure utility billing and billing cycle settings.',
+                  action: 'Open Billing Settings',
+                  onClick: () => setActiveSubTab('utility_settings')
+                }
+              ].map((item) => (
+                <div
+                  key={item.title}
+                  className="sl-card"
+                  style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
+                >
+                  <div style={{ fontWeight: '800', fontSize: '13px', color: 'var(--text-primary)' }}>{item.title}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{item.description}</div>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={item.onClick} style={{ alignSelf: 'flex-start' }}>
+                    {item.action}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 

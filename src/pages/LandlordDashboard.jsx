@@ -217,26 +217,32 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
         </div>
       )}
 
-      <SetupAlert
-        icon={HandCoins}
-        tone="info"
-        title="Payment Evidence"
-        description="Upload PDF statements, import evidence, match invoices, allocate payments, and preview receipts."
-        actionLabel="Open Payment Evidence"
-        onClick={() => onNavigate('landlord_payment_evidence')}
-      />
+      <div className="sl-dashboard-stack">
+        <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '800' }}>Billing Operations</h3>
+        <SetupAlert
+          icon={HandCoins}
+          tone="info"
+          title="Payment Evidence"
+          description="Upload PDF statements, import evidence, match invoices, allocate payments, and preview receipts."
+          actionLabel="Open Payment Evidence"
+          onClick={() => onNavigate('landlord_payment_evidence')}
+        />
 
-      <DashboardCard accent="default">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <div style={{ fontWeight: '700', fontSize: '13px' }}>Statement Reconciliation</div>
-          <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-            CSV bank statement reconciliation for supported bank templates.
+        <DashboardCard accent="default">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ fontWeight: '700', fontSize: '13px' }}>Statement Reconciliation</div>
+            <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+              CSV bank statement reconciliation for supported bank templates.
+            </div>
+            <Button size="sm" onClick={() => onNavigate('landlord_reconciliation')}>
+              Open Statement Reconciliation
+            </Button>
           </div>
-          <Button size="sm" onClick={() => onNavigate('landlord_reconciliation')}>
-            Open Statement Reconciliation
-          </Button>
+        </DashboardCard>
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+          These workflows are also available from Billing.
         </div>
-      </DashboardCard>
+      </div>
 
       <div className="sl-dashboard-grid">
         <MetricCard

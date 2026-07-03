@@ -535,14 +535,70 @@ async function runTests() {
   // Verify navigation updates via file analysis
   const bottomNavContent = fs.readFileSync('src/components/BottomNav.jsx', 'utf8');
   const desktopSidebarContent = fs.readFileSync('src/components/DesktopSidebar.jsx', 'utf8');
+  const billingContent = fs.readFileSync('src/pages/Invoices.jsx', 'utf8');
+  const statsPageContent = fs.readFileSync('src/pages/Stats.jsx', 'utf8');
 
   assert(
-    'Bottom navigation contains Payment Evidence tab ID',
-    bottomNavContent.includes('landlord_payment_evidence')
+    'Bottom nav contains Home, Properties, Billing, Stats, Settings',
+    bottomNavContent.includes("label: 'Home'") &&
+    bottomNavContent.includes("label: 'Properties'") &&
+    bottomNavContent.includes("label: 'Billing'") &&
+    bottomNavContent.includes("label: 'Stats'") &&
+    bottomNavContent.includes("label: 'Settings'")
   );
+
   assert(
-    'Desktop sidebar still contains Review Queue tab ID',
-    desktopSidebarContent.includes('landlord_payment_evidence')
+    'Bottom nav does not contain top-level Reconcile or Evidence',
+    !bottomNavContent.includes("label: 'Reconcile'") &&
+    !bottomNavContent.includes("label: 'Evidence'") &&
+    !bottomNavContent.includes('landlord_reconciliation') &&
+    !bottomNavContent.includes('landlord_payment_evidence')
+  );
+
+  assert(
+    'Desktop sidebar contains Stats as a primary item',
+    desktopSidebarContent.includes("label: 'Stats'") &&
+    desktopSidebarContent.includes('landlord_stats')
+  );
+
+  assert(
+    'Desktop sidebar does not expose primary Payment Evidence or Statement Reconciliation',
+    !desktopSidebarContent.includes("label: 'Payment Evidence'") &&
+    !desktopSidebarContent.includes("label: 'Statement Reconciliation'") &&
+    !desktopSidebarContent.includes('landlord_payment_evidence') &&
+    !desktopSidebarContent.includes('landlord_reconciliation')
+  );
+
+  assert(
+    'Billing hub contains Statement Reconciliation and Payment Evidence cards',
+    billingContent.includes('Statement Reconciliation') &&
+    billingContent.includes('Payment Evidence')
+  );
+
+  assert(
+    'Billing hub contains required Statement Reconciliation description',
+    billingContent.includes('CSV bank statement reconciliation for supported bank templates.')
+  );
+
+  assert(
+    'Billing hub contains required Payment Evidence description',
+    billingContent.includes('Import statement evidence, review matches, allocate payments, and preview receipts.')
+  );
+
+  assert(
+    'Stats page contains title and subtitle',
+    statsPageContent.includes('Stats') &&
+    statsPageContent.includes('Track collections, arrears, occupancy, invoice status, and payment matching performance.')
+  );
+
+  assert(
+    'Stats page contains placeholder metric cards',
+    statsPageContent.includes('Collections') &&
+    statsPageContent.includes('Arrears') &&
+    statsPageContent.includes('Occupancy') &&
+    statsPageContent.includes('Invoice Status') &&
+    statsPageContent.includes('Payment Matching') &&
+    statsPageContent.includes('Monthly Trends')
   );
 
   // Verify Import Wizard UI Shell elements exist
@@ -554,10 +610,10 @@ async function runTests() {
   );
 
   assert(
-    'Navigation/dashboard contains Payment Evidence and legacy Statement Reconciliation labels',
+    'Routes/dashboard still expose Payment Evidence and Statement Reconciliation through Billing operations',
     paymentEvidenceContent.includes('Payment Evidence') &&
-    fs.readFileSync('src/components/DesktopSidebar.jsx', 'utf8').includes('Statement Reconciliation') &&
-    fs.readFileSync('src/components/DesktopSidebar.jsx', 'utf8').includes('Payment Evidence') &&
+    billingContent.includes("onNavigate?.('landlord_reconciliation')") &&
+    billingContent.includes("onNavigate?.('landlord_payment_evidence')") &&
     fs.readFileSync('src/pages/Reconciliation.jsx', 'utf8').includes('Statement Reconciliation') &&
     fs.readFileSync('src/pages/LandlordDashboard.jsx', 'utf8').includes('Open Payment Evidence')
   );
