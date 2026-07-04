@@ -4,11 +4,19 @@ import multer from 'multer';
 import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import { db as localDb } from '../db.js';
 import { normalizePaymentEvidence } from '../services/payment-evidence/normalizePaymentEvidence.js';
+import { classifyPaymentEvidenceRow } from '../services/payment-evidence/classifyPaymentEvidenceRow.js';
+import { StatementIngestionService } from '../services/payment-evidence/StatementIngestionService.js';
 
 // Memory-only multer instance for PDF readiness preview (no files written to disk)
 const pdfUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 } // 5 MB hard cap
+});
+
+// Memory-only multer instance for universal statement reconciliation preview
+const statementUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10 MB hard cap
 });
 
 function asyncHandler(handler) {
@@ -1921,6 +1929,41 @@ function requireLandlordOrSuperAdmin(req, res, next) {
 export function createPaymentEvidenceRoutes(pgDb) {
   const router = express.Router();
   const activeDb = pgDb || localDb;
+
+  // POST /api/statement-reconciliation/preview
+  // Universal statement reconciliation preview endpoint.
+  // Parses CSV, PDF, XLSX, XLS, DOCX, DOC, TXT buffers and returns normalized preview rows.
+  // Strictly read-only preview — does not write to the database or mutate any financial state.
+  router.post(
+    '/statement-reconciliation/preview',
+    requireAuthenticatedContext,
+    requireLandlordOrSuperAdmin,
+    statementUpload.single('statement'),
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+
+      if (!req.file) {
+        return res.status(400).json({
+          error: 'NO_FILE',
+          message: 'No statement file was attached. Please upload a file using the "statement" field.'
+        });
+      }
+
+      const filename = req.file.originalname || 'statement.txt';
+      const buffer = req.file.buffer;
+
+      try {
+        const previewResult = await StatementIngestionService.preview(buffer, filename, orgId, activeDb);
+        return res.json(previewResult);
+      } catch (err) {
+        console.error('Statement preview failed:', err);
+        return res.status(500).json({
+          error: 'PREVIEW_FAILED',
+          message: err.message || 'An error occurred while parsing the statement.'
+        });
+      }
+    })
+  );
 
   // GET /api/payment-evidence/batches
   router.get('/payment-evidence/batches', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
