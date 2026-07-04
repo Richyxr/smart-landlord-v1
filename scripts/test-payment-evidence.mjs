@@ -570,19 +570,19 @@ async function runTests() {
   );
 
   assert(
-    'Billing hub contains Statement Reconciliation and Payment Evidence cards',
+    'Billing hub contains Statement Reconciliation card and hides Payment Evidence card',
     billingContent.includes('Statement Reconciliation') &&
-    billingContent.includes('Payment Evidence')
+    !billingContent.includes("title: 'Payment Evidence'")
   );
 
   assert(
     'Billing hub contains required Statement Reconciliation description',
-    billingContent.includes('CSV bank statement reconciliation for supported bank templates.')
+    billingContent.includes('Upload bank or M-Pesa statements, review matched and unmatched payments, and confirm tenant allocations.')
   );
 
   assert(
-    'Billing hub contains required Payment Evidence description',
-    billingContent.includes('Import statement evidence, review matches, allocate payments, and preview receipts.')
+    'Billing hub does not expose Payment Evidence description',
+    !billingContent.includes('Import statement evidence, review matches, allocate payments, and preview receipts.')
   );
 
   assert(
@@ -605,34 +605,29 @@ async function runTests() {
   const paymentEvidenceContent = fs.readFileSync('src/pages/PaymentEvidence.jsx', 'utf8');
 
   assert(
-    'Payment Evidence page renders import wizard trigger button',
-    paymentEvidenceContent.includes('Import Payment Evidence') && paymentEvidenceContent.includes('setShowImportWizard(true)')
+    'Statement Reconciliation page renders import wizard trigger button',
+    paymentEvidenceContent.includes('Import Statement') && paymentEvidenceContent.includes('setShowImportWizard(true)')
   );
 
   assert(
-    'Routes/dashboard still expose Payment Evidence and Statement Reconciliation through Billing operations',
-    paymentEvidenceContent.includes('Payment Evidence') &&
+    'Routes/dashboard expose Statement Reconciliation through Billing operations',
+    paymentEvidenceContent.includes('Statement Reconciliation') &&
     billingContent.includes("onNavigate?.('landlord_reconciliation')") &&
     billingContent.includes("onNavigate?.('landlord_payment_evidence')") &&
     fs.readFileSync('src/pages/Reconciliation.jsx', 'utf8').includes('Statement Reconciliation') &&
-    fs.readFileSync('src/pages/LandlordDashboard.jsx', 'utf8').includes('Open Payment Evidence')
+    fs.readFileSync('src/pages/LandlordDashboard.jsx', 'utf8').includes('Open Statement Reconciliation')
   );
 
   assert(
-    'Payment Evidence page contains workflow visibility checklist and safety copy',
-    paymentEvidenceContent.includes('Payment Evidence Workflow') &&
+    'Statement Reconciliation page contains workflow visibility checklist and safety copy',
+    paymentEvidenceContent.includes('Statement Reconciliation Workflow') &&
     paymentEvidenceContent.includes('Supported Now') &&
     paymentEvidenceContent.includes('Coming Later') &&
     paymentEvidenceContent.includes('Loop PDF Statement') &&
-    paymentEvidenceContent.includes('Import to Review Queue') &&
+    paymentEvidenceContent.includes('Import Statement') &&
     paymentEvidenceContent.includes('Matching Suggestions') &&
-    paymentEvidenceContent.includes('Match Selection') &&
-    paymentEvidenceContent.includes('Allocation Preview') &&
-    paymentEvidenceContent.includes('Confirmed Allocation') &&
-    paymentEvidenceContent.includes('Receipt Preview') &&
-    paymentEvidenceContent.includes('Receipt Issuance') &&
-    paymentEvidenceContent.includes('Ledger Posting') &&
-    paymentEvidenceContent.includes('Receipt issuance and ledger posting remain disabled. This workflow is controlled step by step.')
+    paymentEvidenceContent.includes('Confirm Payments') &&
+    paymentEvidenceContent.includes('Receipt Preview')
   );
 
   assert(
@@ -3975,10 +3970,8 @@ async function runTests() {
 
   assert(
     'PaymentEvidence.jsx renders Loop PDF guarded import section labels',
-    paymentEvidenceContent.includes('Import Loop PDF Rows to Review Queue') &&
     paymentEvidenceContent.includes('CONFIRM LOOP PDF IMPORT') &&
-    paymentEvidenceContent.includes('Import to Review Queue') &&
-    paymentEvidenceContent.includes('This imports validated Loop rows into Payment Evidence review only')
+    paymentEvidenceContent.includes('Import Statement')
   );
 
   assert(
@@ -5225,8 +5218,8 @@ async function runTests() {
   );
 
   assert(
-    'PaymentEvidence.jsx workflow checklist uses adapter-by-adapter copy',
-    peContent.includes('Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.')
+    'PaymentEvidence.jsx workflow checklist uses landlord-facing statement upload copy',
+    peContent.includes('Upload a statement from M-Pesa or a supported bank. Smart Landlord will read the rows, suggest matches against tenants and invoices, and show what needs your review.')
   );
 
   assert(
@@ -5235,13 +5228,13 @@ async function runTests() {
   );
 
   assert(
-    'PaymentEvidence.jsx Step 4 guidance panel contains adapter-by-adapter copy',
-    peContent.includes('Provider support is enabled adapter by adapter')
+    'PaymentEvidence.jsx Step 4 guidance panel contains landlord-facing statement upload copy',
+    peContent.includes('Upload a statement from M-Pesa or a supported bank')
   );
 
   assert(
-    'PaymentEvidence.jsx Step 5 has This source is not enabled for import yet gate message',
-    peContent.includes('This source is not enabled for import yet. Provider adapter is coming later.')
+    'PaymentEvidence.jsx Step 5 has import support coming later gate message',
+    peContent.includes('This source is not enabled for import yet. Import support is coming later.')
   );
 
   assert(
@@ -5250,8 +5243,8 @@ async function runTests() {
   );
 
   assert(
-    'PaymentEvidence.jsx empty-state copy uses adapter-by-adapter messaging',
-    peContent.includes('Provider support is enabled adapter by adapter')
+    'PaymentEvidence.jsx empty-state copy uses landlord-facing import messaging',
+    peContent.includes('Upload a statement from M-Pesa or a supported bank')
   );
 
   console.log(`\nAll tests completed. ${failures} failure(s) recorded.`);
@@ -5266,3 +5259,5 @@ runTests().catch(err => {
   console.error('Test execution failed with error:', err);
   process.exit(1);
 });
+
+

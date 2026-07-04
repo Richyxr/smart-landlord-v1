@@ -947,7 +947,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       setEvidenceRows(await res.json());
     } catch (e) {
       console.error(e);
-      setError('Could not load payment evidence list.');
+      setError('Could not load statement rows.');
     } finally {
       setLoading(false);
     }
@@ -1060,7 +1060,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             throw new Error(data.message || data.error || 'Failed to execute allocation');
           }
 
-          notifySuccess('Allocation Executed', data.message || 'Payment evidence allocated successfully.');
+          notifySuccess('Payment Confirmed', data.message || 'Statement row allocated successfully.');
           setTypedConfirmationText('');
 
           setSelectedRow(prev => prev ? { ...prev, status: 'manually_reconciled' } : null);
@@ -1145,7 +1145,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
 
     showConfirm(
       "Confirm Receipt Issuance",
-      "Issue a receipt for this already allocated payment evidence? This creates a receipt record only and does not move money.",
+      "Issue a receipt for this already confirmed payment? This creates a receipt record only and does not move money.",
       async () => {
         setIssuingReceipt(true);
         try {
@@ -1294,9 +1294,9 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       {/* HEADER SECTION */}
       <div className="flex-row justify-between align-center">
         <div>
-          <h2 className="page-title" style={{ margin: 0 }}>Payment Evidence</h2>
+          <h2 className="page-title" style={{ margin: 0 }}>Statement Reconciliation</h2>
           <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
-            Process statement payments from PDF upload to receipt preview.
+            Upload bank or M-Pesa statements, review payment matches, and confirm tenant allocations.
           </p>
         </div>
         <button
@@ -1312,14 +1312,14 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
         >
           <Layers size={14} />
-          Import Payment Evidence
+          Import Statement
         </button>
       </div>
 
       <div className="card" style={{ padding: '16px', borderLeft: '4px solid var(--primary)' }}>
-        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '800' }}>Payment Evidence Workflow</h4>
+        <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: '800' }}>Statement Reconciliation Workflow</h4>
         <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px' }}>
-          Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.
+          Upload a statement from M-Pesa or a supported bank. Smart Landlord will read the rows, suggest matches against tenants and invoices, and show what needs your review.
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '6px 24px', fontSize: '11.5px' }}>
           <div>
@@ -1329,9 +1329,9 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                 'Loop PDF Statement',
                 'Review Queue',
                 'Matching Suggestions',
-                'Match Selection',
-                'Allocation Preview',
-                'Confirmed Allocation',
+                'Confirm Payments',
+                'Receipt Preview',
+                'Confirmed Payments',
                 'Receipt Preview'
               ].map((item) => (
                 <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1345,10 +1345,10 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             <div style={{ fontWeight: '700', color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px' }}>Coming Later</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', color: 'var(--text-muted)' }}>
               {[
-                'Co-op Bank Statement Adapter',
-                'KCB Statement Adapter',
-                'Equity Statement Adapter',
-                'Absa Statement Adapter',
+                'Co-op Bank Statement',
+                'KCB Statement',
+                'Equity Statement',
+                'Absa Statement',
                 'Receipt Issuance',
                 'Ledger Posting'
               ].map((item) => (
@@ -1363,7 +1363,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             <div style={{ fontWeight: '700', color: 'var(--primary)', fontSize: '10px', textTransform: 'uppercase', marginBottom: '4px' }}>Preview Only</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', color: 'var(--text-secondary)' }}>
               {[
-                'M-Pesa Statement Adapter'
+                'M-Pesa Statement Preview'
               ].map((item) => (
                 <div key={item} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{ color: 'var(--primary)', fontSize: '10px' }}>✓</span>
@@ -1433,7 +1433,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           <h4 style={{ margin: 0, fontWeight: '700', fontSize: '14px' }}>Import Batches</h4>
         </div>
         <p style={{ fontSize: '12px', margin: 0, color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-          Imported payment files are grouped into batches. Each batch shows the upload date, provider, imported rows, duplicates, ignored rows, needs review, and confirmed allocations. Clicking a batch will open its imported payment evidence.
+          Imported statements are grouped into batches. Each batch shows the upload date, source, imported rows, duplicates, ignored rows, needs review, and confirmed payments.
         </p>
       </div>
 
@@ -1661,7 +1661,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             </div>
             <h3 className="sl-empty-state-title" style={{ fontSize: '16px', fontWeight: '800' }}>Queue Empty</h3>
             <p className="sl-empty-state-desc" style={{ maxWidth: '500px', margin: '8px auto 0 auto', fontSize: '12px', lineHeight: '1.6', color: 'var(--text-secondary)' }}>
-              No payment evidence has been imported yet. Use the <strong>Import Payment Evidence</strong> button and select <strong>Loop PDF Statement</strong> to get started. Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.
+              No statements have been imported yet. Use the <strong>Import Statement</strong> button and select <strong>Loop PDF Statement</strong> or <strong>M-Pesa Statement Preview</strong> to get started.
             </p>
           </div>
         ) : (
@@ -1819,7 +1819,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             </button>
 
             <h3 className="card-title" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px', fontSize: '16px', fontWeight: '800' }}>
-              Payment Evidence Details
+              Statement Row Details
             </h3>
 
             {/* Safety & Reconciliation Disclaimer Banner */}
@@ -2395,7 +2395,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                 ) : receiptResultError ? (
                   <div style={{ fontSize: '11px', color: 'var(--danger)' }}>{receiptResultError}</div>
                 ) : receiptResultData && !receiptResultData.receipt_issued ? (
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>No issued receipt found for this payment evidence record.</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>No issued receipt found for this statement row.</div>
                 ) : receiptResultData && receiptResultData.receipt ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <strong style={{ fontSize: '12px', display: 'block', marginBottom: '4px', color: 'var(--success)' }}>Receipt Issued</strong>
@@ -3253,7 +3253,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
 
             <h3 className="card-title" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px', fontSize: '16px', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Layers size={18} style={{ color: 'var(--primary)' }} />
-              Import Payment Evidence Wizard
+              Import Statement Wizard
             </h3>
 
             {/* STEP PROGRESS BAR */}
@@ -3306,7 +3306,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               <div>
                 <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '4px' }}>Step 1: Choose Source Template</h4>
                 <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                  Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.
+                  Upload a statement from M-Pesa or a supported bank. Smart Landlord will read the rows, suggest matches against tenants and invoices, and show what needs your review.
                 </p>
 
                 {/* Supported Now */}
@@ -3715,7 +3715,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                       </table>
                     </div>
 
-                    {/* Provider Adapter Guidance Panel */}
+                    {/* Statement source guidance panel */}
                     <div style={{
                       backgroundColor: 'var(--bg-surface-elevated)',
                       border: '1px solid var(--border)',
@@ -3732,7 +3732,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                         This is a browser-only preview. <strong>No data has been saved to the database</strong>, no reconciliation has occurred, and no payment allocations have been created.
                       </p>
                       <div style={{ fontWeight: '700', marginBottom: '4px', color: 'var(--text-primary)' }}>
-                        Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.
+                        Upload a statement from M-Pesa or a supported bank. Smart Landlord will read the rows, suggest matches against tenants and invoices, and show what needs your review.
                       </div>
                     </div>
                   </div>
@@ -3747,7 +3747,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
                       <div>
                         <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '2px' }}>PDF text extraction preview</div>
-                        <div style={{ color: 'var(--text-muted)' }}>No payment evidence rows will be extracted or imported in this release.</div>
+                        <div style={{ color: 'var(--text-muted)' }}>No statement review rows will be extracted or imported in this release.</div>
                       </div>
                       <button
                         type="button"
@@ -4099,7 +4099,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                         <div style={{ marginBottom: '12px', padding: '12px', border: '1px solid var(--success)', borderRadius: '6px', backgroundColor: 'rgba(var(--success-rgb), 0.06)' }}>
                           <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>Import Loop PDF Rows to Review Queue</div>
                           <div style={{ color: 'var(--warning)', fontWeight: '700', marginBottom: '8px' }}>
-                            This imports validated Loop rows into Payment Evidence review only. It will not allocate, receipt, post ledger, or change invoice balances.
+                            This imports validated Loop rows into statement review only. It will not allocate, receipt, post ledger, or change invoice balances.
                           </div>
 
                           <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
@@ -4146,7 +4146,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                                 <div><span className="text-muted">Fee rows skipped:</span> <strong>{pdfImportResult?.import_result?.fee_rows_skipped ?? 0}</strong></div>
                               </div>
                               <div style={{ marginTop: '8px', color: 'var(--text-muted)' }}>
-                                {pdfImportResult?.safety_message || 'Loop PDF import created payment evidence review rows only. No transactions, allocations, receipts, ledger entries, invoices, tenants, or balances were changed.'}
+                                {pdfImportResult?.safety_message || 'Loop PDF import created statement review rows only. No transactions, allocations, receipts, ledger entries, invoices, tenants, or balances were changed.'}
                               </div>
 
                               <div style={{ marginTop: '8px', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface-elevated)' }}>
@@ -4189,7 +4189,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                     )}
 
                     <div style={{ padding: '10px', borderRadius: '6px', backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)' }}>
-                      {pdfReadinessData?.safety_message || 'PDF statement upload readiness is preview-only. No payment evidence, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.'}
+                      {pdfReadinessData?.safety_message || 'PDF statement upload readiness is preview-only. No statement review, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.'}
                     </div>
                   </div>
                 ) : (
@@ -4203,7 +4203,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                   }}>
                     <FileSpreadsheet size={36} style={{ color: 'var(--text-muted)', marginBottom: '12px', opacity: 0.5 }} />
                     <p style={{ fontSize: '12px', margin: 0, fontWeight: '500' }}>
-                      Preview will appear here after parser adapters are enabled.
+                      Preview will appear here after statement preview is available.
                     </p>
                   </div>
                 )}
@@ -4268,7 +4268,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                       </span>
                     </div>
                     <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
-                      M-Pesa preview rows are parser-validation output only. No payment evidence rows, batches, transactions, allocations, receipts, ledger entries, invoices, tenants, or balances are changed.
+                      M-Pesa preview rows are parser-validation output only. No statement review rows, batches, transactions, allocations, receipts, ledger entries, invoices, tenants, or balances are changed.
                     </p>
                     <button
                       type="button"
@@ -4292,11 +4292,11 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
                       <ShieldAlert size={16} style={{ color: 'var(--warning)', flexShrink: 0 }} />
                       <span style={{ fontSize: '12px', fontWeight: '600' }}>
-                        This source is not enabled for import yet. Provider adapter is coming later.
+                        This source is not enabled for import yet. Import support is coming later.
                       </span>
                     </div>
                     <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
-                      Provider support is enabled adapter by adapter. Use a supported source to import rows into the review queue.
+                      Upload a statement from M-Pesa or a supported bank. Smart Landlord will read the rows, suggest matches against tenants and invoices, and show what needs your review.
                     </p>
                     <button
                       type="button"

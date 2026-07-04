@@ -1210,7 +1210,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
           <div className="sl-card">
             <h4 style={{ fontWeight: '700', fontSize: '14px', marginBottom: '6px' }}>Billing Operations</h4>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-              Open invoice, payment, reconciliation, evidence, allocation, receipt, and billing settings workflows from one place.
+              Open invoice, payment, statement reconciliation, receipt, and billing settings workflows from one place.
             </p>
             <div className="grid-2">
               {[
@@ -1222,32 +1222,20 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                 },
                 {
                   title: 'Payments',
-                  description: 'Record manual payments and review payment receipts.',
+                  description: 'View tenant payments, pending confirmations, and payment history.',
                   action: 'Open Payments',
                   onClick: () => setShowPaymentForm(true)
                 },
                 {
                   title: 'Statement Reconciliation',
-                  description: 'CSV bank statement reconciliation for supported bank templates.',
+                  description: 'Upload bank or M-Pesa statements, review matched and unmatched payments, and confirm tenant allocations.',
                   action: 'Open Statement Reconciliation',
                   onClick: () => onNavigate?.('landlord_reconciliation')
                 },
                 {
-                  title: 'Payment Evidence',
-                  description: 'Import statement evidence, review matches, allocate payments, and preview receipts.',
-                  action: 'Open Payment Evidence',
-                  onClick: () => onNavigate?.('landlord_payment_evidence')
-                },
-                {
-                  title: 'Allocations',
-                  description: 'Review payment allocation readiness and confirmed allocation records.',
-                  action: 'Open Payment Evidence',
-                  onClick: () => onNavigate?.('landlord_payment_evidence')
-                },
-                {
                   title: 'Receipts',
-                  description: 'Preview receipt details after controlled payment allocation.',
-                  action: 'Open Payment Evidence',
+                  description: 'View receipt previews and issued receipts from confirmed payments.',
+                  action: 'View Receipts',
                   onClick: () => onNavigate?.('landlord_payment_evidence')
                 },
                 {

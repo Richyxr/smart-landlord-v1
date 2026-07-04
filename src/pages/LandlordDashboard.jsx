@@ -222,9 +222,9 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
         <SetupAlert
           icon={HandCoins}
           tone="info"
-          title="Payment Evidence"
-          description="Upload PDF statements, import evidence, match invoices, allocate payments, and preview receipts."
-          actionLabel="Open Payment Evidence"
+          title="Statement Reconciliation"
+          description="Upload bank or M-Pesa statements and review payment matches."
+          actionLabel="Open Statement Reconciliation"
           onClick={() => onNavigate('landlord_payment_evidence')}
         />
 
@@ -232,7 +232,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <div style={{ fontWeight: '700', fontSize: '13px' }}>Statement Reconciliation</div>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              CSV bank statement reconciliation for supported bank templates.
+              Upload bank or M-Pesa statements, review matched and unmatched payments, and confirm tenant allocations.
             </div>
             <Button size="sm" onClick={() => onNavigate('landlord_reconciliation')}>
               Open Statement Reconciliation
@@ -371,5 +371,3 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
     </div>
   );
 }
-
-
