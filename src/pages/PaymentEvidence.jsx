@@ -717,7 +717,14 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     if (!file) return;
     setPdfReadinessError('');
     setPdfReadinessData(null);
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+    const lowerName = file.name.toLowerCase();
+    if (lowerName.endsWith('.xls') || lowerName.endsWith('.xlsx') || lowerName.endsWith('.doc') || lowerName.endsWith('.docx')) {
+      setPdfReadinessError('preview/import not supported yet');
+      setPdfFile(null);
+      return;
+    }
+
+    if (file.type !== 'application/pdf' && !lowerName.endsWith('.pdf')) {
       setPdfReadinessError('Only PDF files are accepted. Please select a .pdf file.');
       setPdfFile(null);
       return;
@@ -738,7 +745,13 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     setImportFile(null);
     setParsedPreviewRows([]);
 
-    if (!file.name.endsWith('.csv')) {
+    const lowerName = file.name.toLowerCase();
+    if (lowerName.endsWith('.xls') || lowerName.endsWith('.xlsx') || lowerName.endsWith('.doc') || lowerName.endsWith('.docx')) {
+      setWizardError('preview/import not supported yet');
+      return;
+    }
+
+    if (!lowerName.endsWith('.csv')) {
       setWizardError('Only .csv files are supported in this phase.');
       return;
     }
