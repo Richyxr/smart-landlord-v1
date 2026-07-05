@@ -1626,7 +1626,7 @@ export function createFinancialRoutes(pgDb) {
           moneyOut += amt;
         }
 
-        if (t.status === 'Matched' || t.status === 'Confirmed') {
+        if (t.status === 'Matched' || t.status === 'Confirmed' || t.status === 'Match Approved' || t.status === 'Ready for Allocation') {
           matchedCount++;
         } else if (t.status === 'Duplicate') {
           duplicateCount++;
@@ -1687,7 +1687,7 @@ export function createFinancialRoutes(pgDb) {
 
   // POST /api/billing/bank-transactions/:id/confirm-match
   router.post(
-    '/billing/bank-transactions/:id/confirm-match',
+    '/billing/bank-transactions/:id/approve-match',
     requireAuthenticatedContext,
     requireLandlord,
     asyncHandler(async (req, res) => {
@@ -1704,8 +1704,8 @@ export function createFinancialRoutes(pgDb) {
         return res.status(404).json({ error: 'Bank transaction not found.' });
       }
 
-      if (tx.status === 'Matched' || tx.status === 'Confirmed') {
-        return res.status(400).json({ error: 'Transaction is already matched.' });
+      if (tx.status === 'Match Approved' || tx.status === 'Matched' || tx.status === 'Confirmed') {
+        return res.status(400).json({ error: 'Transaction is already approved or matched.' });
       }
 
       const invoice = await dbFindOne('invoices', { id: Number(invoice_id), organization_id: orgId });
@@ -1714,7 +1714,7 @@ export function createFinancialRoutes(pgDb) {
       }
 
       if (['void', 'cancelled', 'deleted'].includes(String(invoice.status).toLowerCase())) {
-        return res.status(400).json({ error: 'Invoice status is blocked and ineligible for allocation.' });
+        return res.status(400).json({ error: 'Invoice status is blocked and ineligible for matching.' });
       }
 
       const tenant = await dbFindOne('tenants', { id: invoice.tenant_id, organization_id: orgId });
@@ -1722,56 +1722,17 @@ export function createFinancialRoutes(pgDb) {
         return res.status(400).json({ error: 'Tenant associated with invoice not found.' });
       }
 
-      // Perform allocation logic
-      const allocationAmount = Number(tx.amount);
-      const invoiceBalanceBefore = Number(invoice.balance || 0);
-      const invoiceBalanceAfter = Math.max(0, invoiceBalanceBefore - allocationAmount);
-      const invoiceStatusAfter = invoiceBalanceAfter <= 0 ? 'paid' : 'partially_paid';
-
-      // Insert transaction
-      const createdTx = await dbInsert('transactions', {
+      // Store user approval intent in bank_reconciliation_decisions table (pending status, no ledger/invoice changes)
+      const decision = await dbInsert('bank_reconciliation_decisions', {
         organization_id: orgId,
+        bank_transaction_id: tx.id,
+        invoice_id: invoice.id,
         tenant_id: tenant.id,
-        property_id: tenant.property_id || null,
-        unit_id: tenant.unit_id || null,
-        amount: allocationAmount,
-        currency: tenant.currency || 'KES',
-        transaction_type: 'payment',
-        payment_method: (tx.source_provider && tx.source_provider.toLowerCase().includes('mpesa')) ? 'mpesa' : 'bank',
-        source: 'manual',
-        reference_number: tx.reference || null,
-        account_number: tenant.tenant_account_number || null,
-        payer_name: tenant.full_name || null,
-        payer_phone: tenant.phone_number || null,
-        transaction_date: tx.transaction_date,
-        status: 'reconciled',
-        raw_payload: JSON.stringify({
-          bank_transaction_id: tx.id,
-          source: 'bank_reconciliation'
-        }),
+        status: 'pending',
         created_by: userId
       });
 
-      // Insert payment allocation
-      const createdAllocation = await dbInsert('payment_allocations', {
-        organization_id: orgId,
-        transaction_id: createdTx.id,
-        invoice_id: invoice.id,
-        amount_allocated: allocationAmount,
-        allocated_by: userId,
-        allocated_at: new Date().toISOString()
-      });
-
-      // Update invoice
-      const updatedAmountPaid = Number(invoice.amount_paid || 0) + allocationAmount;
-      await dbUpdate('invoices', invoice.id, {
-        amount_paid: updatedAmountPaid,
-        balance: invoiceBalanceAfter,
-        status: invoiceStatusAfter,
-        updated_at: new Date().toISOString()
-      });
-
-      // Update bank transaction status to Matched
+      // Update bank transaction status to Match Approved
       const matchService = new MatchSuggestionService();
       const suggestions = await matchService.getSuggestions(tx, {
         find: (t, f) => dbFind(t, f),
@@ -1788,24 +1749,17 @@ export function createFinancialRoutes(pgDb) {
       };
 
       await dbUpdate('confirmed_statement_transactions', tx.id, {
-        status: 'Matched',
+        status: 'Match Approved',
         matched_invoice_id: invoice.id,
         matched_tenant_id: tenant.id,
         match_reasoning: JSON.stringify(reasoning),
         updated_at: new Date().toISOString()
       });
 
-      // Audit Log
-      if (!pgDb && typeof readDb === 'function') {
-        // Simple audit mock for JSON DB
-      }
-
       res.json({
         success: true,
-        transaction_id: createdTx.id,
-        payment_allocation_id: createdAllocation.id,
-        invoice_status_after: invoiceStatusAfter,
-        balance_after: invoiceBalanceAfter
+        decision_id: decision.id,
+        status_after: 'Match Approved'
       });
     })
   );

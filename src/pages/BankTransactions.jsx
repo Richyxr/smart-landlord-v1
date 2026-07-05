@@ -115,21 +115,21 @@ export default function BankTransactions({ organization }) {
     }
   };
 
-  const handleConfirmMatch = async (invoiceId) => {
+  const handleApproveMatch = async (invoiceId) => {
     if (!selectedTx) return;
     setSubmittingAction(true);
     setError('');
     setSuccessMsg('');
     try {
-      const res = await fetch(`/api/billing/bank-transactions/${selectedTx.id}/confirm-match`, {
+      const res = await fetch(`/api/billing/bank-transactions/${selectedTx.id}/approve-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoice_id: invoiceId })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to confirm match.');
+      if (!res.ok) throw new Error(data.error || 'Failed to approve match.');
 
-      setSuccessMsg('Transaction matched and reconciled successfully!');
+      setSuccessMsg('Transaction match approved successfully!');
       setSelectedTx(null);
       fetchTransactions();
     } catch (err) {
@@ -229,6 +229,8 @@ export default function BankTransactions({ organization }) {
 
   const getStatusBadgeClass = (status) => {
     switch (status) {
+      case 'Match Approved':
+      case 'Ready for Allocation':
       case 'Matched':
       case 'Confirmed':
         return 'sl-status-success';
@@ -253,7 +255,7 @@ export default function BankTransactions({ organization }) {
         {[
           { label: 'Unmatched', value: summary.unmatched_count, filter: 'Unmatched', color: 'var(--info)' },
           { label: 'Possible Match', value: summary.unmatched_count, filter: 'Possible Match', color: 'var(--warning)' }, // Wait, possible matches are also in queue
-          { label: 'Matched', value: summary.matched_count, filter: 'Matched', color: 'var(--success)' },
+          { label: 'Approved Matches', value: summary.matched_count, filter: 'Match Approved', color: 'var(--success)' },
           { label: 'Needs Review', value: summary.needs_review_count, filter: 'Needs Review', color: 'var(--danger)' },
           { label: 'Duplicate', value: summary.duplicate_count, filter: 'Duplicate', color: 'var(--text-muted)' },
           { label: 'Ignored', value: summary.ignored_count, filter: 'Ignored', color: 'var(--text-secondary)' }
@@ -582,9 +584,9 @@ export default function BankTransactions({ organization }) {
                               className="btn btn-primary btn-sm"
                               style={{ width: '100%', height: '24px', fontSize: '10px', marginTop: '4px' }}
                               disabled={submittingAction}
-                              onClick={() => handleConfirmMatch(candidate.invoiceId)}
+                              onClick={() => handleApproveMatch(candidate.invoiceId)}
                             >
-                              Confirm Manual Match
+                              Approve Manual Match
                             </button>
                           </div>
                         ))}
@@ -649,9 +651,9 @@ export default function BankTransactions({ organization }) {
                             className="btn btn-primary btn-sm"
                             style={{ height: '28px', fontSize: '11px' }}
                             disabled={submittingAction}
-                            onClick={() => handleConfirmMatch(sug.invoiceId)}
+                            onClick={() => handleApproveMatch(sug.invoiceId)}
                           >
-                            {submittingAction ? <Loader2 className="animate-spin" size={12} /> : 'Confirm & Apply Match'}
+                            {submittingAction ? <Loader2 className="animate-spin" size={12} /> : 'Approve Match'}
                           </button>
                         </div>
                       ))

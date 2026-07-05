@@ -56,7 +56,8 @@ const defaultDb = {
   payment_evidence_review_audit: [],
   statement_uploads: [],
   statement_extracted_transactions: [],
-  confirmed_statement_transactions: []
+  confirmed_statement_transactions: [],
+  bank_reconciliation_decisions: []
 };
 
 // Reading the DB

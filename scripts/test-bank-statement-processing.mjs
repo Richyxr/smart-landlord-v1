@@ -434,7 +434,7 @@ async function runBackendSuite(backend, dbUrl) {
       });
       assert.strictEqual(returnRes.status, 200);
 
-      const matchConfirmRes = await fetch(`${BASE_URL}/api/billing/bank-transactions/${queueTx.id}/confirm-match`, {
+      const matchConfirmRes = await fetch(`${BASE_URL}/api/billing/bank-transactions/${queueTx.id}/approve-match`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token1}`,
@@ -442,10 +442,46 @@ async function runBackendSuite(backend, dbUrl) {
         },
         body: JSON.stringify({ invoice_id: createdInvoice.id })
       });
-      assert.strictEqual(matchConfirmRes.status, 200, 'Confirm match should succeed');
+      assert.strictEqual(matchConfirmRes.status, 200, 'Approve match should succeed');
       const matchConfirmData = await matchConfirmRes.json();
-      assert.strictEqual(matchConfirmData.invoice_status_after, 'paid', 'Invoice should be paid after allocation');
-      assert.strictEqual(Number(matchConfirmData.balance_after), 0, 'Invoice balance should be 0');
+      assert.strictEqual(matchConfirmData.status_after, 'Match Approved', 'Status should be Match Approved');
+
+      // Assert invoice balance, status and amount_paid did NOT change
+      const checkInvoiceRes = await fetch(`${BASE_URL}/api/invoices`, {
+        headers: { 'Authorization': `Bearer ${token1}` }
+      });
+      const checkInvoicesList = await checkInvoiceRes.json();
+      const updatedInvoice = checkInvoicesList.find(i => Number(i.id) === Number(createdInvoice.id));
+      assert.ok(updatedInvoice, 'Invoice should exist');
+      assert.strictEqual(updatedInvoice.status, 'draft', 'Invoice status must remain draft');
+      assert.strictEqual(Number(updatedInvoice.balance), 12000, 'Invoice balance must remain unchanged');
+      assert.strictEqual(Number(updatedInvoice.amount_paid), 0, 'Invoice amount_paid must remain 0');
+
+      // Assert no payment was created in the REST API
+      const paymentsRes = await fetch(`${BASE_URL}/api/payments`, {
+        headers: { 'Authorization': `Bearer ${token1}` }
+      });
+      const paymentsList = await paymentsRes.json();
+      const matchingPayment = paymentsList.find(p => p.reference_number === mpesaCode);
+      assert.ok(!matchingPayment, 'No payment record should be created in transactions table');
+
+      // Direct DB assertions (for postgres backend)
+      const dbClient = new pg.Client({ connectionString: dbUrl });
+      await dbClient.connect();
+      try {
+        const txsCount = await dbClient.query('SELECT COUNT(*)::int FROM transactions WHERE reference_number = $1', [mpesaCode]);
+        assert.strictEqual(txsCount.rows[0].count, 0, 'No transactions row should be inserted in database');
+
+        const allocationsCount = await dbClient.query('SELECT COUNT(*)::int FROM payment_allocations WHERE invoice_id = $1', [createdInvoice.id]);
+        assert.strictEqual(allocationsCount.rows[0].count, 0, 'No payment_allocations row should be inserted in database');
+
+        const decisions = await dbClient.query('SELECT * FROM bank_reconciliation_decisions WHERE bank_transaction_id = $1', [queueTx.id]);
+        assert.strictEqual(decisions.rows.length, 1, 'Exactly one decision record should be created');
+        assert.strictEqual(decisions.rows[0].invoice_id, String(createdInvoice.id), 'Decision invoice_id should match');
+        assert.strictEqual(decisions.rows[0].status, 'pending', 'Decision status should be pending');
+      } finally {
+        await dbClient.end();
+      }
 
       const searchRes = await fetch(`${BASE_URL}/api/billing/reconciliation/search-candidates?q=${targetTenant.full_name.substring(0, 4)}`, {
         headers: { 'Authorization': `Bearer ${token1}` }
