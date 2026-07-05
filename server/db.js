@@ -53,7 +53,10 @@ const defaultDb = {
   password_reset_tokens: [],
   payment_evidence_batches: [],
   payment_evidence: [],
-  payment_evidence_review_audit: []
+  payment_evidence_review_audit: [],
+  statement_uploads: [],
+  statement_extracted_transactions: [],
+  confirmed_statement_transactions: []
 };
 
 // Reading the DB

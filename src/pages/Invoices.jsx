@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import StatementImports from '../components/StatementImports.jsx';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
 import { CircleDollarSign, AlertTriangle, CheckCircle, Users, Zap, FileText, Printer, Bell, Check, CheckCircle2, Plus, DoorOpen, Droplets, Pencil, Clock, Mail, Phone, MessageSquare, Smartphone, ChevronRight, Send, X } from 'lucide-react';
 
@@ -1061,7 +1062,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
           { id: 'due_tenants', label: 'Due Tenants' },
           { id: 'invoices', label: 'Invoices' },
           { id: 'readings', label: 'Meter Readings' },
-          { id: 'utility_settings', label: 'Utility Settings' }
+          { id: 'utility_settings', label: 'Utility Settings' },
+          { id: 'statement_imports', label: 'Statement Imports' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -1950,6 +1952,11 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
             Save Billing Settings
           </button>
         </form>
+      )}
+
+      {/* STATEMENT IMPORTS SUB-TAB */}
+      {activeSubTab === 'statement_imports' && (
+        <StatementImports organization={organization} />
       )}
 
     </div>

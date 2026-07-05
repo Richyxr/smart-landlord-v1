@@ -1,6 +1,12 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import { NotificationService } from '../notificationService.js';
+import multer from 'multer';
+import crypto from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
+import { readDb, writeDb } from '../db.js';
+import { StatementParserRegistry } from '../services/payment-evidence/StatementParserRegistry.js';
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -1029,6 +1035,396 @@ export function createFinancialRoutes(pgDb) {
 
     res.json(result);
   }));
+
+  const statementUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 }
+  });
+
+  // DB abstraction helpers
+  const dbFind = async (table, filterObj) => {
+    if (pgDb) {
+      return pgDb.find(table, filterObj);
+    } else {
+      const dbData = readDb();
+      const list = dbData[table] || [];
+      return list.filter(row => {
+        for (const [key, val] of Object.entries(filterObj)) {
+          if (row[key] !== val) return false;
+        }
+        return true;
+      });
+    }
+  };
+
+  const dbFindOne = async (table, filterObj) => {
+    if (pgDb) {
+      return pgDb.findOne(table, filterObj);
+    } else {
+      const list = await dbFind(table, filterObj);
+      return list[0] || null;
+    }
+  };
+
+  const dbInsert = async (table, rowData) => {
+    if (pgDb) {
+      return pgDb.insert(table, rowData);
+    } else {
+      const dbData = readDb();
+      const list = dbData[table] || [];
+      const newId = list.length > 0 ? Math.max(...list.map(r => r.id)) + 1 : 1;
+      const newRow = { id: newId, ...rowData, created_at: new Date(), updated_at: new Date() };
+      list.push(newRow);
+      dbData[table] = list;
+      writeDb(dbData);
+      return newRow;
+    }
+  };
+
+  const dbUpdate = async (table, id, updates) => {
+    if (pgDb) {
+      return pgDb.update(table, id, updates);
+    } else {
+      const dbData = readDb();
+      const list = dbData[table] || [];
+      const idx = list.findIndex(r => r.id === Number(id));
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], ...updates, updated_at: new Date() };
+        writeDb(dbData);
+        return [list[idx]];
+      }
+      return [];
+    }
+  };
+
+  const dbDelete = async (table, id) => {
+    if (pgDb) {
+      return pgDb.delete(table, id);
+    } else {
+      const dbData = readDb();
+      const list = dbData[table] || [];
+      const beforeLen = list.length;
+      dbData[table] = list.filter(r => r.id !== Number(id));
+      writeDb(dbData);
+      return dbData[table].length < beforeLen;
+    }
+  };
+
+  const processUpload = async (uploadId, buffer, filename, orgId, file_type) => {
+    try {
+      const { rawRows, rawText } = await StatementParserRegistry.parse({ buffer, filename });
+      const provider = StatementParserRegistry.detectProvider({ filename }, rawText);
+
+      // Normalize
+      const normalized = StatementParserRegistry.normalize(rawRows, file_type, provider);
+
+      // Validate
+      const activeDbWrapper = {
+        find: (t, f) => dbFind(t, f)
+      };
+      const validated = await StatementParserRegistry.validate(normalized, orgId, activeDbWrapper);
+
+      // Save extracted rows
+      let rows_detected = validated.length;
+      let rows_ready_for_review = 0;
+      let rows_needing_attention = 0;
+      let rows_ignored = 0;
+      let rows_duplicates = 0;
+      let rows_unreadable = 0;
+
+      for (const row of validated) {
+        if (row.validationFlags.includes('invalid_both_debit_credit') || 
+            row.validationFlags.includes('incomplete_no_amount') ||
+            row.validationFlags.includes('missing_date')) {
+          rows_unreadable++;
+        } else if (row.duplicate_candidate) {
+          rows_duplicates++;
+        } else if (row.validationFlags.length > 0) {
+          rows_needing_attention++;
+        } else {
+          rows_ready_for_review++;
+        }
+
+        await dbInsert('statement_extracted_transactions', {
+          statement_upload_id: uploadId,
+          organization_id: orgId,
+          row_index: row.row_index,
+          transaction_date: row.transactionDate || new Date().toISOString().split('T')[0],
+          value_date: row.valueDate || null,
+          description: row.description,
+          reference: row.reference || null,
+          debit_amount: row.debitAmount,
+          credit_amount: row.creditAmount,
+          running_balance: row.runningBalance,
+          normalized_amount: row.normalizedAmount,
+          transaction_type: row.transactionType,
+          currency: row.currency || 'KES',
+          confidence_score: row.confidenceScore,
+          raw_row_json: row.rawRow,
+          duplicate_candidate: row.duplicate_candidate || false,
+          validation_flags_json: row.validationFlags
+        });
+      }
+
+      // Update upload status
+      const parseSummary = {
+        rows_detected,
+        rows_ready_for_review,
+        rows_needing_attention,
+        rows_ignored,
+        rows_duplicates,
+        rows_unreadable
+      };
+
+      const finalStatus = rows_unreadable === rows_detected ? 'failed' : (rows_duplicates > 0 || rows_needing_attention > 0 ? 'needs_review' : 'parsed');
+
+      await dbUpdate('statement_uploads', uploadId, {
+        status: finalStatus,
+        provider_guess: provider,
+        parse_summary_json: parseSummary
+      });
+
+    } catch (err) {
+      console.error('Async statement parsing failed:', err);
+      await dbUpdate('statement_uploads', uploadId, {
+        status: 'failed',
+        error_message: err.message || 'An error occurred during statement parsing.'
+      });
+    }
+  };
+
+  // POST /api/billing/statement-uploads
+  router.post(
+    '/billing/statement-uploads',
+    requireAuthenticatedContext,
+    requireLandlord,
+    statementUpload.single('file'),
+    asyncHandler(async (req, res) => {
+      const { orgId, userId } = getContext(req);
+
+      if (!req.file) {
+        return res.status(400).json({ error: 'No statement file was attached.' });
+      }
+
+      const filename = req.file.originalname;
+      const ext = path.extname(filename).toLowerCase();
+      if (ext !== '.pdf' && ext !== '.csv' && ext !== '.xlsx') {
+        return res.status(400).json({ error: 'Unsupported file type. Only PDF, CSV, and XLSX are accepted.' });
+      }
+
+      // Compute SHA-256 hash
+      const sha256 = crypto.createHash('sha256').update(req.file.buffer).digest('hex');
+
+      // Check duplicate uploads for same organization
+      const existingUpload = await dbFindOne('statement_uploads', {
+        organization_id: orgId,
+        sha256_hash: sha256
+      });
+
+      if (existingUpload && existingUpload.status !== 'failed') {
+        return res.status(400).json({ error: 'This file has already been uploaded for this organization.' });
+      }
+
+      // Write to storage named as its hash
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      await fs.mkdir(uploadsDir, { recursive: true });
+      const storagePath = path.join(uploadsDir, sha256);
+      await fs.writeFile(storagePath, req.file.buffer);
+
+      const file_type = ext.slice(1).toUpperCase();
+
+      // Insert record
+      const uploadRecord = await dbInsert('statement_uploads', {
+        organization_id: orgId,
+        uploaded_by_user_id: userId,
+        provider_guess: 'generic_bank_statement',
+        file_name: filename,
+        file_type,
+        file_size: req.file.size,
+        storage_path: storagePath,
+        sha256_hash: sha256,
+        status: 'parsing',
+        parse_engine: 'node_parse_registry'
+      });
+
+      // Async or Sync parsing
+      const isLarge = req.file.size > 1 * 1024 * 1024; // > 1 MB is considered large
+      if (isLarge) {
+        // Run in next tick asynchronously
+        setImmediate(() => {
+          processUpload(uploadRecord.id, req.file.buffer, filename, orgId, file_type);
+        });
+        return res.status(202).json({
+          message: 'Statement uploaded and queued for parsing.',
+          upload_id: uploadRecord.id,
+          status: 'parsing'
+        });
+      } else {
+        // Parse synchronously
+        await processUpload(uploadRecord.id, req.file.buffer, filename, orgId, file_type);
+        const updated = await dbFindOne('statement_uploads', { id: uploadRecord.id });
+        return res.status(201).json({
+          message: 'Statement uploaded and parsed successfully.',
+          upload_id: updated.id,
+          status: updated.status,
+          provider_guess: updated.provider_guess,
+          summary: updated.parse_summary_json
+        });
+      }
+    })
+  );
+
+  // GET /api/billing/statement-uploads
+  router.get(
+    '/billing/statement-uploads',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const uploads = await dbFind('statement_uploads', { organization_id: orgId });
+      uploads.sort((a, b) => b.id - a.id);
+      res.json(uploads);
+    })
+  );
+
+  // GET /api/billing/statement-uploads/:id
+  router.get(
+    '/billing/statement-uploads/:id',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const uploadId = Number(req.params.id);
+
+      const upload = await dbFindOne('statement_uploads', { id: uploadId, organization_id: orgId });
+      if (!upload) {
+        return res.status(404).json({ error: 'Statement upload not found.' });
+      }
+
+      const rows = await dbFind('statement_extracted_transactions', { statement_upload_id: uploadId, organization_id: orgId });
+      rows.sort((a, b) => a.row_index - b.row_index);
+
+      res.json({
+        ...upload,
+        extracted_rows: rows
+      });
+    })
+  );
+
+  // DELETE /api/billing/statement-uploads/:id
+  router.delete(
+    '/billing/statement-uploads/:id',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const uploadId = Number(req.params.id);
+
+      const upload = await dbFindOne('statement_uploads', { id: uploadId, organization_id: orgId });
+      if (!upload) {
+        return res.status(404).json({ error: 'Statement upload not found.' });
+      }
+
+      // Delete storage file if exists
+      try {
+        if (upload.storage_path) {
+          await fs.unlink(upload.storage_path);
+        }
+      } catch (_) {}
+
+      await dbDelete('statement_uploads', uploadId);
+      res.json({ success: true, message: 'Statement upload rejected and deleted.' });
+    })
+  );
+
+  // POST /api/billing/statement-uploads/:id/confirm
+  router.post(
+    '/billing/statement-uploads/:id/confirm',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const uploadId = Number(req.params.id);
+      const includeDuplicates = req.body.include_duplicates === true;
+
+      const upload = await dbFindOne('statement_uploads', { id: uploadId, organization_id: orgId });
+      if (!upload) {
+        return res.status(404).json({ error: 'Statement upload not found.' });
+      }
+
+      if (upload.status === 'confirmed') {
+        return res.status(400).json({ error: 'This statement upload has already been confirmed.' });
+      }
+
+      const rows = await dbFind('statement_extracted_transactions', { statement_upload_id: uploadId, organization_id: orgId });
+
+      let imported_count = 0;
+      let skipped_duplicate_count = 0;
+      let skipped_invalid_count = 0;
+      let total_money_in = 0;
+      let total_money_out = 0;
+
+      for (const row of rows) {
+        // Validate invalid flags
+        const flags = row.validation_flags_json || [];
+        const isInvalid = flags.includes('invalid_both_debit_credit') || 
+                          flags.includes('incomplete_no_amount') ||
+                          flags.includes('missing_date');
+
+        if (isInvalid) {
+          skipped_invalid_count++;
+          continue;
+        }
+
+        // Validate duplicates
+        if (row.duplicate_candidate && !includeDuplicates) {
+          skipped_duplicate_count++;
+          continue;
+        }
+
+        // Generate source hash if missing
+        const sourceHash = row.raw_row_json?.sourceHash || crypto
+          .createHash('sha256')
+          .update(`${row.transaction_date}_${row.normalized_amount}_${row.reference || ''}_${row.description}`)
+          .digest('hex');
+
+        // Confirm the transaction
+        const direction = row.normalized_amount >= 0 ? 'money_in' : 'money_out';
+        await dbInsert('confirmed_statement_transactions', {
+          organization_id: orgId,
+          statement_upload_id: uploadId,
+          extracted_transaction_id: row.id,
+          transaction_date: row.transaction_date,
+          description: row.description,
+          reference: row.reference || null,
+          amount: Math.abs(row.normalized_amount),
+          direction,
+          running_balance: row.running_balance,
+          source_provider: upload.provider_guess,
+          source_hash: sourceHash
+        });
+
+        imported_count++;
+        if (direction === 'money_in') {
+          total_money_in += Math.abs(row.normalized_amount);
+        } else {
+          total_money_out += Math.abs(row.normalized_amount);
+        }
+      }
+
+      // Mark upload as confirmed
+      await dbUpdate('statement_uploads', uploadId, { status: 'confirmed' });
+
+      res.json({
+        success: true,
+        imported_count,
+        skipped_duplicate_count,
+        skipped_invalid_count,
+        total_money_in,
+        total_money_out
+      });
+    })
+  );
 
   return router;
 }
