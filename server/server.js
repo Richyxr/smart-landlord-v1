@@ -1551,7 +1551,7 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
 // --- AUTH & SETUP API ---
 
 // Mock Login
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   if (!DEMO_MODE) {
     return res.status(503).json({
       error: 'MOCK_AUTH_DISABLED',
@@ -1562,30 +1562,32 @@ app.post('/api/auth/login', (req, res) => {
   const { email, role: requestedRole } = req.body;
 
   // Find user by email
-  let user = db.findOne('users', { email });
+  let user = await activeFindOne('users', { email });
   if (!user) {
     // Return demo user if not found for testing convenience
     if (email.includes('admin')) {
-      user = db.findOne('users', { id: 1 });
+      user = await activeFindOne('users', { id: 1 });
     } else if (email.includes('caretaker')) {
-      user = db.findOne('users', { id: 3 });
+      user = await activeFindOne('users', { id: 3 });
     } else {
-      user = db.findOne('users', { id: 2 });
+      user = await activeFindOne('users', { id: 2 });
     }
   }
 
   // Get organization membership
-  const member = db.findOne('organization_members', { user_id: user.id });
+  const member = await activeFindOne('organization_members', { user_id: user.id });
   let org = null;
   if (member) {
-    org = db.findOne('organizations', { id: member.organization_id });
+    org = await activeFindOne('organizations', { id: member.organization_id });
   }
 
   const resolvedRole = user.is_super_admin ? 'super_admin' : (member ? member.role : (user.email.includes('admin') ? 'super_admin' : 'landlord'));
   const organizationForSession = resolvedRole === 'super_admin' ? null : org;
   const authToken = createSessionToken(user, resolvedRole, organizationForSession);
 
-  db.logAudit(org ? org.id : null, user.id, resolvedRole || requestedRole || 'unknown', 'login', 'user', user.id, null, null, 'User logged in successfully', 'success');
+  if (!pgDb && typeof db.logAudit === 'function') {
+    db.logAudit(org ? org.id : null, user.id, resolvedRole || requestedRole || 'unknown', 'login', 'user', user.id, null, null, 'User logged in successfully', 'success');
+  }
 
   res.json({
     user,
@@ -2085,10 +2087,12 @@ app.use('/api/admin', requireAuthenticated, requireAnyRole('super_admin'));
 if (pgDb) {
   app.use('/api', createWebhookRoutes(pgDb, { demoMode: DEMO_MODE }));
   app.use('/api', createPropertyRoutes(pgDb));
-  app.use('/api', createFinancialRoutes(pgDb));
   app.use('/api', createReconciliationRoutes(pgDb));
   app.use('/api', createIntegrationRoutes(pgDb));
 }
+
+// Mount financial routes (supports both PostgreSQL and JSON DB backends)
+app.use('/api', createFinancialRoutes(pgDb));
 
 // Mount notification routes (supports both PostgreSQL and JSON DB backends)
 app.use('/api', createNotificationRoutes(pgDb));

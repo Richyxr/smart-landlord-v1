@@ -71,14 +71,10 @@ function normalizeValue(column, value) {
   }
 
   if (typeof value === 'string') {
-    try {
-      return JSON.parse(value);
-    } catch (_error) {
-      return value;
-    }
+    return value;
   }
 
-  return value;
+  return JSON.stringify(value);
 }
 
 function buildWhere(filterObj = {}, startIndex = 1) {

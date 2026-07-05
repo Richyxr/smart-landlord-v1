@@ -290,6 +290,42 @@ export default function StatementImports({ organization }) {
             </button>
           </div>
 
+          {selectedUpload.status === 'failed' && (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              padding: '16px',
+              backgroundColor: '#fef2f2',
+              borderLeft: '4px solid #dc2626',
+              borderRadius: '4px',
+              color: '#b91c1c',
+              fontSize: '13px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
+                <AlertTriangle size={18} />
+                <span>Statement Ingestion Failed</span>
+              </div>
+              <p style={{ margin: 0 }}>
+                Error details: {selectedUpload.error_message || 'An unknown error occurred during statement processing.'}
+              </p>
+              {selectedUpload.file_type === 'PDF' && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px 12px',
+                  backgroundColor: '#fee2e2',
+                  border: '1px solid #fca5a5',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  color: '#991b1b',
+                  fontWeight: '500'
+                }}>
+                  <strong>Notice for PDF statements:</strong> If this file is scanned or does not contain a text layer, text extraction requires OCR (Optical Character Recognition) which is not enabled. Please upload a structured electronic PDF or a CSV file instead.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Metric Summary Counters */}
           {selectedUpload.parse_summary_json && (
             <div style={{

@@ -2,231 +2,402 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { StatementParserRegistry } from '../server/services/payment-evidence/StatementParserRegistry.js';
+import { spawn } from 'node:child_process';
+import XLSX from 'xlsx';
 
-let failures = 0;
+const PORT = '5099';
+const BASE_URL = `http://127.0.0.1:${PORT}`;
 
-function runAssert(description, condition) {
-  if (condition) {
-    console.log(`  PASS: ${description}`);
-  } else {
-    console.error(`  FAIL: ${description}`);
-    failures++;
-  }
-}
+let serverProcess = null;
 
-async function runTests() {
-  console.log('Running Bank Statement Processing Pipeline Tests...');
-
-  // Mock DB wrapper
-  const mockDb = {
-    data: {
-      statement_uploads: [],
-      statement_extracted_transactions: [],
-      confirmed_statement_transactions: []
-    },
-    async find(table, filterObj = {}) {
-      const list = this.data[table] || [];
-      return list.filter(row => {
-        for (const [key, val] of Object.entries(filterObj)) {
-          if (row[key] !== val) return false;
-        }
-        return true;
-      });
-    },
-    async findOne(table, filterObj = {}) {
-      const list = await this.find(table, filterObj);
-      return list[0] || null;
-    },
-    async insert(table, rowData) {
-      const list = this.data[table] || [];
-      const newId = list.length > 0 ? Math.max(...list.map(r => r.id)) + 1 : 1;
-      const newRow = { id: newId, ...rowData };
-      list.push(newRow);
-      this.data[table] = list;
-      return newRow;
-    },
-    async update(table, id, updates) {
-      const list = this.data[table] || [];
-      const idx = list.findIndex(r => r.id === Number(id));
-      if (idx !== -1) {
-        list[idx] = { ...list[idx], ...updates };
-        return [list[idx]];
-      }
-      return [];
-    }
+function startServer(backend, dbUrl) {
+  console.log(`Starting server with DATA_BACKEND=${backend}...`);
+  const env = {
+    ...process.env,
+    PORT,
+    NODE_ENV: 'development',
+    DEMO_MODE: 'true',
+    DATA_BACKEND: backend
   };
-
-  // Test 1: CSV upload and parsing
-  console.log('\n1. CSV statement parsing & normalization:');
-  const csvData = 'date,amount,code,payer,narration\n25/06/2026,5000,TX1001,Alice Wambui,Rent Payment\n26/06/2026,-1500,TX1002,Bob,Withdrawal';
-  const csvBuffer = Buffer.from(csvData, 'utf8');
-  
-  const parsedCsv = await StatementParserRegistry.parse({ buffer: csvBuffer, filename: 'statement.csv' });
-  runAssert('CSV parser extracts two rows', parsedCsv.rawRows.length === 2);
-
-  const normalizedCsv = StatementParserRegistry.normalize(parsedCsv.rawRows, 'CSV', 'GENERIC_BANK');
-  runAssert('Normalized CSV yields credit for positive amount', normalizedCsv[0].normalizedAmount === 5000 && normalizedCsv[0].transactionType === 'credit');
-  runAssert('Normalized CSV yields debit for negative amount', normalizedCsv[1].normalizedAmount === -1500 && normalizedCsv[1].transactionType === 'debit');
-  runAssert('Normalized CSV transaction date matches', normalizedCsv[0].transactionDate === '2026-06-25');
-
-  // Test 2: XLSX parsing
-  console.log('\n2. Excel (XLSX) parsing & validation:');
-  const xlsxHeaders = ['Date', 'Amount', 'Reference', 'Description'];
-  const providerGuess = StatementParserRegistry.detectProvider({ filename: 'equity.xlsx' }, '', xlsxHeaders);
-  runAssert('Excel provider guess maps to EQUITY', providerGuess === 'EQUITY');
-
-  // Test 3: Malformed date handling
-  console.log('\n3. Malformed date handling:');
-  const normalizedDate1 = StatementParserRegistry.normalizeDate('invalid date string');
-  const normalizedDate2 = StatementParserRegistry.normalizeDate('30/02/2026'); // Non-existent date
-  runAssert('Invalid date string returns null', normalizedDate1 === null);
-
-  // Test 4: PDF parsing failure path
-  console.log('\n4. PDF unsupported/unreadable extraction failure path:');
-  const emptyPdfBuffer = Buffer.from([1, 2, 3, 4]); // Corrupt PDF
-  const parsedPdf = await StatementParserRegistry.parse({ buffer: emptyPdfBuffer, filename: 'statement.pdf' });
-  runAssert('Corrupt PDF results in empty raw text', parsedPdf.rawText === '');
-
-  // Test 5: Row duplicate detection
-  console.log('\n5. Row duplicate candidate detection:');
-  const duplicateRows = [
-    {
-      row_index: 1,
-      transactionDate: '2026-06-25',
-      valueDate: '2026-06-25',
-      description: 'Rent Payment',
-      reference: 'TX1001',
-      debitAmount: null,
-      creditAmount: 5000,
-      runningBalance: null,
-      normalizedAmount: 5000,
-      transactionType: 'credit',
-      currency: 'KES',
-      confidenceScore: 90,
-      validationFlags: []
-    },
-    {
-      row_index: 2,
-      transactionDate: '2026-06-25',
-      valueDate: '2026-06-25',
-      description: 'Rent Payment',
-      reference: 'TX1001', // Exact same code, date, amount, description
-      debitAmount: null,
-      creditAmount: 5000,
-      runningBalance: null,
-      normalizedAmount: 5000,
-      transactionType: 'credit',
-      currency: 'KES',
-      confidenceScore: 90,
-      validationFlags: []
-    }
-  ];
-
-  await StatementParserRegistry.validate(duplicateRows, 1, mockDb);
-  runAssert('Duplicate row candidate is flagged as duplicate', duplicateRows[1].duplicate_candidate === true);
-  runAssert('Duplicate row candidate contains duplicate_row flag', duplicateRows[1].validationFlags.includes('duplicate_row'));
-
-  // Test 6: Tenant isolation
-  console.log('\n6. Scoping and tenant isolation checks:');
-  // Organization 1 uploads
-  const uploadOrg1 = await mockDb.insert('statement_uploads', {
-    organization_id: 1,
-    uploaded_by_user_id: 10,
-    file_name: 'org1_stmt.csv',
-    file_type: 'CSV',
-    file_size: 100,
-    storage_path: 'uploads/hash1',
-    sha256_hash: 'HASH1',
-    status: 'parsed'
-  });
-
-  const uploadsOrg2 = await mockDb.find('statement_uploads', { organization_id: 2 });
-  runAssert('Upload for Org 1 is isolated from Org 2 query', uploadsOrg2.length === 0);
-
-  // Test 7: Confirm import skips invalid rows
-  console.log('\n7. Confirm import behavior for invalid and duplicate rows:');
-  const extRow1 = await mockDb.insert('statement_extracted_transactions', {
-    statement_upload_id: uploadOrg1.id,
-    organization_id: 1,
-    row_index: 1,
-    transaction_date: '2026-06-25',
-    description: 'Valid Row',
-    reference: 'VAL001',
-    normalized_amount: 5000,
-    transaction_type: 'credit',
-    duplicate_candidate: false,
-    validation_flags_json: []
-  });
-
-  const extRow2 = await mockDb.insert('statement_extracted_transactions', {
-    statement_upload_id: uploadOrg1.id,
-    organization_id: 1,
-    row_index: 2,
-    transaction_date: '2026-06-25',
-    description: 'Invalid Row (mismatched amount)',
-    reference: 'INV001',
-    normalized_amount: 0,
-    transaction_type: 'unknown',
-    duplicate_candidate: false,
-    validation_flags_json: ['incomplete_no_amount']
-  });
-
-  // Confirm import function logic replication
-  const rows = await mockDb.find('statement_extracted_transactions', { statement_upload_id: uploadOrg1.id, organization_id: 1 });
-  let imported_count = 0;
-  let skipped_invalid_count = 0;
-
-  for (const row of rows) {
-    const flags = row.validation_flags_json || [];
-    const isInvalid = flags.includes('incomplete_no_amount') || flags.includes('missing_date');
-    if (isInvalid) {
-      skipped_invalid_count++;
-      continue;
-    }
-    
-    await mockDb.insert('confirmed_statement_transactions', {
-      organization_id: 1,
-      statement_upload_id: uploadOrg1.id,
-      extracted_transaction_id: row.id,
-      transaction_date: row.transaction_date,
-      description: row.description,
-      reference: row.reference,
-      amount: Math.abs(row.normalized_amount),
-      direction: row.normalized_amount >= 0 ? 'money_in' : 'money_out',
-      source_provider: 'CSV_GENERIC',
-      source_hash: 'ROW_HASH_' + row.id
-    });
-    imported_count++;
+  if (dbUrl) {
+    env.DATABASE_URL = dbUrl;
   }
 
-  runAssert('Confirmed import counts 1 imported row', imported_count === 1);
-  runAssert('Confirmed import counts 1 skipped invalid row', skipped_invalid_count === 1);
-  const confirmedRows = await mockDb.find('confirmed_statement_transactions', { organization_id: 1 });
-  runAssert('Confirmed transactions database has exactly 1 row', confirmedRows.length === 1);
-  runAssert('Confirmed transaction reference is VAL001', confirmedRows[0].reference === 'VAL001');
+  const child = spawn(process.execPath, ['server/server.js'], {
+    env,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
 
-  // Test 8: UI Static integration check
-  console.log('\n8. UI Component Integration static checks:');
-  const statementImportsContent = fs.readFileSync('src/components/StatementImports.jsx', 'utf8');
-  const invoicesContent = fs.readFileSync('src/pages/Invoices.jsx', 'utf8');
+  child.stdout.on('data', data => {
+    const msg = data.toString();
+    if (msg.includes('server error') || msg.includes('Failed to start')) {
+      console.error(`[server stdout] ${msg}`);
+    }
+  });
 
-  runAssert('StatementImports.jsx handles confirm endpoint', statementImportsContent.includes('/confirm'));
-  runAssert('StatementImports.jsx renders upload statement file input', statementImportsContent.includes('accept=".csv,.pdf,.xlsx"'));
-  runAssert('StatementImports.jsx contains Confirm Import action button label', statementImportsContent.includes('Confirm Import'));
-  runAssert('StatementImports.jsx displays duplicate rows option', statementImportsContent.includes('include_duplicates'));
-  runAssert('Invoices.jsx registers statement_imports subtab', invoicesContent.includes("id: 'statement_imports'"));
-  runAssert('Invoices.jsx renders StatementImports component when active', invoicesContent.includes('<StatementImports'));
+  child.stderr.on('data', data => {
+    console.error(`[server stderr] ${data.toString()}`);
+  });
 
-  console.log(`\nTests completed. ${failures} failure(s) recorded.`);
-  if (failures > 0) {
-    process.exit(1);
-  } else {
-    console.log('All bank statement processing pipeline tests passed successfully!');
+  return child;
+}
+
+async function waitForServer() {
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'landlord@demo.com' })
+      });
+      if (res.ok) {
+        console.log('Server is ready!');
+        return;
+      }
+    } catch (_error) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+  }
+  throw new Error('Server did not start in time.');
+}
+
+async function login(email) {
+  const res = await fetch(`${BASE_URL}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email })
+  });
+  if (!res.ok) {
+    throw new Error(`Login failed for ${email}`);
+  }
+  return res.json();
+}
+
+async function registerLandlord(email, first, last) {
+  const res = await fetch(`${BASE_URL}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'individual',
+      first_name: first,
+      last_name: last,
+      email,
+      phone_number: `+254799${Math.floor(100000 + Math.random() * 900000)}`,
+      country: 'Kenya',
+      billing_currency: 'KES',
+      profile_confirmed: true
+    })
+  });
+  if (!res.ok) {
+    const errData = await res.json();
+    throw new Error(`Registration failed: ${errData.error || res.status}`);
+  }
+  return res.json();
+}
+
+async function uploadFile(token, filename, contentBuffer, mimeType = 'text/csv') {
+  const form = new FormData();
+  const blob = new Blob([contentBuffer], { type: mimeType });
+  form.append('file', blob, filename);
+
+  const res = await fetch(`${BASE_URL}/api/billing/statement-uploads`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    },
+    body: form
+  });
+
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    console.error(`Failed to parse JSON response. Status: ${res.status}. Text content:`, text);
+    throw new Error(`Non-JSON response received: ${res.status}`);
+  }
+
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function checkUploadStatusUntilProcessed(token, uploadId) {
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
+    const res = await fetch(`${BASE_URL}/api/billing/statement-uploads/${uploadId}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error('Failed to fetch details');
+    const data = await res.json();
+    if (data.status !== 'uploaded' && data.status !== 'parsing') {
+      return data;
+    }
+    await new Promise(resolve => setTimeout(resolve, 200));
+  }
+  throw new Error('Statement processing timed out.');
+}
+
+async function runBackendSuite(backend, dbUrl) {
+  console.log(`\n======================================================`);
+  console.log(`RUNNING SUITE FOR BACKEND: ${backend}`);
+  console.log(`======================================================`);
+
+  serverProcess = startServer(backend, dbUrl);
+  try {
+    await waitForServer();
+
+    // 1. Logins
+    console.log('Logging in and registering test entities...');
+    const landlord1 = await login('landlord@demo.com');
+    
+    // Register landlord 2 for tenant isolation checks
+    const janeEmail = `jane.${Date.now()}@demo.com`;
+    await registerLandlord(janeEmail, 'Jane', 'Doe');
+    const landlord2 = await login(janeEmail);
+
+    const token1 = landlord1.auth_token;
+    const token2 = landlord2.auth_token;
+
+    const rand = Math.floor(100000 + Math.random() * 900000);
+    const refA = `REF${rand}A`;
+    const refB = `REF${rand}B`;
+
+    console.log('Testing cross-tenant upload isolation...');
+    // Create valid CSV statement
+    const csvContent = `date,amount,code,payer,narration\n2026-06-15,5000,${refA},David,Rent Payment`;
+    const uploadRes1 = await uploadFile(token1, 'landlord1_stmt.csv', Buffer.from(csvContent, 'utf-8'));
+    if (!uploadRes1.ok) {
+      console.error('Upload failed with details:', uploadRes1.status, uploadRes1.data);
+    }
+    assert.strictEqual(uploadRes1.ok, true, 'Landlord 1 should upload statement successfully');
+    const upload1 = await checkUploadStatusUntilProcessed(token1, uploadRes1.data.upload_id);
+    assert.strictEqual(upload1.status, 'parsed', 'Upload status should be parsed');
+
+    // Query upload history as Landlord 2
+    const historyRes2 = await fetch(`${BASE_URL}/api/billing/statement-uploads`, {
+      headers: { 'Authorization': `Bearer ${token2}` }
+    });
+    const history2 = await historyRes2.json();
+    console.log('Landlord 1 organization:', landlord1.organization?.id, 'Upload 1 organization_id:', upload1.organization_id);
+    console.log('Landlord 2 organization:', landlord2.organization?.id, 'history2 items:', history2.map(h => ({ id: h.id, organization_id: h.organization_id })));
+    const hasOrg1Upload = history2.some(u => u.id === upload1.id);
+    assert.strictEqual(hasOrg1Upload, false, 'Landlord 2 must not see Landlord 1 uploads in history log');
+
+    // Fetch details of Landlord 1 upload as Landlord 2
+    const detailRes2 = await fetch(`${BASE_URL}/api/billing/statement-uploads/${upload1.id}`, {
+      headers: { 'Authorization': `Bearer ${token2}` }
+    });
+    assert.strictEqual(detailRes2.status, 404, 'Landlord 2 fetching details of Landlord 1 upload should return 404');
+
+    // Confirm Landlord 1 upload as Landlord 2
+    const confirmRes2 = await fetch(`${BASE_URL}/api/billing/statement-uploads/${upload1.id}/confirm`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token2}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ include_duplicates: false })
+    });
+    assert.strictEqual(confirmRes2.status, 404, 'Landlord 2 confirming Landlord 1 upload should return 404');
+
+    // Delete Landlord 1 upload as Landlord 2
+    const deleteRes2 = await fetch(`${BASE_URL}/api/billing/statement-uploads/${upload1.id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token2}` }
+    });
+    assert.strictEqual(deleteRes2.status, 404, 'Landlord 2 deleting Landlord 1 upload should return 404');
+
+    console.log('✓ Cross-tenant upload and confirm isolation verified successfully.');
+
+    // 2. Duplicate file upload protection
+    console.log('Testing duplicate file prevention...');
+    const dupUpload = await uploadFile(token1, 'landlord1_stmt_dup.csv', Buffer.from(csvContent, 'utf-8'));
+    assert.strictEqual(dupUpload.ok, false, 'Duplicate file upload must be blocked');
+    assert.strictEqual(dupUpload.status, 400, 'Duplicate file upload returns 400 Bad Request');
+    console.log('✓ Duplicate file upload blocked successfully.');
+
+    // 3. Failed statement confirmation block
+    console.log('Testing confirmation blocks on failed uploads...');
+    const malformedCsv = 'some random garbage content without columns or commas\nand binary data';
+    const malformedUploadRes = await uploadFile(token1, 'malformed.csv', Buffer.from(malformedCsv, 'utf-8'));
+    if (!malformedUploadRes.ok) {
+      console.error('Malformed CSV upload failed with status:', malformedUploadRes.status, 'data:', malformedUploadRes.data);
+    }
+    assert.strictEqual(malformedUploadRes.ok, true, 'Upload endpoint accepts file but sets status in async processing');
+    const malformedUpload = await checkUploadStatusUntilProcessed(token1, malformedUploadRes.data.upload_id);
+    assert.strictEqual(malformedUpload.status, 'failed', 'Malformed/empty CSV status must be failed');
+
+    const confirmFailedRes = await fetch(`${BASE_URL}/api/billing/statement-uploads/${malformedUpload.id}/confirm`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token1}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ include_duplicates: false })
+    });
+    assert.strictEqual(confirmFailedRes.status, 400, 'Confirming failed upload must return 400 Bad Request');
+    const confirmFailedData = await confirmFailedRes.json();
+    assert.strictEqual(confirmFailedData.error, 'Failed statement uploads cannot be confirmed.', 'Error message should match exactly');
+    console.log('✓ Failed upload confirmation block verified.');
+
+    // 4. XLSX empty sheet gracefully failing
+    console.log('Testing empty XLSX sheet parsing...');
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([]);
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+    const xlsxBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    const emptyXlsxRes = await uploadFile(token1, 'empty.xlsx', xlsxBuffer, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    assert.strictEqual(emptyXlsxRes.ok, true);
+    const emptyXlsx = await checkUploadStatusUntilProcessed(token1, emptyXlsxRes.data.upload_id);
+    assert.strictEqual(emptyXlsx.status, 'failed', 'Empty XLSX sheet should transition status to failed');
+    assert.strictEqual(emptyXlsx.error_message, 'Statement parsing failed: Excel sheet contains no data rows.', 'Error message matches empty sheet');
+    console.log('✓ Empty XLSX sheet gracefully fails parsing.');
+
+    // 5. Scanned PDF without text layer returns failed
+    console.log('Testing scanned PDF without text layer...');
+    const corruptPdfBuffer = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0x01, 0x02, 0x03]); // Corrupt PDF header
+    const scannedPdfRes = await uploadFile(token1, 'scanned.pdf', corruptPdfBuffer, 'application/pdf');
+    assert.strictEqual(scannedPdfRes.ok, true);
+    const scannedPdf = await checkUploadStatusUntilProcessed(token1, scannedPdfRes.data.upload_id);
+    assert.strictEqual(scannedPdf.status, 'failed', 'Scanned PDF without text layer status must be failed');
+    assert.ok(
+      scannedPdf.error_message.includes('Failed to parse PDF') ||
+      scannedPdf.error_message.includes('No text layer could be extracted'),
+      'Error message matches PDF text layer/structural failure'
+    );
+    console.log('✓ PDF without text layer returns failed with clear message.');
+
+    // 6. Confirmed imports are idempotent and source_hash duplicate block
+    console.log('Testing confirmed imports idempotency & source_hash duplicate prevention...');
+    // Log initial confirmed rows count
+    const detailsBefore = await checkUploadStatusUntilProcessed(token1, upload1.id);
+    assert.strictEqual(detailsBefore.status, 'parsed');
+
+    // Confirm upload1
+    const confirmRes = await fetch(`${BASE_URL}/api/billing/statement-uploads/${upload1.id}/confirm`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token1}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ include_duplicates: false })
+    });
+    assert.strictEqual(confirmRes.status, 200, 'Confirming parsed upload should succeed');
+    const confirmData = await confirmRes.json();
+    assert.strictEqual(confirmData.imported_count, 1, '1 transaction should be imported');
+
+    // Attempt to confirm the same upload again
+    const confirmResDup = await fetch(`${BASE_URL}/api/billing/statement-uploads/${upload1.id}/confirm`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token1}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ include_duplicates: false })
+    });
+    assert.strictEqual(confirmResDup.status, 400, 'Confirming already confirmed upload should return 400');
+
+    // Upload a DIFFERENT file containing the SAME transaction code (overlapping imports)
+    const overlappingCsv = `date,amount,code,payer,narration\n2026-06-15,5000,${refA},David,Rent Payment`;
+    const overlapRes = await uploadFile(token1, 'landlord1_stmt_overlap.csv', Buffer.from(overlappingCsv + `\n2026-06-16,3000,${refB},Alice,Rent`, 'utf-8'));
+    const overlapUpload = await checkUploadStatusUntilProcessed(token1, overlapRes.data.upload_id);
+    assert.strictEqual(overlapUpload.status, 'needs_review', 'Overlap file contains duplicates, status should be needs_review');
+
+    // Confirm the overlap statement. Since refA was already confirmed, it should be skipped!
+    const confirmOverlapRes = await fetch(`${BASE_URL}/api/billing/statement-uploads/${overlapUpload.id}/confirm`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token1}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ include_duplicates: true }) // Include duplicates check
+    });
+    assert.strictEqual(confirmOverlapRes.status, 200);
+    const confirmOverlapData = await confirmOverlapRes.json();
+    assert.strictEqual(confirmOverlapData.imported_count, 1, `Only the new transaction ${refB} should be imported`);
+    assert.strictEqual(confirmOverlapData.skipped_duplicate_count, 1, `The duplicate ${refA} transaction must be skipped`);
+
+    console.log('✓ Import idempotency and source_hash duplicate prevention verified.');
+
+    // 7. Deleted/rejected upload cannot be confirmed
+    console.log('Testing rejected/deleted upload cannot be confirmed...');
+    const deleteRes = await fetch(`${BASE_URL}/api/billing/statement-uploads/${overlapUpload.id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token1}` }
+    });
+    assert.strictEqual(deleteRes.status, 200, 'Deleting statement upload should succeed');
+
+    const confirmDeletedRes = await fetch(`${BASE_URL}/api/billing/statement-uploads/${overlapUpload.id}/confirm`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token1}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ include_duplicates: false })
+    });
+    assert.strictEqual(confirmDeletedRes.status, 404, 'Confirming deleted upload must return 404 Not Found');
+    console.log('✓ Deleted/rejected uploads cannot be confirmed verified.');
+
+  } finally {
+    if (serverProcess) {
+      serverProcess.kill('SIGTERM');
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
   }
 }
 
-runTests().catch(err => {
-  console.error('Test suite failed to run:', err);
+import pg from 'pg';
+
+function cleanJsonDb() {
+  const dbPath = path.resolve('server/data/db.json');
+  try {
+    const data = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+    data.statement_uploads = [];
+    data.statement_extracted_transactions = [];
+    data.confirmed_statement_transactions = [];
+    fs.writeFileSync(dbPath, JSON.stringify(data, null, 2), 'utf8');
+    console.log('JSON DB tables truncated successfully.');
+  } catch (err) {
+    console.error('Failed to clean JSON DB:', err.message);
+  }
+}
+
+async function cleanPostgresDb(dbUrl) {
+  const client = new pg.Client({ connectionString: dbUrl });
+  await client.connect();
+  try {
+    await client.query('TRUNCATE TABLE confirmed_statement_transactions CASCADE');
+    await client.query('TRUNCATE TABLE statement_extracted_transactions CASCADE');
+    await client.query('TRUNCATE TABLE statement_uploads CASCADE');
+    console.log('PostgreSQL tables truncated successfully.');
+  } catch (err) {
+    console.error('Failed to truncate PostgreSQL tables:', err.message);
+  } finally {
+    await client.end();
+  }
+}
+
+async function runAllBackendSuites() {
+  // Clean JSON DB
+  cleanJsonDb();
+  // Test JSON fallback backend
+  await runBackendSuite('json');
+
+  // Test Postgres backend
+  const pgDbUrl = 'postgres://postgres:postgres@localhost:5432/smart_landlord_test';
+  await cleanPostgresDb(pgDbUrl);
+  await runBackendSuite('postgres', pgDbUrl);
+
+  console.log('\n======================================================');
+  console.log('ALL INTEGRATION HARDENING TESTS PASSED SUCCESSFULLY!');
+  console.log('======================================================');
+}
+
+runAllBackendSuites().catch(err => {
+  console.error('\nHardening test suite failed:', err);
+  if (serverProcess) {
+    serverProcess.kill('SIGTERM');
+  }
   process.exit(1);
 });

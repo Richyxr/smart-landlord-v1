@@ -59,48 +59,69 @@ export class StatementParserRegistry {
    * Parses the file buffer based on the file type.
    */
   static async parse(file) {
-    const ext = String(file.filename || '').toLowerCase().split('.').pop();
-    const buffer = file.buffer;
+    try {
+      const ext = String(file.filename || '').toLowerCase().split('.').pop();
+      const buffer = file.buffer;
 
-    let rawText = '';
-    let rawRows = [];
+      if (!buffer || buffer.length === 0) {
+        throw new Error('File buffer is empty.');
+      }
 
-    if (ext === 'csv') {
-      const text = buffer.toString('utf8');
-      rawText = text;
-      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-      if (lines.length > 0) {
-        const headers = lines[0].split(',').map(h => h.replace(/^["']|["']$/g, '').trim().toLowerCase());
-        const dataLines = lines.slice(1);
-        rawRows = dataLines.map((line, idx) => {
-          const cols = line.split(',').map(c => c.replace(/^["']|["']$/g, '').trim());
-          return { headers, cols, line, index: idx + 1 };
-        });
+      let rawText = '';
+      let rawRows = [];
+
+      if (ext === 'csv') {
+        const text = buffer.toString('utf8');
+        rawText = text;
+        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        if (lines.length > 0) {
+          const headers = lines[0].split(',').map(h => h.replace(/^["']|["']$/g, '').trim().toLowerCase());
+          const dataLines = lines.slice(1);
+          rawRows = dataLines.map((line, idx) => {
+            const cols = line.split(',').map(c => c.replace(/^["']|["']$/g, '').trim());
+            return { headers, cols, line, index: idx + 1 };
+          });
+        } else {
+          throw new Error('CSV file contains no lines.');
+        }
+      } else if (ext === 'xlsx' || ext === 'xls') {
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        if (!sheetName) {
+          throw new Error('Workbook contains no sheets.');
+        }
+        const sheet = workbook.Sheets[sheetName];
+        rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+        if (rawRows.length === 0) {
+          throw new Error('Excel sheet contains no data rows.');
+        }
+        rawText = JSON.stringify(rawRows);
+      } else if (ext === 'pdf') {
+        try {
+          const pdfData = await pdfParse(buffer);
+          rawText = pdfData.text || '';
+        } catch (err) {
+          throw new Error('Failed to parse PDF file structure.');
+        }
+        if (!rawText || rawText.trim().length === 0) {
+          throw new Error('No text layer could be extracted from this PDF statement. It might be scanned or image-based.');
+        }
+        // Simple fallback line parse for PDF text content
+        const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+        rawRows = lines.map((line, idx) => ({ line, index: idx + 1 }));
+      } else if (ext === 'txt') {
+        const text = buffer.toString('utf8');
+        rawText = text;
+        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        rawRows = lines.map((line, idx) => ({ line, index: idx + 1 }));
+      } else {
+        throw new Error(`Unsupported file extension: ${ext}`);
       }
-    } else if (ext === 'xlsx' || ext === 'xls') {
-      const workbook = XLSX.read(buffer, { type: 'buffer' });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-      rawText = JSON.stringify(rawRows);
-    } else if (ext === 'pdf') {
-      try {
-        const pdfData = await pdfParse(buffer);
-        rawText = pdfData.text || '';
-      } catch (err) {
-        rawText = '';
-      }
-      // Simple fallback line parse for PDF text content
-      const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
-      rawRows = lines.map((line, idx) => ({ line, index: idx + 1 }));
-    } else if (ext === 'txt') {
-      const text = buffer.toString('utf8');
-      rawText = text;
-      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-      rawRows = lines.map((line, idx) => ({ line, index: idx + 1 }));
+
+      return { rawRows, rawText };
+    } catch (err) {
+      throw new Error(`Statement parsing failed: ${err.message}`);
     }
-
-    return { rawRows, rawText };
   }
 
   /**
@@ -366,9 +387,14 @@ export class StatementParserRegistry {
       }
 
       // Compute row source hash
+      const cleanAmount = Number(row.normalizedAmount || 0);
+      const cleanDate = row.transactionDate instanceof Date
+        ? `${row.transactionDate.getFullYear()}-${String(row.transactionDate.getMonth() + 1).padStart(2, '0')}-${String(row.transactionDate.getDate()).padStart(2, '0')}`
+        : String(row.transactionDate).split('T')[0];
+      const sourceHashStr = `${cleanDate}_${cleanAmount}_${row.reference || ''}_${row.description}`;
       const sourceHash = crypto
         .createHash('sha256')
-        .update(`${row.transactionDate}_${row.normalizedAmount}_${row.reference || ''}_${row.description}`)
+        .update(sourceHashStr)
         .digest('hex');
 
       row.sourceHash = sourceHash;

@@ -267,6 +267,13 @@ async function buildReceiptPayload(client, orgId, transactionId) {
 export function createFinancialRoutes(pgDb) {
   const router = express.Router();
 
+  router.use(['/invoices', '/payments'], (req, res, next) => {
+    if (!pgDb) {
+      return res.status(404).json({ error: 'Invoicing and payment features are only supported in PostgreSQL database mode.' });
+    }
+    next();
+  });
+
   router.use(['/invoices', '/payments'], requireAuthenticatedContext);
 
   router.get('/invoices', requireLandlord, asyncHandler(async (req, res) => {
@@ -1176,13 +1183,21 @@ export function createFinancialRoutes(pgDb) {
         rows_unreadable
       };
 
-      const finalStatus = rows_unreadable === rows_detected ? 'failed' : (rows_duplicates > 0 || rows_needing_attention > 0 ? 'needs_review' : 'parsed');
+      const finalStatus = (rows_detected === 0 || rows_unreadable === rows_detected) ? 'failed' : (rows_duplicates > 0 || rows_needing_attention > 0 ? 'needs_review' : 'parsed');
 
-      await dbUpdate('statement_uploads', uploadId, {
+      const updateData = {
         status: finalStatus,
         provider_guess: provider,
         parse_summary_json: parseSummary
-      });
+      };
+
+      if (finalStatus === 'failed') {
+        updateData.error_message = rows_detected === 0
+          ? 'No transaction rows could be parsed from this file.'
+          : 'All transaction rows failed parsing validation.';
+      }
+
+      await dbUpdate('statement_uploads', uploadId, updateData);
 
     } catch (err) {
       console.error('Async statement parsing failed:', err);
@@ -1263,12 +1278,18 @@ export function createFinancialRoutes(pgDb) {
         // Parse synchronously
         await processUpload(uploadRecord.id, req.file.buffer, filename, orgId, file_type);
         const updated = await dbFindOne('statement_uploads', { id: uploadRecord.id });
+        let summary = updated.parse_summary_json;
+        if (typeof summary === 'string') {
+          try {
+            summary = JSON.parse(summary);
+          } catch (_) {}
+        }
         return res.status(201).json({
           message: 'Statement uploaded and parsed successfully.',
           upload_id: updated.id,
           status: updated.status,
           provider_guess: updated.provider_guess,
-          summary: updated.parse_summary_json
+          summary
         });
       }
     })
@@ -1282,6 +1303,13 @@ export function createFinancialRoutes(pgDb) {
     asyncHandler(async (req, res) => {
       const { orgId } = getContext(req);
       const uploads = await dbFind('statement_uploads', { organization_id: orgId });
+      for (const u of uploads) {
+        if (typeof u.parse_summary_json === 'string') {
+          try {
+            u.parse_summary_json = JSON.parse(u.parse_summary_json);
+          } catch (_) {}
+        }
+      }
       uploads.sort((a, b) => b.id - a.id);
       res.json(uploads);
     })
@@ -1301,7 +1329,29 @@ export function createFinancialRoutes(pgDb) {
         return res.status(404).json({ error: 'Statement upload not found.' });
       }
 
+      if (typeof upload.parse_summary_json === 'string') {
+        try {
+          upload.parse_summary_json = JSON.parse(upload.parse_summary_json);
+        } catch (_) {}
+      }
+
       const rows = await dbFind('statement_extracted_transactions', { statement_upload_id: uploadId, organization_id: orgId });
+      for (const r of rows) {
+        if (typeof r.validation_flags_json === 'string') {
+          try {
+            r.validation_flags_json = JSON.parse(r.validation_flags_json);
+          } catch (_) {
+            r.validation_flags_json = [];
+          }
+        }
+        if (typeof r.raw_row_json === 'string') {
+          try {
+            r.raw_row_json = JSON.parse(r.raw_row_json);
+          } catch (_) {
+            r.raw_row_json = {};
+          }
+        }
+      }
       rows.sort((a, b) => a.row_index - b.row_index);
 
       res.json({
@@ -1356,6 +1406,10 @@ export function createFinancialRoutes(pgDb) {
         return res.status(400).json({ error: 'This statement upload has already been confirmed.' });
       }
 
+      if (upload.status === 'failed') {
+        return res.status(400).json({ error: 'Failed statement uploads cannot be confirmed.' });
+      }
+
       const rows = await dbFind('statement_extracted_transactions', { statement_upload_id: uploadId, organization_id: orgId });
 
       let imported_count = 0;
@@ -1365,8 +1419,25 @@ export function createFinancialRoutes(pgDb) {
       let total_money_out = 0;
 
       for (const row of rows) {
+        let flags = row.validation_flags_json || [];
+        if (typeof flags === 'string') {
+          try {
+            flags = JSON.parse(flags);
+          } catch (_err) {
+            flags = [];
+          }
+        }
+
+        let rawRow = row.raw_row_json || {};
+        if (typeof rawRow === 'string') {
+          try {
+            rawRow = JSON.parse(rawRow);
+          } catch (_err) {
+            rawRow = {};
+          }
+        }
+
         // Validate invalid flags
-        const flags = row.validation_flags_json || [];
         const isInvalid = flags.includes('invalid_both_debit_credit') || 
                           flags.includes('incomplete_no_amount') ||
                           flags.includes('missing_date');
@@ -1383,10 +1454,26 @@ export function createFinancialRoutes(pgDb) {
         }
 
         // Generate source hash if missing
-        const sourceHash = row.raw_row_json?.sourceHash || crypto
+        const cleanAmount = Number(row.normalized_amount || 0);
+        const cleanDate = row.transaction_date instanceof Date
+          ? `${row.transaction_date.getFullYear()}-${String(row.transaction_date.getMonth() + 1).padStart(2, '0')}-${String(row.transaction_date.getDate()).padStart(2, '0')}`
+          : String(row.transaction_date).split('T')[0];
+        const sourceHashStr = `${cleanDate}_${cleanAmount}_${row.reference || ''}_${row.description}`;
+        const sourceHash = rawRow.sourceHash || crypto
           .createHash('sha256')
-          .update(`${row.transaction_date}_${row.normalized_amount}_${row.reference || ''}_${row.description}`)
+          .update(sourceHashStr)
           .digest('hex');
+
+        // Prevent duplicate confirmed source hashes at the service/database level
+        const existingConfirmed = await dbFindOne('confirmed_statement_transactions', {
+          organization_id: orgId,
+          source_hash: sourceHash
+        });
+
+        if (existingConfirmed) {
+          skipped_duplicate_count++;
+          continue;
+        }
 
         // Confirm the transaction
         const direction = row.normalized_amount >= 0 ? 'money_in' : 'money_out';
