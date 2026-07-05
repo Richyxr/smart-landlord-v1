@@ -338,6 +338,124 @@ async function runBackendSuite(backend, dbUrl) {
     });
     assert.strictEqual(confirmDeletedRes.status, 404, 'Confirming deleted upload must return 404 Not Found');
     console.log('✓ Deleted/rejected uploads cannot be confirmed verified.');
+ 
+    if (backend === 'postgres') {
+      // 8. Bank Reconciliation Queue and Intelligent Match Suggestions Tests
+      console.log('Testing Bank Reconciliation Queue & Intelligent Matching...');
+      
+      const tenantsRes = await fetch(`${BASE_URL}/api/tenants`, {
+        headers: { 'Authorization': `Bearer ${token1}` }
+      });
+      const tenantList = await tenantsRes.json();
+      assert.ok(tenantList.length > 0, 'Should have active tenants from seeds');
+      const targetTenant = tenantList[0];
+
+      const invoiceRes = await fetch(`${BASE_URL}/api/invoices`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token1}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          tenant_id: targetTenant.id,
+          invoice_type: 'rent',
+          issue_date: '2026-06-01',
+          due_date: '2026-06-10',
+          notes: 'Test invoice for matching',
+          items: [{
+            description: 'Rent Payment',
+            item_type: 'rent',
+            quantity: 1,
+            unit_price: 12000
+          }]
+        })
+      });
+      assert.strictEqual(invoiceRes.status, 201, 'Invoice creation should succeed');
+      const createdInvoice = await invoiceRes.json();
+
+      const mpesaCode = `TX${Math.floor(10000000 + Math.random() * 90000000)}`;
+      const mpesaLine = `${mpesaCode} 2026-06-05 12:00:00 Customer Transfer Paid In KES 12,000.00 from ${targetTenant.phone_number || '0711222333'} - ${targetTenant.full_name || 'John Doe'} for ${createdInvoice.invoice_number}`;
+      const mpesaPdfText = `Safaricom M-Pesa Statement\n${mpesaLine}\n`;
+      
+      const mpesaUploadRes = await uploadFile(token1, 'mpesa_stmt.csv', Buffer.from(mpesaPdfText, 'utf-8'), 'text/csv');
+      assert.strictEqual(mpesaUploadRes.ok, true);
+      const mpesaUpload = await checkUploadStatusUntilProcessed(token1, mpesaUploadRes.data.upload_id);
+      assert.strictEqual(mpesaUpload.status, 'parsed', 'MPesa statement should parse successfully');
+
+      const confirmMpesaRes = await fetch(`${BASE_URL}/api/billing/statement-uploads/${mpesaUpload.id}/confirm`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token1}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ include_duplicates: false })
+      });
+      assert.strictEqual(confirmMpesaRes.status, 200);
+
+      const queueResAll = await fetch(`${BASE_URL}/api/billing/bank-transactions`, {
+        headers: { 'Authorization': `Bearer ${token1}` }
+      });
+      assert.strictEqual(queueResAll.status, 200);
+      const queueDataAll = await queueResAll.json();
+      console.log('All queue transactions:', JSON.stringify(queueDataAll.transactions, null, 2));
+
+      const queueTx = queueDataAll.transactions.find(t => t.reference === mpesaCode);
+      assert.ok(queueTx, 'Imported transaction should be in the review queue');
+      assert.strictEqual(queueTx.status, 'Possible Match', 'Transaction should have Possible Match status');
+
+      const suggestionsRes = await fetch(`${BASE_URL}/api/billing/bank-transactions/${queueTx.id}/suggestions`, {
+        headers: { 'Authorization': `Bearer ${token1}` }
+      });
+      assert.strictEqual(suggestionsRes.status, 200);
+      const suggestions = await suggestionsRes.json();
+      assert.ok(suggestions.length > 0, 'Should return matching invoice suggestions');
+      
+      const bestMatch = suggestions[0];
+      assert.strictEqual(bestMatch.invoice_number, createdInvoice.invoice_number, 'Best suggestion should match created invoice number');
+      assert.ok(bestMatch.score >= 80, 'Score should be high >= 80%');
+      assert.ok(bestMatch.reasons.some(r => r.includes('Exact match')), 'Reasons should include exact amount match');
+
+      const ignoreRes = await fetch(`${BASE_URL}/api/billing/bank-transactions/${queueTx.id}/ignore`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token1}` }
+      });
+      assert.strictEqual(ignoreRes.status, 200);
+      
+      const checkTxRes = await fetch(`${BASE_URL}/api/billing/bank-transactions?status=Ignored`, {
+        headers: { 'Authorization': `Bearer ${token1}` }
+      });
+      const checkTxData = await checkTxRes.json();
+      const ignoredTx = checkTxData.transactions.find(t => t.id === queueTx.id);
+      assert.ok(ignoredTx, 'Transaction should now be in Ignored status');
+
+      const returnRes = await fetch(`${BASE_URL}/api/billing/bank-transactions/${queueTx.id}/return-to-queue`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token1}` }
+      });
+      assert.strictEqual(returnRes.status, 200);
+
+      const matchConfirmRes = await fetch(`${BASE_URL}/api/billing/bank-transactions/${queueTx.id}/confirm-match`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token1}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ invoice_id: createdInvoice.id })
+      });
+      assert.strictEqual(matchConfirmRes.status, 200, 'Confirm match should succeed');
+      const matchConfirmData = await matchConfirmRes.json();
+      assert.strictEqual(matchConfirmData.invoice_status_after, 'paid', 'Invoice should be paid after allocation');
+      assert.strictEqual(Number(matchConfirmData.balance_after), 0, 'Invoice balance should be 0');
+
+      const searchRes = await fetch(`${BASE_URL}/api/billing/reconciliation/search-candidates?q=${targetTenant.full_name.substring(0, 4)}`, {
+        headers: { 'Authorization': `Bearer ${token1}` }
+      });
+      assert.strictEqual(searchRes.status, 200);
+      const searchCandidates = await searchRes.json();
+      assert.ok(searchCandidates.length > 0, 'Should find search candidates by tenant name');
+
+      console.log('✓ Bank Reconciliation Queue & Intelligent Matching verified successfully.');
+    }
 
   } finally {
     if (serverProcess) {

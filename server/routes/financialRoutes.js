@@ -7,6 +7,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { readDb, writeDb } from '../db.js';
 import { StatementParserRegistry } from '../services/payment-evidence/StatementParserRegistry.js';
+import { MatchSuggestionService } from '../services/payment-evidence/MatchEngine.js';
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -1418,6 +1419,11 @@ export function createFinancialRoutes(pgDb) {
       let total_money_in = 0;
       let total_money_out = 0;
 
+      const activeDbWrapper = {
+        find: (table, filter) => dbFind(table, filter),
+        findOne: (table, filter) => dbFindOne(table, filter)
+      };
+
       for (const row of rows) {
         let flags = row.validation_flags_json || [];
         if (typeof flags === 'string') {
@@ -1477,6 +1483,46 @@ export function createFinancialRoutes(pgDb) {
 
         // Confirm the transaction
         const direction = row.normalized_amount >= 0 ? 'money_in' : 'money_out';
+
+        let initialStatus = 'Unmatched';
+        let matchReasoning = null;
+
+        let parsedFlags = flags;
+        if (typeof parsedFlags === 'string') {
+          try {
+            parsedFlags = JSON.parse(parsedFlags);
+          } catch (_) {
+            parsedFlags = [];
+          }
+        }
+
+        if ((row.confidence_score !== undefined && row.confidence_score < 70) || parsedFlags.length > 0) {
+          initialStatus = 'Needs Review';
+        } else if (direction === 'money_in') {
+          const matchService = new MatchSuggestionService();
+          const suggestions = await matchService.getSuggestions({
+            organization_id: orgId,
+            amount: Math.abs(row.normalized_amount),
+            reference: row.reference,
+            description: row.description,
+            payer_phone: row.payer_phone,
+            payer_name: row.payer_name,
+            transaction_date: row.transaction_date
+          }, activeDbWrapper);
+
+          if (suggestions.length > 0) {
+            const bestMatch = suggestions[0];
+            if (bestMatch.score >= 80) {
+              initialStatus = 'Possible Match';
+              matchReasoning = {
+                score: bestMatch.score,
+                reasons: bestMatch.reasons,
+                suggested_invoice_id: bestMatch.invoiceId
+              };
+            }
+          }
+        }
+
         await dbInsert('confirmed_statement_transactions', {
           organization_id: orgId,
           statement_upload_id: uploadId,
@@ -1488,7 +1534,10 @@ export function createFinancialRoutes(pgDb) {
           direction,
           running_balance: row.running_balance,
           source_provider: upload.provider_guess,
-          source_hash: sourceHash
+          source_hash: sourceHash,
+          status: initialStatus,
+          confidence_score: row.confidence_score || 80,
+          match_reasoning: matchReasoning ? JSON.stringify(matchReasoning) : null
         });
 
         imported_count++;
@@ -1510,6 +1559,371 @@ export function createFinancialRoutes(pgDb) {
         total_money_in,
         total_money_out
       });
+    })
+  );
+
+  // GET /api/billing/bank-transactions
+  router.get(
+    '/billing/bank-transactions',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const { status, search, provider, confidence_min, page = 1, limit = 20 } = req.query;
+
+      const filter = { organization_id: orgId };
+      if (status) {
+        filter.status = status;
+      }
+      if (provider) {
+        filter.source_provider = provider;
+      }
+
+      let list = await dbFind('confirmed_statement_transactions', filter);
+
+      if (search) {
+        const q = String(search).toLowerCase();
+        list = list.filter(t =>
+          String(t.description || '').toLowerCase().includes(q) ||
+          String(t.reference || '').toLowerCase().includes(q)
+        );
+      }
+      if (confidence_min) {
+        const min = Number(confidence_min);
+        list = list.filter(t => (t.confidence_score || 80) >= min);
+      }
+
+      list.sort((a, b) => new Date(b.transaction_date) - new Date(a.transaction_date) || b.id - a.id);
+
+      const total = list.length;
+      const startIndex = (Number(page) - 1) * Number(limit);
+      const endIndex = startIndex + Number(limit);
+      const paginated = list.slice(startIndex, endIndex);
+
+      for (const t of paginated) {
+        if (typeof t.match_reasoning === 'string') {
+          try {
+            t.match_reasoning = JSON.parse(t.match_reasoning);
+          } catch (_) {}
+        }
+      }
+
+      // Calculate summary metrics
+      const allTx = await dbFind('confirmed_statement_transactions', { organization_id: orgId });
+      let moneyIn = 0;
+      let moneyOut = 0;
+      let unmatchedCount = 0;
+      let matchedCount = 0;
+      let duplicateCount = 0;
+      let needsReviewCount = 0;
+      let ignoredCount = 0;
+
+      for (const t of allTx) {
+        const amt = Number(t.amount || 0);
+        if (t.direction === 'money_in') {
+          moneyIn += amt;
+        } else {
+          moneyOut += amt;
+        }
+
+        if (t.status === 'Matched' || t.status === 'Confirmed') {
+          matchedCount++;
+        } else if (t.status === 'Duplicate') {
+          duplicateCount++;
+        } else if (t.status === 'Needs Review') {
+          needsReviewCount++;
+        } else if (t.status === 'Ignored') {
+          ignoredCount++;
+        } else {
+          unmatchedCount++;
+        }
+      }
+
+      res.json({
+        success: true,
+        transactions: paginated,
+        pagination: {
+          total,
+          page: Number(page),
+          limit: Number(limit),
+          pages: Math.ceil(total / Number(limit))
+        },
+        summary: {
+          total_money_in: moneyIn,
+          total_money_out: moneyOut,
+          unmatched_count: unmatchedCount,
+          matched_count: matchedCount,
+          duplicate_count: duplicateCount,
+          needs_review_count: needsReviewCount,
+          ignored_count: ignoredCount
+        }
+      });
+    })
+  );
+
+  // GET /api/billing/bank-transactions/:id/suggestions
+  router.get(
+    '/billing/bank-transactions/:id/suggestions',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const id = Number(req.params.id);
+
+      const tx = await dbFindOne('confirmed_statement_transactions', { id, organization_id: orgId });
+      if (!tx) {
+        return res.status(404).json({ error: 'Bank transaction not found.' });
+      }
+
+      const matchService = new MatchSuggestionService();
+      const suggestions = await matchService.getSuggestions(tx, {
+        find: (t, f) => dbFind(t, f),
+        findOne: (t, f) => dbFindOne(t, f)
+      });
+
+      res.json(suggestions);
+    })
+  );
+
+  // POST /api/billing/bank-transactions/:id/confirm-match
+  router.post(
+    '/billing/bank-transactions/:id/confirm-match',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId, userId } = getContext(req);
+      const id = Number(req.params.id);
+      const { invoice_id } = req.body;
+
+      if (!invoice_id) {
+        return res.status(400).json({ error: 'invoice_id is required.' });
+      }
+
+      const tx = await dbFindOne('confirmed_statement_transactions', { id, organization_id: orgId });
+      if (!tx) {
+        return res.status(404).json({ error: 'Bank transaction not found.' });
+      }
+
+      if (tx.status === 'Matched' || tx.status === 'Confirmed') {
+        return res.status(400).json({ error: 'Transaction is already matched.' });
+      }
+
+      const invoice = await dbFindOne('invoices', { id: Number(invoice_id), organization_id: orgId });
+      if (!invoice) {
+        return res.status(404).json({ error: 'Invoice not found.' });
+      }
+
+      if (['void', 'cancelled', 'deleted'].includes(String(invoice.status).toLowerCase())) {
+        return res.status(400).json({ error: 'Invoice status is blocked and ineligible for allocation.' });
+      }
+
+      const tenant = await dbFindOne('tenants', { id: invoice.tenant_id, organization_id: orgId });
+      if (!tenant) {
+        return res.status(400).json({ error: 'Tenant associated with invoice not found.' });
+      }
+
+      // Perform allocation logic
+      const allocationAmount = Number(tx.amount);
+      const invoiceBalanceBefore = Number(invoice.balance || 0);
+      const invoiceBalanceAfter = Math.max(0, invoiceBalanceBefore - allocationAmount);
+      const invoiceStatusAfter = invoiceBalanceAfter <= 0 ? 'paid' : 'partially_paid';
+
+      // Insert transaction
+      const createdTx = await dbInsert('transactions', {
+        organization_id: orgId,
+        tenant_id: tenant.id,
+        property_id: tenant.property_id || null,
+        unit_id: tenant.unit_id || null,
+        amount: allocationAmount,
+        currency: tenant.currency || 'KES',
+        transaction_type: 'payment',
+        payment_method: (tx.source_provider && tx.source_provider.toLowerCase().includes('mpesa')) ? 'mpesa' : 'bank',
+        source: 'manual',
+        reference_number: tx.reference || null,
+        account_number: tenant.tenant_account_number || null,
+        payer_name: tenant.full_name || null,
+        payer_phone: tenant.phone_number || null,
+        transaction_date: tx.transaction_date,
+        status: 'reconciled',
+        raw_payload: JSON.stringify({
+          bank_transaction_id: tx.id,
+          source: 'bank_reconciliation'
+        }),
+        created_by: userId
+      });
+
+      // Insert payment allocation
+      const createdAllocation = await dbInsert('payment_allocations', {
+        organization_id: orgId,
+        transaction_id: createdTx.id,
+        invoice_id: invoice.id,
+        amount_allocated: allocationAmount,
+        allocated_by: userId,
+        allocated_at: new Date().toISOString()
+      });
+
+      // Update invoice
+      const updatedAmountPaid = Number(invoice.amount_paid || 0) + allocationAmount;
+      await dbUpdate('invoices', invoice.id, {
+        amount_paid: updatedAmountPaid,
+        balance: invoiceBalanceAfter,
+        status: invoiceStatusAfter,
+        updated_at: new Date().toISOString()
+      });
+
+      // Update bank transaction status to Matched
+      const matchService = new MatchSuggestionService();
+      const suggestions = await matchService.getSuggestions(tx, {
+        find: (t, f) => dbFind(t, f),
+        findOne: (t, f) => dbFindOne(t, f)
+      });
+      const currentMatch = suggestions.find(s => s.invoiceId === Number(invoice_id));
+
+      const reasoning = currentMatch ? {
+        score: currentMatch.score,
+        reasons: currentMatch.reasons
+      } : {
+        score: 100,
+        reasons: ['Manually reconciled by user']
+      };
+
+      await dbUpdate('confirmed_statement_transactions', tx.id, {
+        status: 'Matched',
+        matched_invoice_id: invoice.id,
+        matched_tenant_id: tenant.id,
+        match_reasoning: JSON.stringify(reasoning),
+        updated_at: new Date().toISOString()
+      });
+
+      // Audit Log
+      if (!pgDb && typeof readDb === 'function') {
+        // Simple audit mock for JSON DB
+      }
+
+      res.json({
+        success: true,
+        transaction_id: createdTx.id,
+        payment_allocation_id: createdAllocation.id,
+        invoice_status_after: invoiceStatusAfter,
+        balance_after: invoiceBalanceAfter
+      });
+    })
+  );
+
+  // POST /api/billing/bank-transactions/:id/ignore
+  router.post(
+    '/billing/bank-transactions/:id/ignore',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const id = Number(req.params.id);
+
+      const tx = await dbFindOne('confirmed_statement_transactions', { id, organization_id: orgId });
+      if (!tx) {
+        return res.status(404).json({ error: 'Bank transaction not found.' });
+      }
+
+      await dbUpdate('confirmed_statement_transactions', tx.id, { status: 'Ignored', updated_at: new Date().toISOString() });
+      res.json({ success: true, status: 'Ignored' });
+    })
+  );
+
+  // POST /api/billing/bank-transactions/:id/mark-duplicate
+  router.post(
+    '/billing/bank-transactions/:id/mark-duplicate',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const id = Number(req.params.id);
+
+      const tx = await dbFindOne('confirmed_statement_transactions', { id, organization_id: orgId });
+      if (!tx) {
+        return res.status(404).json({ error: 'Bank transaction not found.' });
+      }
+
+      await dbUpdate('confirmed_statement_transactions', tx.id, { status: 'Duplicate', updated_at: new Date().toISOString() });
+      res.json({ success: true, status: 'Duplicate' });
+    })
+  );
+
+  // POST /api/billing/bank-transactions/:id/return-to-queue
+  router.post(
+    '/billing/bank-transactions/:id/return-to-queue',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const id = Number(req.params.id);
+
+      const tx = await dbFindOne('confirmed_statement_transactions', { id, organization_id: orgId });
+      if (!tx) {
+        return res.status(404).json({ error: 'Bank transaction not found.' });
+      }
+
+      await dbUpdate('confirmed_statement_transactions', tx.id, { status: 'Unmatched', updated_at: new Date().toISOString() });
+      res.json({ success: true, status: 'Unmatched' });
+    })
+  );
+
+  // GET /api/billing/reconciliation/search-candidates
+  router.get(
+    '/billing/reconciliation/search-candidates',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const query = String(req.query.q || '').trim().toLowerCase();
+
+      const allTenants = await dbFind('tenants', { organization_id: orgId }) || [];
+      const allInvoices = await dbFind('invoices', { organization_id: orgId }) || [];
+      const allUnits = await dbFind('units', { organization_id: orgId }) || [];
+      const allProperties = await dbFind('properties', { organization_id: orgId }) || [];
+
+      const unitsMap = new Map(allUnits.map(u => [u.id, u]));
+      const propertiesMap = new Map(allProperties.map(p => [p.id, p]));
+
+      const results = [];
+
+      for (const invoice of allInvoices) {
+        if (invoice.status === 'void' || invoice.status === 'cancelled' || invoice.status === 'deleted') continue;
+
+        const tenant = allTenants.find(t => t.id === invoice.tenant_id);
+        if (!tenant) continue;
+
+        const unit = tenant.unit_id ? unitsMap.get(tenant.unit_id) : null;
+        const property = unit ? propertiesMap.get(unit.property_id) : null;
+
+        const tenantName = String(tenant.full_name || '').toLowerCase();
+        const invoiceNum = String(invoice.invoice_number || '').toLowerCase();
+        const phone = String(tenant.phone_number || '').toLowerCase();
+        const unitCode = unit ? String(unit.unit_code || '').toLowerCase() : '';
+        const propName = property ? String(property.name || '').toLowerCase() : '';
+        const amountStr = String(invoice.balance || '').toLowerCase();
+
+        const isMatch = tenantName.includes(query) ||
+                        invoiceNum.includes(query) ||
+                        phone.includes(query) ||
+                        unitCode.includes(query) ||
+                        propName.includes(query) ||
+                        amountStr.includes(query);
+
+        if (isMatch) {
+          results.push({
+            invoiceId: Number(invoice.id),
+            invoice_number: invoice.invoice_number,
+            tenant_name: tenant.full_name,
+            invoice_balance: Number(invoice.balance),
+            invoice_total: Number(invoice.total),
+            unit_label: unit ? `${property ? property.name + ' - ' : ''}${unit.unit_code}` : 'N/A',
+            score: 100,
+            reasons: ['Manually searched and selected']
+          });
+        }
+      }
+
+      res.json(results);
     })
   );
 
