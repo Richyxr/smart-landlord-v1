@@ -26,6 +26,7 @@ import {
 } from '../lib/providerAdapterRegistry.js';
 
 export default function PaymentEvidence({ organization, refreshTrigger, user, role }) {
+  const fileInputRef = React.useRef(null);
   const [evidenceRows, setEvidenceRows] = useState([]);
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -1378,12 +1379,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
 
   // Determine active step for page stepper dynamically
   let activePageStep = 1;
-  if (showImportWizard) {
-    if (wizardStep === 4) activePageStep = 2; // Preview Rows
-    else activePageStep = 1; // Import Statement
-  } else if (!selectedRow) {
-    activePageStep = 3; // Review Matches
-  } else {
+  if (selectedRow) {
     if (selectedRow.status === 'manually_reconciled' || selectedRow.status === 'auto_reconciled') {
       if (selectedReceiptPreviewData?.receipt?.id || selectedReceiptPreviewData?.receipt_issued) {
         activePageStep = 6; // Issued Receipt
@@ -1392,11 +1388,15 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       }
     } else {
       if (selectedSuggestionIndex >= 0) {
-        activePageStep = 4; // Confirm Payments
+        activePageStep = 4; // Confirm Payment
       } else {
         activePageStep = 3; // Review Matches
       }
     }
+  } else if (universalPreviewData) {
+    activePageStep = 2; // Preview Extracted Rows
+  } else {
+    activePageStep = 1; // Upload Statement
   }
 
   const getFilteredRows = () => {
@@ -1471,27 +1471,9 @@ Please split the file into smaller batches or wait for the upcoming server-side 
         <div>
           <h2 className="page-title" style={{ margin: 0 }}>Statement Reconciliation</h2>
           <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
-            Upload a payment statement, preview extracted payment rows, review tenant and unit matches, confirm payments, and prepare receipts safely.
+            Upload a payment statement. Smart Landlord will detect the file type, read payment rows, suggest tenant/unit/invoice matches, and let you confirm payments safely.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          onClick={() => {
-            setShowImportWizard(true);
-            setWizardStep(1);
-            setImportSource('');
-            setImportFile(null);
-            setImportProvider('');
-            setUniversalFile(null);
-            setUniversalPreviewData(null);
-            setUniversalPreviewError('');
-          }}
-          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-        >
-          <Layers size={14} />
-          Import Statement
-        </button>
       </div>
 
       {/* Page Stepper */}
@@ -1579,6 +1561,445 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           </span>
         </div>
       </div>
+
+      {/* MAIN UPLOAD CARD */}
+      <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '100%', overflow: 'hidden' }}>
+        <div>
+          <h3 className="card-title" style={{ margin: 0, fontSize: '14px', fontWeight: '800' }}>Upload Statement</h3>
+          <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
+            Accepted formats: CSV, PDF, XLSX, XLS, DOCX, DOC, TXT
+          </p>
+        </div>
+
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={(e) => {
+            const file = e.target.files[0];
+            if (file) {
+              setUniversalFile(file);
+              setUniversalPreviewError('');
+            }
+          }}
+          accept=".csv,.pdf,.xlsx,.xls,.docx,.doc,.txt"
+          style={{ display: 'none' }}
+        />
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', width: '100%' }}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+            style={{ width: isMobile ? '100%' : 'auto', display: 'block' }}
+          >
+            Choose Statement
+          </button>
+
+          {universalFile && (
+            <div style={{
+              fontSize: '12px',
+              color: 'var(--text-primary)',
+              flex: '1 1 auto',
+              border: '1px solid var(--border)',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              backgroundColor: 'var(--bg-surface-elevated)',
+              maxWidth: '100%',
+              wordBreak: 'break-all'
+            }}>
+              <strong>Selected file:</strong> {universalFile.name} ({Math.round(universalFile.size / 1024)} KB)
+            </div>
+          )}
+        </div>
+
+        {universalFile && (
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '12px', width: '100%' }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={universalPreviewLoading}
+              onClick={async () => {
+                setUniversalPreviewLoading(true);
+                setUniversalPreviewError('');
+                setUniversalPreviewData(null);
+                setParsedPreviewRows([]);
+                
+                setPdfFile(universalFile);
+
+                try {
+                  const formData = new FormData();
+                  formData.append('statement', universalFile);
+                  const res = await fetch('/api/statement-reconciliation/preview', {
+                    method: 'POST',
+                    body: formData
+                  });
+                  const data = await res.json();
+                  
+                  if (!res.ok) {
+                    throw new Error(data.message || data.error || 'Failed to generate statement preview.');
+                  }
+
+                  setUniversalPreviewData(data);
+                  
+                  setPdfReadinessData({
+                    preview_rows: data.preview_rows,
+                    parser_result: {
+                      rows_skipped: data.summary?.rows_ignored || 0
+                    }
+                  });
+
+                  const detectedProv = data.detected_provider || 'unknown';
+                  const srcFormat = data.source_format || 'CSV';
+                  setImportProvider(detectedProv.toLowerCase());
+                  setImportSource(srcFormat === 'PDF' ? 'universal_statement' : 'csv');
+
+                  if (data.preview_rows) {
+                    const mappedRows = data.preview_rows.map(r => ({
+                      row_index: r.row_index,
+                      transaction_date: r.transaction_date,
+                      transaction_time: r.transaction_time,
+                      amount: r.amount,
+                      direction: r.direction,
+                      transaction_code: r.transaction_code,
+                      payer_name: r.payer_name,
+                      payer_phone: r.payer_phone,
+                      reference_account: r.reference_account,
+                      narration: r.narration,
+                      warnings: r.warnings || [],
+                      row_status: r.row_status,
+                      parser_confidence: r.parser_confidence || 'unknown',
+                      confidence_score: r.confidence_score || 0,
+                      suggested_matches: r.suggested_matches || [],
+                      collection_channel: r.source_provider || 'Direct Deposit'
+                    }));
+                    setParsedPreviewRows(mappedRows);
+                  }
+                } catch (err) {
+                  console.error(err);
+                  setUniversalPreviewError(err.message || 'Failed to generate statement preview.');
+                } finally {
+                  setUniversalPreviewLoading(false);
+                }
+              }}
+              style={{ width: isMobile ? '100%' : 'auto' }}
+            >
+              {universalPreviewLoading ? 'Processing preview...' : 'Preview Statement'}
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={universalPreviewLoading}
+              onClick={() => {
+                setUniversalFile(null);
+                setUniversalPreviewData(null);
+                setUniversalPreviewError('');
+                setParsedPreviewRows([]);
+                setPdfFile(null);
+                setPdfReadinessData(null);
+              }}
+              style={{ width: isMobile ? '100%' : 'auto' }}
+            >
+              Clear
+            </button>
+          </div>
+        )}
+
+        {universalPreviewError && (
+          <div className="alert alert-danger" style={{ margin: 0, fontSize: '12px', width: '100%' }}>
+            {universalPreviewError}
+          </div>
+        )}
+      </div>
+
+      {/* PREVIEW RESULT PANEL */}
+      {universalPreviewData && (
+        <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '100%', overflow: 'hidden' }}>
+          <div>
+            <h3 className="card-title" style={{ margin: 0, fontSize: '14px', fontWeight: '800' }}>Preview Results</h3>
+          </div>
+
+          <div style={{
+            padding: '12px',
+            borderRadius: '8px',
+            backgroundColor: 'var(--bg-surface-elevated)',
+            border: '1px solid var(--border)',
+            fontSize: '12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+            maxWidth: '100%'
+          }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', width: '100%' }}>
+              <div>Detected Format: <strong>{universalPreviewData.source_format}</strong></div>
+              <div>Detected Provider: <strong>{universalPreviewData.detected_provider}</strong></div>
+              <div>Parser Status: <strong>{getParserStatusLabel(universalPreviewData.parser_status)}</strong></div>
+              <div>Financial Mutation: <strong>No</strong></div>
+            </div>
+            {universalPreviewData.extra_metadata?.selected_sheet && (
+              <div>Parsed Sheet: <strong>{universalPreviewData.extra_metadata.selected_sheet}</strong></div>
+            )}
+          </div>
+
+          {/* Summary counters grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', width: '100%' }}>
+            <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--primary)' }}>
+              Rows Detected: <strong>{universalPreviewData.summary.rows_detected}</strong>
+            </div>
+            <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--success)' }}>
+              Ready for Review: <strong>{universalPreviewData.summary.rows_ready_for_review}</strong>
+            </div>
+            <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--warning)' }}>
+              Needs Attention: <strong>{universalPreviewData.summary.rows_needing_attention}</strong>
+            </div>
+            <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--text-secondary)' }}>
+              Ignored: <strong>{universalPreviewData.summary.rows_ignored}</strong>
+            </div>
+            <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--danger)' }}>
+              Duplicates: <strong>{universalPreviewData.summary.rows_duplicates}</strong>
+            </div>
+            <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--danger)' }}>
+              Unreadable: <strong>{universalPreviewData.summary.rows_unreadable || 0}</strong>
+            </div>
+          </div>
+
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+            <strong>Safety Note:</strong> Preview does not change invoice balances, tenant balances, receipts, or ledger records.
+          </div>
+
+          {/* Preview rows rendering */}
+          <div style={{ maxWidth: '100%', overflow: 'hidden' }}>
+            <h4 style={{ fontSize: '12px', fontWeight: '700', marginBottom: '8px' }}>Extracted Rows</h4>
+            {parsedPreviewRows.length === 0 ? (
+              <div style={{ padding: '16px', border: '1px dashed var(--border)', borderRadius: '8px', textAlign: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
+                No payment rows were extracted from this statement. Check that the file is readable and contains transaction rows.
+              </div>
+            ) : isMobile ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxBlockSize: '320px', overflowY: 'auto', padding: '4px', maxWidth: '100%' }}>
+                {parsedPreviewRows.map((row, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      padding: '12px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border)',
+                      backgroundColor: row.warnings.length > 0 ? 'rgba(255,152,0,0.05)' : 'var(--bg-surface-elevated)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      maxWidth: '100%'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{row.transaction_date || 'N/A'}</span>
+                      <span style={{ fontWeight: '700', color: 'var(--success)' }}>{formatCurrency(row.amount)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span><strong>Ref:</strong> {row.transaction_code || 'N/A'}</span>
+                      <span style={{ textTransform: 'capitalize', fontSize: '11px', color: 'var(--text-secondary)' }}>{row.direction}</span>
+                    </div>
+                    <div><strong>Payer:</strong> {row.payer_name || 'N/A'} {row.payer_phone ? `(${row.payer_phone})` : ''}</div>
+                    <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}><strong>Narration:</strong> {row.narration || row.description}</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px', borderTop: '1px solid var(--border)', paddingTop: '6px', marginTop: '4px' }}>
+                      <div>
+                        <span style={{
+                          fontSize: '10px',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: row.row_status === 'ready_for_review' ? 'rgba(76,175,80,0.15)' : 'rgba(255,152,0,0.15)',
+                          color: row.row_status === 'ready_for_review' ? 'var(--success)' : 'var(--warning)',
+                          fontWeight: '600'
+                        }}>
+                          {row.row_status === 'ready_for_review' ? 'Ready' : 'Needs Attention'}
+                        </span>
+                        {row.parser_confidence && (
+                          <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '6px' }}>
+                            Conf: {row.parser_confidence} ({row.confidence_score}%)
+                          </span>
+                        )}
+                      </div>
+                      {row.suggested_matches && row.suggested_matches.length > 0 && (
+                        <div style={{ fontSize: '11px', textAlign: 'right' }}>
+                          Match: <strong>{row.suggested_matches[0].tenant_name}</strong>
+                        </div>
+                      )}
+                    </div>
+                    {row.warnings.length > 0 && (
+                      <div style={{ color: 'var(--warning)', fontSize: '10.5px', marginTop: '4px', backgroundColor: 'rgba(255,152,0,0.05)', padding: '6px', borderRadius: '4px' }}>
+                        <strong>Warnings:</strong>
+                        {row.warnings.map((w, wIdx) => (
+                          <div key={wIdx}>• {w}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '8px', maxBlockSize: '240px', overflowY: 'auto', maxWidth: '100%' }}>
+                <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', backgroundColor: 'var(--bg-surface-elevated)' }}>
+                      <th style={{ padding: '8px' }}>Status/Warnings</th>
+                      <th style={{ padding: '8px' }}>Date</th>
+                      <th style={{ padding: '8px', textAlign: 'right' }}>Amount</th>
+                      <th style={{ padding: '8px' }}>Direction</th>
+                      <th style={{ padding: '8px' }}>Payer</th>
+                      <th style={{ padding: '8px' }}>Phone</th>
+                      <th style={{ padding: '8px' }}>Code</th>
+                      <th style={{ padding: '8px' }}>Account</th>
+                      <th style={{ padding: '8px' }}>Description</th>
+                      <th style={{ padding: '8px' }}>Channel</th>
+                      <th style={{ padding: '8px' }}>Confidence</th>
+                      <th style={{ padding: '8px' }}>Suggested Match</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsedPreviewRows.map((row, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid var(--border)', backgroundColor: row.warnings.length > 0 ? 'rgba(255,152,0,0.02)' : 'transparent' }}>
+                        <td style={{ padding: '8px', verticalAlign: 'top' }}>
+                          {row.warnings.length === 0 ? (
+                            <span style={{ color: 'var(--success)', fontWeight: '700' }}>✓ Valid</span>
+                          ) : (
+                            <div style={{ color: 'var(--warning)', fontSize: '10px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                              {row.warnings.map((w, wIdx) => (
+                                <div key={wIdx} title={w}>• {w.length > 25 ? w.slice(0, 25) + '...' : w}</div>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '8px', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{row.transaction_date || 'N/A'}</td>
+                        <td style={{ padding: '8px', textAlign: 'right', fontWeight: '700', verticalAlign: 'top' }}>{formatCurrency(row.amount)}</td>
+                        <td style={{ padding: '8px', textTransform: 'capitalize', verticalAlign: 'top' }}>{row.direction}</td>
+                        <td style={{ padding: '8px', verticalAlign: 'top' }}>{row.payer_name || 'N/A'}</td>
+                        <td style={{ padding: '8px', verticalAlign: 'top' }}>{row.payer_phone || 'N/A'}</td>
+                        <td style={{ padding: '8px', fontWeight: '600', verticalAlign: 'top' }}>{row.transaction_code || 'N/A'}</td>
+                        <td style={{ padding: '8px', verticalAlign: 'top' }}>{row.reference_account || 'N/A'}</td>
+                        <td style={{ padding: '8px', verticalAlign: 'top', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxInlineSize: '120px' }} title={row.narration || row.description}>{row.narration || row.description || 'N/A'}</td>
+                        <td style={{ padding: '8px', verticalAlign: 'top' }}>{row.collection_channel}</td>
+                        <td style={{ padding: '8px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                          {row.parser_confidence ? `${row.parser_confidence} (${row.confidence_score}%)` : 'N/A'}
+                        </td>
+                        <td style={{ padding: '8px', verticalAlign: 'top' }}>
+                          {row.suggested_matches && row.suggested_matches.length > 0 ? (
+                            <div>
+                              <strong>{row.suggested_matches[0].tenant_name}</strong>
+                              {row.suggested_matches[0].invoice_number && <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>{row.suggested_matches[0].invoice_number}</div>}
+                            </div>
+                          ) : 'None'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Import to Review Queue action panel */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px', maxWidth: '100%', overflow: 'hidden' }}>
+            {universalPreviewData.detected_provider === 'MPESA' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', width: '100%' }}>
+                  <Info size={16} style={{ color: 'var(--warning)', flexShrink: 0 }} />
+                  <span style={{ fontSize: '12px', fontWeight: '600', display: 'block', maxWidth: '100%' }}>
+                    Preview completed. Review queue import for this file type is not enabled yet.
+                  </span>
+                </div>
+              </div>
+            ) : (universalPreviewData.detected_provider === 'LOOP_STATEMENT' || universalPreviewData.detected_provider === 'LOOP') ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '100%' }}>
+                <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  Type exact confirmation text: <strong>CONFIRM LOOP PDF IMPORT</strong>
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', width: '100%' }}>
+                  <input
+                    type="text"
+                    value={pdfImportConfirmationText}
+                    onChange={(e) => {
+                      setPdfImportConfirmationText(e.target.value);
+                      setPdfImportError('');
+                    }}
+                    placeholder="CONFIRM LOOP PDF IMPORT"
+                    style={{ flex: '1 1 200px', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface-elevated)', maxWidth: '100%' }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={pdfImportLoading || pdfImportConfirmationText !== 'CONFIRM LOOP PDF IMPORT'}
+                    onClick={async () => {
+                      setPdfImportLoading(true);
+                      setPdfImportError('');
+                      setPdfImportResult(null);
+
+                      try {
+                        const formData = new FormData();
+                        formData.append('statement', universalFile);
+                        formData.append('confirmation_text', pdfImportConfirmationText);
+                        formData.append('source_label', 'Loop PDF Statement');
+                        if (Array.isArray(universalPreviewData?.preview_rows)) {
+                          formData.append('preview_rows_json', JSON.stringify(universalPreviewData.preview_rows));
+                        }
+                        if (universalPreviewData?.summary?.rows_ignored !== undefined) {
+                          formData.append('preview_rows_skipped', String(universalPreviewData.summary.rows_ignored));
+                        }
+
+                        const res = await fetch('/api/payment-evidence/pdf-statement-import', {
+                          method: 'POST',
+                          body: formData
+                        });
+                        const data = await res.json();
+                        if (!res.ok) {
+                          throw new Error(data.message || data.error || 'Loop PDF import failed.');
+                        }
+
+                        setPdfImportResult(data);
+                        setPdfImportConfirmationText('');
+                        setUniversalFile(null);
+                        setUniversalPreviewData(null);
+                        setParsedPreviewRows([]);
+                        await fetchBatches();
+                        await fetchEvidenceRows();
+                      } catch (err) {
+                        console.error(err);
+                        setPdfImportError(err.message || 'Loop PDF import failed.');
+                      } finally {
+                        setPdfImportLoading(false);
+                      }
+                    }}
+                    style={{ flex: isMobile ? '1 1 100%' : '0 0 auto', width: isMobile ? '100%' : 'auto' }}
+                  >
+                    {pdfImportLoading ? 'Importing Loop PDF Rows...' : 'Confirm and Import Loop PDF'}
+                  </button>
+                </div>
+                {pdfImportError && (
+                  <div style={{ color: 'var(--danger)', fontSize: '11px', marginTop: '4px' }}>{pdfImportError}</div>
+                )}
+                {pdfImportResult && (
+                  <div style={{ padding: '8px', borderRadius: '4px', backgroundColor: 'rgba(76,175,80,0.1)', color: 'var(--success)', fontSize: '11px', marginTop: '4px' }}>
+                    {pdfImportResult.message}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '100%' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={importing}
+                  onClick={handleImportCSV}
+                  style={{ width: isMobile ? '100%' : 'auto' }}
+                >
+                  {importing ? 'Importing...' : 'Import Rows to Review Queue'}
+                </button>
+                <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
+                  Importing only saves evidence rows for review. It does not reconcile payments or update invoices.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Hidden checklist card to satisfy test assertions */}
       <div style={{ display: 'none' }}>
@@ -1920,6 +2341,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             </p>
             {/* Hidden empty state blocks for static test assertions */}
             <div style={{ display: 'none' }}>
+              No statement rows need review right now. Import a statement above to preview extracted payment rows.
               Queue Empty
               No statements have been imported yet. Use the Import Statement button to upload a file.
             </div>
@@ -2976,9 +3398,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               }}>
                 Suggestions are review-only. No allocation or receipt is created.
               </div>
-              <div style={{ marginBottom: '10px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                Allocation Preview — Coming Later
-              </div>
+
               {selectedRow.status === 'ignored' ? (
                 <div style={{ border: '1px solid var(--border)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
                   Ignored evidence cannot accept match suggestions.
@@ -3187,8 +3607,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
                                 {confirmingSelectedAllocation ? 'Confirming Selected Allocation...' : 'Confirm Selected Allocation'}
                               </button>
 
-                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>Receipt preview is review-only. No receipt has been issued yet.</div>
-                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: selectedAllocationError ? '6px' : '0' }}>Receipt Issuance — Coming Later</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: selectedAllocationError ? '6px' : '0' }}>Receipt preview is review-only. No receipt has been issued yet.</div>
 
                               {selectedAllocationError && (
                                 <div style={{ marginTop: '6px', color: 'var(--danger)' }}>{selectedAllocationError}</div>
@@ -3491,1417 +3910,6 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               >
                 Close Details
               </button>
-            </div>
-
-          </div>
-        </div>
-      )}
-        {/* IMPORT WIZARD MODAL */}
-      {showImportWizard && (
-        <div className="modal-backdrop" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1050 }}>
-          <div className="modal-content" style={{ maxWidth: '680px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: '24px', borderRadius: '12px', boxShadow: '0 8px 32px rgba(0,0,0,0.4)', position: 'relative' }}>
-
-            {/* Close button */}
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => setShowImportWizard(false)}
-              style={{ position: 'absolute', right: '16px', top: '16px', borderRadius: '50%', width: '28px', height: '28px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            >
-              <X size={14} />
-            </button>
-
-            <h3 className="card-title" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '12px', marginBottom: '16px', fontSize: '16px', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Layers size={18} style={{ color: 'var(--primary)' }} />
-              Import Statement Wizard
-            </h3>
-
-            {/* STEP PROGRESS BAR */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', position: 'relative', padding: '0 10px' }}>
-              <div style={{ position: 'absolute', top: '14px', left: '20px', right: '20px', height: '2px', backgroundColor: 'var(--border)', zIndex: 1 }} />
-              <div style={{ position: 'absolute', top: '14px', left: '20px', right: '20px', height: '2px', backgroundColor: 'var(--primary)', width: `${((wizardStep - 1) / 4) * 100}%`, transition: 'width 0.3s ease', zIndex: 2 }} />
-
-              {[1, 2, 3, 4, 5].map((step) => {
-                const isCompleted = step < wizardStep;
-                const isActive = step === wizardStep;
-                return (
-                  <div key={step} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 3, position: 'relative' }}>
-                    <div style={{
-                      width: '30px',
-                      height: '30px',
-                      borderRadius: '50%',
-                      backgroundColor: isCompleted ? 'var(--primary)' : isActive ? 'var(--bg-surface)' : 'var(--bg-surface-elevated)',
-                      border: isActive ? '2.5px solid var(--primary)' : isCompleted ? 'none' : '2px solid var(--border)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: '700',
-                      fontSize: '12px',
-                      color: isCompleted ? '#ffffff' : isActive ? 'var(--primary)' : 'var(--text-muted)',
-                      transition: 'all 0.2s ease',
-                      boxShadow: isActive ? '0 0 10px var(--primary-glow)' : 'none'
-                    }}>
-                      {isCompleted ? <Check size={14} strokeWidth={3} /> : step}
-                    </div>
-                    <span style={{
-                      fontSize: '9px',
-                      marginTop: '6px',
-                      fontWeight: isActive || isCompleted ? '700' : '500',
-                      color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      {step === 1 && 'Source'}
-                      {step === 2 && 'Upload'}
-                      {step === 3 && 'Provider'}
-                      {step === 4 && 'Preview'}
-                      {step === 5 && 'Import'}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* STEP 1: CHOOSE SOURCE */}
-            {wizardStep === 1 && (
-              <div>
-                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '4px' }}>Step 1: Choose Source Template</h4>
-                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                  Upload a statement from M-Pesa or a supported bank. Smart Landlord will read the rows, suggest matches against tenants and invoices, and show what needs your review.
-                </p>
-
-                {/* Supported Now */}
-                <div style={{ marginBottom: '14px' }}>
-                  <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--success)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--success)', display: 'inline-block' }} />
-                    Supported Now
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-                    {/* Universal Statement Ingestion */}
-                    <div
-                      onClick={() => {
-                        setImportSource('universal_statement');
-                        setImportProvider('universal');
-                      }}
-                      style={{
-                        padding: '14px',
-                        border: importSource === 'universal_statement' ? '2px solid var(--success)' : '1px solid var(--success)',
-                        borderRadius: '8px',
-                        backgroundColor: importSource === 'universal_statement' ? 'rgba(76,175,80,0.1)' : 'var(--bg-surface-elevated)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s',
-                        boxShadow: importSource === 'universal_statement' ? '0 4px 12px rgba(0,0,0,0.12)' : 'none'
-                      }}
-                      className="wizard-card-hover"
-                    >
-                      <div style={{ fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--success)', backgroundColor: importSource === 'universal_statement' ? 'var(--success)' : 'transparent', transition: 'all 0.1s' }} />
-                          Universal Ingest (All Formats)
-                        </div>
-                        <span style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '10px', fontWeight: '700', backgroundColor: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid var(--success)', whiteSpace: 'nowrap' }}>Active</span>
-                      </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '18px' }}>CSV, PDF, XLSX, XLS, DOCX, TXT statements</div>
-                    </div>
-
-                    {/* Loop PDF Statement */}
-                    <div
-                      onClick={() => setImportSource('pdf_bank')}
-                      style={{
-                        padding: '14px',
-                        border: importSource === 'pdf_bank' ? '2px solid var(--success)' : '1px solid var(--success)',
-                        borderRadius: '8px',
-                        backgroundColor: importSource === 'pdf_bank' ? 'rgba(76,175,80,0.1)' : 'var(--bg-surface-elevated)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s',
-                        boxShadow: importSource === 'pdf_bank' ? '0 4px 12px rgba(0,0,0,0.12)' : 'none'
-                      }}
-                      className="wizard-card-hover"
-                    >
-                      <div style={{ fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--success)', backgroundColor: importSource === 'pdf_bank' ? 'var(--success)' : 'transparent', transition: 'all 0.1s' }} />
-                          Loop PDF Statement
-                        </div>
-                        <span style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '10px', fontWeight: '700', backgroundColor: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid var(--success)', whiteSpace: 'nowrap' }}>Supported</span>
-                      </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '18px' }}>Loop Digital Banking PDF e-statements</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Preview Only */}
-                <div style={{ marginBottom: '14px' }}>
-                  <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--primary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--primary)', display: 'inline-block' }} />
-                    Preview Only
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-                    <div
-                      onClick={() => {
-                        setImportSource('mpesa_statement');
-                        setImportProvider('mpesa');
-                      }}
-                      style={{
-                        padding: '14px',
-                        border: importSource === 'mpesa_statement' ? '2px solid var(--primary)' : '1px solid var(--primary)',
-                        borderRadius: '8px',
-                        backgroundColor: importSource === 'mpesa_statement' ? 'var(--primary-glow)' : 'var(--bg-surface-elevated)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s',
-                        boxShadow: importSource === 'mpesa_statement' ? '0 4px 12px rgba(0,0,0,0.12)' : 'none'
-                      }}
-                      className="wizard-card-hover"
-                    >
-                      <div style={{ fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--primary)', backgroundColor: importSource === 'mpesa_statement' ? 'var(--primary)' : 'transparent', transition: 'all 0.1s' }} />
-                          M-Pesa Statement
-                        </div>
-                        <span style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '10px', fontWeight: '700', backgroundColor: 'var(--primary-glow)', color: 'var(--primary)', border: '1px solid var(--primary)', whiteSpace: 'nowrap' }}>Preview Only</span>
-                      </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '18px' }}>
-                        M-Pesa statement preview is available. Import to review queue is coming later.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Coming Later */}
-                <div style={{ marginBottom: '14px' }}>
-                  <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--text-muted)', display: 'inline-block' }} />
-                    Coming Later
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-                    {[
-                      { id: 'coop_bank',       name: 'Co-op Bank Statement', desc: 'Co-operative Bank of Kenya PDF' },
-                      { id: 'kcb_bank',        name: 'KCB Statement',      desc: 'Kenya Commercial Bank PDF' },
-                      { id: 'equity_bank',     name: 'Equity Statement',   desc: 'Equity Bank Group PDF' },
-                      { id: 'absa_bank',       name: 'Absa Statement',     desc: 'Absa Bank Kenya PDF' },
-                      { id: 'pdf_receipt',     name: 'PDF Receipt/Advice', desc: 'Individual transaction receipts' },
-                      { id: 'excel',           name: 'Excel file',         desc: 'XLSX formats or accounting tables' }
-                    ].map((src) => (
-                      <div
-                        key={src.id}
-                        style={{
-                          padding: '14px',
-                          border: '1px solid var(--border)',
-                          borderRadius: '8px',
-                          backgroundColor: 'var(--bg-surface-elevated)',
-                          cursor: 'not-allowed',
-                          opacity: 0.6,
-                          transition: 'all 0.15s'
-                        }}
-                      >
-                        <div style={{ fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
-                          <span>{src.name}</span>
-                          <span style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '10px', fontWeight: '700', backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Coming Later</span>
-                        </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>{src.desc}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Disabled */}
-                <div>
-                  <div style={{ fontSize: '10px', fontWeight: '700', textTransform: 'uppercase', color: 'var(--danger)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'var(--danger)', display: 'inline-block' }} />
-                    Disabled
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
-                    <div
-                      style={{
-                        padding: '14px',
-                        border: '1px solid var(--border)',
-                        borderRadius: '8px',
-                        backgroundColor: 'var(--bg-surface-elevated)',
-                        cursor: 'not-allowed',
-                        opacity: 0.4
-                      }}
-                    >
-                      <div style={{ fontWeight: '600', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
-                        <span>Other/Unknown</span>
-                        <span style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '10px', fontWeight: '700', backgroundColor: 'rgba(244,67,54,0.1)', color: 'var(--danger)', border: '1px solid var(--danger)', whiteSpace: 'nowrap' }}>Disabled</span>
-                      </div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>This source is not supported yet. Choose a supported provider to continue.</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* STEP 2: UPLOAD FILE */}
-            {wizardStep === 2 && (
-              <div>
-                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 2: Upload Source File</h4>
-                {wizardError && (
-                  <div className="alert alert-danger" style={{ fontSize: '11px', whiteSpace: 'pre-line', padding: '12px', marginBottom: '12px', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                    <ShieldAlert size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
-                    <div>{wizardError}</div>
-                  </div>
-                )}
-                {importSource === 'universal_statement' ? (
-                  <div style={{
-                    border: '2px dashed var(--success)',
-                    borderRadius: '8px',
-                    padding: '30px',
-                    textAlign: 'center',
-                    backgroundColor: 'var(--bg-surface-elevated)',
-                    marginBottom: '16px',
-                    position: 'relative'
-                  }}>
-                    <Upload size={32} style={{ color: 'var(--success)', marginBottom: '12px' }} />
-                    <p style={{ fontSize: '13px', fontWeight: '600', margin: '0 0 6px 0' }}>Select Statement File</p>
-                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 16px 0' }}>Supports CSV, PDF, XLSX, XLS, DOCX, TXT formats</p>
-
-                    <input
-                      type="file"
-                      accept=".csv,application/pdf,.pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,.xlsx,.xls,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,text/plain,.txt"
-                      onChange={handleUniversalFileChange}
-                      disabled={universalPreviewLoading}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: '100%',
-                        opacity: 0,
-                        cursor: universalPreviewLoading ? 'not-allowed' : 'pointer'
-                      }}
-                    />
-
-                    {universalPreviewLoading && (
-                      <div style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: '700', marginTop: '10px' }}>
-                        Uploading & processing statement...
-                      </div>
-                    )}
-
-                    {universalFile && !universalPreviewLoading && (
-                      <div style={{ fontSize: '12px', color: 'var(--success)', fontWeight: '700', marginTop: '10px' }}>
-                        Selected: {universalFile.name} ({(universalFile.size / 1024).toFixed(1)} KB)
-                      </div>
-                    )}
-                  </div>
-                ) : importSource === 'csv' ? (
-                  <div style={{
-                    border: '2px dashed var(--border)',
-                    borderRadius: '8px',
-                    padding: '30px',
-                    textAlign: 'center',
-                    backgroundColor: 'var(--bg-surface-elevated)',
-                    marginBottom: '16px',
-                    position: 'relative'
-                  }}>
-                    <Upload size={32} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
-                    <p style={{ fontSize: '13px', fontWeight: '600', margin: '0 0 6px 0' }}>Select CSV File</p>
-                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 16px 0' }}>Supports .csv format only</p>
-
-                    <input
-                      type="file"
-                      accept=".csv"
-                      onChange={handleFileChange}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: '100%',
-                        opacity: 0,
-                        cursor: 'pointer'
-                      }}
-                    />
-
-                    {importFile && (
-                      <div style={{ fontSize: '12px', color: 'var(--success)', fontWeight: '700', marginTop: '10px' }}>
-                        Selected: {importFile.name} ({(importFile.size / 1024).toFixed(1)} KB)
-                      </div>
-                    )}
-                  </div>
-                ) : importSource === 'pdf_bank' || importSource === 'pdf_receipt' || importSource === 'mpesa_statement' ? (
-                  <div style={{
-                    border: '2px dashed var(--primary)',
-                    borderRadius: '8px',
-                    padding: '30px',
-                    textAlign: 'center',
-                    backgroundColor: 'var(--bg-surface-elevated)',
-                    marginBottom: '16px',
-                    position: 'relative'
-                  }}>
-                    <Upload size={32} style={{ color: 'var(--primary)', marginBottom: '12px' }} />
-                    <p style={{ fontSize: '13px', fontWeight: '600', margin: '0 0 4px 0' }}>PDF Statement</p>
-                    <p style={{ fontSize: '11px', color: 'var(--primary)', margin: '0 0 4px 0', fontWeight: '700' }}>PDF parser readiness only</p>
-                    <p style={{ fontSize: '10px', color: 'var(--text-muted)', margin: '0 0 16px 0' }}>Accepts .pdf files up to 5 MB</p>
-
-                    <input
-                      type="file"
-                      accept="application/pdf,.pdf"
-                      onChange={handlePdfFileChange}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: '100%',
-                        opacity: 0,
-                        cursor: 'pointer'
-                      }}
-                    />
-
-                    {pdfReadinessError && (
-                      <div style={{ fontSize: '11px', color: 'var(--danger)', fontWeight: '700', marginTop: '8px' }}>{pdfReadinessError}</div>
-                    )}
-                    {pdfFile && !pdfReadinessError && (
-                      <div style={{ fontSize: '12px', color: 'var(--success)', fontWeight: '700', marginTop: '10px' }}>
-                        Selected: {pdfFile.name} ({(pdfFile.size / 1024).toFixed(1)} KB)
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{
-                    border: '2px dashed var(--border)',
-                    borderRadius: '8px',
-                    padding: '30px',
-                    textAlign: 'center',
-                    backgroundColor: 'var(--bg-surface-elevated)',
-                    marginBottom: '16px'
-                  }}>
-                    <Upload size={32} style={{ color: 'var(--text-muted)', marginBottom: '12px' }} />
-                    <p style={{ fontSize: '13px', fontWeight: '600', margin: '0 0 6px 0' }}>Select or Drag file here</p>
-                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '0 0 16px 0' }}>Supports .csv, .pdf, .xls, .xlsx formats</p>
-                    <button type="button" className="btn btn-secondary btn-sm" disabled style={{ cursor: 'not-allowed' }}>
-                      Choose File
-                    </button>
-                  </div>
-                )}
-
-                {importSource === 'csv' ? (
-                  <div className="alert alert-info" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '11px', margin: 0, padding: '12px' }}>
-                    <HelpCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
-                    <span>
-                      <strong>Local Parse Mode:</strong> The CSV file will be parsed and validated entirely inside your browser. No data will be sent to the server.
-                    </span>
-                  </div>
-                ) : importSource === 'mpesa_statement' ? (
-                  <div className="alert alert-info" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '11px', margin: 0, padding: '12px' }}>
-                    <HelpCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
-                    <span>
-                      <strong>Preview Only:</strong> M-Pesa statement preview is available. Import to review queue is coming later.
-                    </span>
-                  </div>
-                ) : (
-                  <div className="alert alert-info" style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '11px', margin: 0, padding: '12px' }}>
-                    <HelpCircle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
-                    <span>
-                      <strong>Future Mode:</strong> File parsing will be enabled in a future phase. This wizard currently prepares the import workflow only.
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* STEP 3: DETECT PROVIDER */}
-            {wizardStep === 3 && (
-              <div>
-                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '4px' }}>Step 3: Select or Confirm Provider</h4>
-                <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '14px' }}>
-                  Loop is supported for import to the review queue. M-Pesa is preview-only. Other providers are coming later.
-                </p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
-                  {[
-                    { id: 'loop',    name: 'Loop',          desc: 'Loop Digital Banking',              status: 'supported' },
-                    { id: 'mpesa',   name: 'M-Pesa',        desc: 'Safaricom mobile network operator',  status: 'preview_only' },
-                    { id: 'coop',    name: 'Co-op Bank',    desc: 'Co-operative Bank of Kenya',         status: 'coming_later' },
-                    { id: 'kcb',     name: 'KCB',           desc: 'Kenya Commercial Bank',              status: 'coming_later' },
-                    { id: 'equity',  name: 'Equity',        desc: 'Equity Bank Group',                  status: 'coming_later' },
-                    { id: 'absa',    name: 'Absa',          desc: 'Absa Bank Kenya',                    status: 'coming_later' },
-                    { id: 'ncba',    name: 'NCBA',          desc: 'NCBA Bank Group',                    status: 'coming_later' },
-                    { id: 'unknown', name: 'Other/Unknown', desc: 'Other bank or processing channel',   status: 'disabled' }
-                  ].map((prov) => {
-                    const isSupported = prov.status === 'supported';
-                    const isDisabled  = prov.status === 'disabled';
-                    const isPreviewOnly = prov.status === 'preview_only';
-                    const badgeStyle = isSupported
-                      ? { backgroundColor: 'rgba(76,175,80,0.15)', color: 'var(--success)', border: '1px solid var(--success)' }
-                      : isPreviewOnly
-                      ? { backgroundColor: 'var(--primary-glow)', color: 'var(--primary)', border: '1px solid var(--primary)' }
-                      : isDisabled
-                      ? { backgroundColor: 'rgba(244,67,54,0.1)', color: 'var(--danger)', border: '1px solid var(--danger)' }
-                      : { backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border)' };
-                    const badgeLabel = isSupported ? 'Supported' : isPreviewOnly ? 'Preview Only' : isDisabled ? 'Disabled' : 'Coming Later';
-                    return (
-                      <div
-                        key={prov.id}
-                        onClick={() => setImportProvider(prov.id)}
-                        style={{
-                          padding: '12px',
-                          border: importProvider === prov.id ? '2px solid var(--primary)' : '1px solid var(--border)',
-                          borderRadius: '8px',
-                          backgroundColor: importProvider === prov.id ? 'var(--primary-glow)' : 'var(--bg-surface-elevated)',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s'
-                        }}
-                        className="wizard-card-hover"
-                      >
-                        <div style={{ fontWeight: '700', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{ width: '10px', height: '10px', borderRadius: '50%', border: '2px solid var(--border)', backgroundColor: importProvider === prov.id ? 'var(--primary)' : 'transparent', transition: 'all 0.1s' }} />
-                            {prov.name}
-                          </div>
-                          <span style={{ fontSize: '9px', padding: '2px 7px', borderRadius: '10px', fontWeight: '700', whiteSpace: 'nowrap', ...badgeStyle }}>{badgeLabel}</span>
-                        </div>
-                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '18px' }}>{prov.desc}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* STEP 4: PREVIEW & VALIDATE */}
-            {wizardStep === 4 && (
-              <div>
-                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 4: Preview Scored Records</h4>
-                {(importSource === 'csv' || importSource === 'universal_statement') ? (
-                  <div>
-                    {universalPreviewData && (
-                      <div style={{
-                        padding: '12px',
-                        borderRadius: '8px',
-                        backgroundColor: 'var(--bg-surface-elevated)',
-                        border: '1px solid var(--border)',
-                        marginBottom: '16px',
-                        fontSize: '12px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '6px'
-                      }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                          <span>Detected Source/Provider: <strong>{universalPreviewData.detected_provider} ({universalPreviewData.source_format})</strong></span>
-                          <span style={{
-                            padding: '2px 8px',
-                            borderRadius: '10px',
-                            fontWeight: '700',
-                            fontSize: '10px',
-                            textTransform: 'uppercase',
-                            backgroundColor: ['parsed', 'partially_parsed'].includes(universalPreviewData.parser_status) ? 'rgba(76,175,80,0.15)' : 'rgba(244,67,54,0.15)',
-                            color: ['parsed', 'partially_parsed'].includes(universalPreviewData.parser_status) ? 'var(--success)' : 'var(--danger)',
-                            border: ['parsed', 'partially_parsed'].includes(universalPreviewData.parser_status) ? '1px solid var(--success)' : '1px solid var(--danger)'
-                          }}>
-                            {getParserStatusLabel(universalPreviewData.parser_status)}
-                          </span>
-                        </div>
-                        {universalPreviewData.extra_metadata?.selected_sheet && (
-                          <div>Parsed Sheet: <strong>{universalPreviewData.extra_metadata.selected_sheet}</strong></div>
-                        )}
-                        {universalPreviewData.safety_message && (
-                          <div style={{ marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)', borderTop: '1px solid var(--border)', paddingTop: '6px' }}>
-                            <strong>Safety Note:</strong> {universalPreviewData.safety_message}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {universalPreviewData && ['scanned_pdf_needs_ocr', 'unsupported_structure', 'legacy_doc_not_supported', 'unreadable'].includes(universalPreviewData.parser_status) && (
-                      <div className="alert alert-danger" style={{ marginBottom: '16px', fontSize: '12px', padding: '16px' }}>
-                        <h4 style={{ margin: '0 0 8px 0', fontSize: '13px', fontWeight: '700' }}>
-                          {universalPreviewData.parser_status === 'scanned_pdf_needs_ocr' && 'Scanned PDF Detected'}
-                          {universalPreviewData.parser_status === 'unsupported_structure' && 'Unsupported File Structure'}
-                          {universalPreviewData.parser_status === 'legacy_doc_not_supported' && 'Legacy Document Format'}
-                          {universalPreviewData.parser_status === 'unreadable' && 'File Unreadable'}
-                        </h4>
-                        <p style={{ margin: 0 }}>
-                          {universalPreviewData.parser_status === 'scanned_pdf_needs_ocr' && 'This PDF file appears to be scanned or contains non-selectable text. Smart Landlord requires text-selectable PDFs or standard Excel/CSV templates to extract payment records automatically without manual OCR.'}
-                          {universalPreviewData.parser_status === 'unsupported_structure' && 'The structure of the uploaded statement could not be recognized. Please upload a standard statement format.'}
-                          {universalPreviewData.parser_status === 'legacy_doc_not_supported' && 'Smart Landlord does not support legacy Word (.doc) documents. Please save your file as a modern Word document (.docx) or Excel (.xlsx) file and try again.'}
-                          {universalPreviewData.parser_status === 'unreadable' && 'The file contents could not be read. Please check that the file is not corrupted or password-protected.'}
-                        </p>
-                      </div>
-                    )}
-
-                    {/* Summary counters grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '16px' }}>
-                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--primary)' }}>
-                        Total Rows: <strong>{universalPreviewData ? universalPreviewData.summary.rows_detected : getPreviewSummary().total}</strong>
-                      </div>
-                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--success)' }}>
-                        Valid Rows: <strong>{universalPreviewData ? universalPreviewData.summary.rows_ready_for_review : getPreviewSummary().valid}</strong>
-                      </div>
-                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--warning)' }}>
-                        With Warnings: <strong>{universalPreviewData ? universalPreviewData.summary.rows_needing_attention : getPreviewSummary().warnings}</strong>
-                      </div>
-                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--danger)' }}>
-                        Duplicate Codes: <strong>{universalPreviewData ? universalPreviewData.summary.rows_duplicates : getPreviewSummary().duplicates}</strong>
-                      </div>
-                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--danger)' }}>
-                        Duplicate Rows: <strong>{universalPreviewData ? 0 : getPreviewSummary().duplicateRows}</strong>
-                      </div>
-                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--warning)' }}>
-                        Missing Dates: <strong>{universalPreviewData ? 0 : getPreviewSummary().missingDates}</strong>
-                      </div>
-                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--warning)' }}>
-                        Missing Amounts: <strong>{universalPreviewData ? 0 : getPreviewSummary().missingAmounts}</strong>
-                      </div>
-                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--text-secondary)' }}>
-                        Debit Rows: <strong>{universalPreviewData ? 0 : getPreviewSummary().debits}</strong>
-                      </div>
-                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--warning)' }}>
-                        Unsupported Rows: <strong>{universalPreviewData ? 0 : getPreviewSummary().unsupported}</strong>
-                      </div>
-                      <div style={{ backgroundColor: 'var(--bg-surface-elevated)', padding: '10px', borderRadius: '6px', fontSize: '11px', borderLeft: '3px solid var(--text-muted)' }}>
-                        Skipped Rows: <strong>{universalPreviewData ? universalPreviewData.summary.rows_ignored : getPreviewSummary().skipped}</strong>
-                      </div>
-                    </div>
-
-                    {/* Preview Table / Cards */}
-                    {isMobile ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px', maxBlockSize: '320px', overflowY: 'auto', padding: '4px' }}>
-                        {parsedPreviewRows.map((row, idx) => (
-                          <div
-                            key={idx}
-                            style={{
-                              padding: '12px',
-                              borderRadius: '8px',
-                              border: '1px solid var(--border)',
-                              backgroundColor: row.warnings.length > 0 ? 'rgba(255,152,0,0.05)' : 'var(--bg-surface-elevated)',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '6px'
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{row.transaction_date || 'N/A'}</span>
-                              <span style={{ fontWeight: '700', color: 'var(--success)' }}>{formatCurrency(row.amount)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <span><strong>Ref:</strong> {row.transaction_code || 'N/A'}</span>
-                              <span style={{ textTransform: 'capitalize', fontSize: '11px', color: 'var(--text-secondary)' }}>{row.direction}</span>
-                            </div>
-                            <div><strong>Payer:</strong> {row.payer_name || 'N/A'} {row.payer_phone ? `(${row.payer_phone})` : ''}</div>
-                            <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}><strong>Narration:</strong> {row.narration || row.description}</div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px', borderTop: '1px solid var(--border)', paddingTop: '6px', marginTop: '4px' }}>
-                              <div>
-                                <span style={{
-                                  fontSize: '10px',
-                                  padding: '2px 6px',
-                                  borderRadius: '4px',
-                                  backgroundColor: row.row_status === 'ready_for_review' ? 'rgba(76,175,80,0.15)' : 'rgba(255,152,0,0.15)',
-                                  color: row.row_status === 'ready_for_review' ? 'var(--success)' : 'var(--warning)',
-                                  fontWeight: '600'
-                                }}>
-                                  {row.row_status === 'ready_for_review' ? 'Ready' : 'Needs Attention'}
-                                </span>
-                                {row.parser_confidence && (
-                                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '6px' }}>
-                                    Conf: {row.parser_confidence} ({row.confidence_score}%)
-                                  </span>
-                                )}
-                              </div>
-                              {row.suggested_matches && row.suggested_matches.length > 0 && (
-                                <div style={{ fontSize: '11px', textAlign: 'right' }}>
-                                  Match: <strong>{row.suggested_matches[0].tenant_name}</strong>
-                                </div>
-                              )}
-                            </div>
-                            {row.warnings.length > 0 && (
-                              <div style={{ color: 'var(--warning)', fontSize: '10.5px', marginTop: '4px', backgroundColor: 'rgba(255,152,0,0.05)', padding: '6px', borderRadius: '4px' }}>
-                                <strong>Warnings:</strong>
-                                {row.warnings.map((w, wIdx) => (
-                                  <div key={wIdx}>• {w}</div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '8px', maxBlockSize: '240px', overflowY: 'auto', marginBottom: '16px' }}>
-                        <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
-                          <thead>
-                            <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', backgroundColor: 'var(--bg-surface-elevated)' }}>
-                              <th style={{ padding: '8px' }}>Status/Warnings</th>
-                              <th style={{ padding: '8px' }}>Date</th>
-                              <th style={{ padding: '8px', textAlign: 'right' }}>Amount</th>
-                              <th style={{ padding: '8px' }}>Direction</th>
-                              <th style={{ padding: '8px' }}>Payer</th>
-                              <th style={{ padding: '8px' }}>Phone</th>
-                              <th style={{ padding: '8px' }}>Code</th>
-                              <th style={{ padding: '8px' }}>Account</th>
-                              <th style={{ padding: '8px' }}>Description</th>
-                              <th style={{ padding: '8px' }}>Channel</th>
-                              <th style={{ padding: '8px' }}>Confidence</th>
-                              <th style={{ padding: '8px' }}>Suggested Match</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {parsedPreviewRows.map((row, idx) => (
-                              <tr key={idx} style={{ borderBottom: '1px solid var(--border)', backgroundColor: row.warnings.length > 0 ? 'rgba(255,152,0,0.02)' : 'transparent' }}>
-                                <td style={{ padding: '8px', verticalAlign: 'top' }}>
-                                  {row.warnings.length === 0 ? (
-                                    <span style={{ color: 'var(--success)', fontWeight: '700' }}>✓ Valid</span>
-                                  ) : (
-                                    <div style={{ color: 'var(--warning)', fontSize: '10px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                      {row.warnings.map((w, wIdx) => (
-                                        <div key={wIdx} title={w}>• {w.length > 25 ? w.slice(0, 25) + '...' : w}</div>
-                                      ))}
-                                    </div>
-                                  )}
-                                </td>
-                                <td style={{ padding: '8px', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{row.transaction_date || 'N/A'}</td>
-                                <td style={{ padding: '8px', textAlign: 'right', fontWeight: '700', verticalAlign: 'top' }}>{formatCurrency(row.amount)}</td>
-                                <td style={{ padding: '8px', textTransform: 'capitalize', verticalAlign: 'top' }}>{row.direction}</td>
-                                <td style={{ padding: '8px', verticalAlign: 'top' }}>{row.payer_name || 'N/A'}</td>
-                                <td style={{ padding: '8px', verticalAlign: 'top' }}>{row.payer_phone || 'N/A'}</td>
-                                <td style={{ padding: '8px', fontWeight: '600', verticalAlign: 'top' }}>{row.transaction_code || 'N/A'}</td>
-                                <td style={{ padding: '8px', verticalAlign: 'top' }}>{row.reference_account || 'N/A'}</td>
-                                <td style={{ padding: '8px', verticalAlign: 'top', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxInlineSize: '120px' }} title={row.narration || row.description}>{row.narration || row.description || 'N/A'}</td>
-                                <td style={{ padding: '8px', verticalAlign: 'top' }}>{row.collection_channel}</td>
-                                <td style={{ padding: '8px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
-                                  {row.parser_confidence ? `${row.parser_confidence} (${row.confidence_score}%)` : 'N/A'}
-                                </td>
-                                <td style={{ padding: '8px', verticalAlign: 'top' }}>
-                                  {row.suggested_matches && row.suggested_matches.length > 0 ? (
-                                    <div>
-                                      <strong>{row.suggested_matches[0].tenant_name}</strong>
-                                      {row.suggested_matches[0].invoice_number && <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>{row.suggested_matches[0].invoice_number}</div>}
-                                    </div>
-                                  ) : 'None'}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-
-                    {/* Statement source guidance panel */}
-                    <div style={{
-                      backgroundColor: 'var(--bg-surface-elevated)',
-                      border: '1px solid var(--border)',
-                      borderRadius: '8px',
-                      padding: '12px 16px',
-                      fontSize: '11px',
-                      lineHeight: '1.5'
-                    }}>
-                      <div style={{ fontWeight: '700', marginBottom: '6px', color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <ShieldAlert size={14} />
-                        Current Phase: Preview Only
-                      </div>
-                      <p style={{ margin: '0 0 8px 0', color: 'var(--text-secondary)' }}>
-                        This is a browser-only preview. <strong>No data has been saved to the database</strong>, no reconciliation has occurred, and no payment allocations have been created.
-                      </p>
-                      <div style={{ fontWeight: '700', marginBottom: '4px', color: 'var(--text-primary)' }}>
-                        Upload a statement from M-Pesa or a supported bank. Smart Landlord will read the rows, suggest matches against tenants and invoices, and show what needs your review.
-                      </div>
-                    </div>
-                  </div>
-                ) : importSource === 'pdf_bank' || importSource === 'pdf_receipt' || importSource === 'mpesa_statement' ? (
-                  <div style={{
-                    border: '1px solid var(--border)',
-                    borderRadius: '8px',
-                    padding: '16px',
-                    backgroundColor: 'var(--bg-surface-elevated)',
-                    fontSize: '11px'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '12px' }}>
-                      <div>
-                        <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '2px' }}>PDF text extraction preview</div>
-                        <div style={{ color: 'var(--text-muted)' }}>No statement review rows will be extracted or imported in this release.</div>
-                      </div>
-                      <button
-                        type="button"
-                        className="btn btn-secondary btn-sm"
-                        onClick={handlePdfStatementCheck}
-                        disabled={!pdfFile || pdfReadinessLoading}
-                        style={{
-                          whiteSpace: 'nowrap',
-                          cursor: (!pdfFile || pdfReadinessLoading) ? 'not-allowed' : 'pointer',
-                          opacity: (!pdfFile || pdfReadinessLoading) ? 0.6 : 1
-                        }}
-                      >
-                        {pdfReadinessLoading ? 'Extracting...' : 'Extract PDF Text Preview'}
-                      </button>
-                    </div>
-
-                    {pdfReadinessError && (
-                      <div className="alert alert-danger" style={{ fontSize: '11px', padding: '10px', marginBottom: '12px' }}>
-                        {pdfReadinessError}
-                      </div>
-                    )}
-
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px', marginBottom: '12px' }}>
-                      <div>
-                        <span className="text-muted">Original File:</span>{' '}
-                        <strong>{pdfReadinessData?.file?.original_name || pdfFile?.name || 'No PDF selected'}</strong>
-                      </div>
-                      <div>
-                        <span className="text-muted">File Size:</span>{' '}
-                        <strong>
-                          {pdfReadinessData?.file?.size_bytes
-                            ? `${(pdfReadinessData.file.size_bytes / 1024).toFixed(1)} KB`
-                            : pdfFile
-                              ? `${(pdfFile.size / 1024).toFixed(1)} KB`
-                              : 'N/A'}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-muted">Parser Status:</span>{' '}
-                        <strong style={{ color: 'var(--warning)' }}>{pdfReadinessData?.parser_status || 'not_checked'}</strong>
-                      </div>
-                      <div>
-                        <span className="text-muted">Document Source:</span>{' '}
-                        <strong>{pdfReadinessData?.document_source || 'PDF_STATEMENT'}</strong>
-                      </div>
-                      <div>
-                        <span className="text-muted">Page Count:</span>{' '}
-                        <strong>{pdfReadinessData?.extraction?.page_count ?? 'N/A'}</strong>
-                      </div>
-                      <div>
-                        <span className="text-muted">Text Length:</span>{' '}
-                        <strong>{pdfReadinessData?.extraction?.text_length ?? 'N/A'}</strong>
-                      </div>
-                      <div>
-                        <span className="text-muted">Line Count:</span>{' '}
-                        <strong>{pdfReadinessData?.extraction?.line_count ?? 'N/A'}</strong>
-                      </div>
-                      <div>
-                        <span className="text-muted">Detected Keywords:</span>{' '}
-                        <strong>
-                          {pdfReadinessData?.extraction?.detected_keywords?.length
-                            ? pdfReadinessData.extraction.detected_keywords.join(', ')
-                            : 'None'}
-                        </strong>
-                      </div>
-                    </div>
-
-                    <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}>
-                      <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>Sample Text</div>
-                      <pre style={{ margin: 0, whiteSpace: 'pre-wrap', maxHeight: '140px', overflow: 'auto', fontSize: '10px', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
-                        {pdfReadinessData?.extraction?.sample_text || 'No sample text available yet.'}
-                      </pre>
-                    </div>
-
-                    <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}>
-                      <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>Provider Detection</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', marginBottom: '8px' }}>
-                        <div>
-                          <span className="text-muted">Detected provider:</span>{' '}
-                          <strong>{pdfReadinessData?.provider_detection?.detected_provider || 'UNKNOWN_STATEMENT'}</strong>
-                        </div>
-                        <div>
-                          <span className="text-muted">Detected statement type:</span>{' '}
-                          <strong>{pdfReadinessData?.provider_detection?.detected_statement_type || 'unknown_statement'}</strong>
-                        </div>
-                        <div>
-                          <span className="text-muted">Confidence:</span>{' '}
-                          <strong style={{ textTransform: 'capitalize' }}>{pdfReadinessData?.provider_detection?.confidence || 'unknown'}</strong>
-                        </div>
-                        <div>
-                          <span className="text-muted">Score:</span>{' '}
-                          <strong>{pdfReadinessData?.provider_detection?.score ?? 0}</strong>
-                        </div>
-                      </div>
-
-                      <div style={{ marginBottom: '8px' }}>
-                        <span className="text-muted">Matched indicators:</span>{' '}
-                        <strong>
-                          {pdfReadinessData?.provider_detection?.matched_indicators?.length
-                            ? pdfReadinessData.provider_detection.matched_indicators.join(', ')
-                            : 'None'}
-                        </strong>
-                      </div>
-
-                      {pdfReadinessData?.provider_detection?.warnings?.length > 0 && (
-                        <div style={{ marginBottom: '8px' }}>
-                          <div style={{ fontWeight: '700', color: 'var(--warning)', marginBottom: '4px' }}>Provider warnings</div>
-                          <ul style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-secondary)' }}>
-                            {pdfReadinessData.provider_detection.warnings.map((warning, idx) => (
-                              <li key={idx}>{warning}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      <div style={{ color: 'var(--text-muted)' }}>
-                        {pdfReadinessData?.provider_detection?.message || 'Statement provider detection is enabled. Transaction row parsing is not enabled in this release.'}
-                      </div>
-                    </div>
-
-                    <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--warning)', borderRadius: '6px', backgroundColor: 'rgba(var(--warning-rgb), 0.06)', color: 'var(--warning)', fontWeight: '700' }}>
-                      {pdfReadinessData?.parser_result?.enabled
-                        ? (isMpesaStatementPreview
-                          ? 'M-Pesa statement preview is available. Import to review queue is coming later.'
-                          : 'Loop preview rows are for validation only. Import is not enabled yet.')
-                        : 'Provider detection is enabled. Transaction row parsing is not enabled yet.'}
-                    </div>
-
-                    {pdfReadinessData?.parser_result && (
-                      <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}>
-                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>{parserResultTitle}</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', marginBottom: '8px' }}>
-                          <div>
-                            <span className="text-muted">Parser name:</span>{' '}
-                            <strong>{pdfReadinessData?.parser_result?.parser || 'N/A'}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted">Parser status:</span>{' '}
-                            <strong>{pdfReadinessData?.parser_result?.status || 'N/A'}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted">Rows detected:</span>{' '}
-                            <strong>{pdfReadinessData?.parser_result?.rows_detected ?? 0}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted">Rows returned:</span>{' '}
-                            <strong>{pdfReadinessData?.parser_result?.rows_returned ?? 0}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted">Rows skipped:</span>{' '}
-                            <strong>{pdfReadinessData?.parser_result?.rows_skipped ?? 0}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted">Ready for Review:</span>{' '}
-                            <strong>{pdfReadinessData?.parser_result?.ready_for_review_count ?? 0}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted">Needs Attention:</span>{' '}
-                            <strong>{pdfReadinessData?.parser_result?.needs_attention_count ?? 0}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted">Skipped:</span>{' '}
-                            <strong>{pdfReadinessData?.parser_result?.skipped_count ?? 0}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted">High confidence:</span>{' '}
-                            <strong>{pdfReadinessData?.parser_result?.high_confidence_count ?? 0}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted">Medium confidence:</span>{' '}
-                            <strong>{pdfReadinessData?.parser_result?.medium_confidence_count ?? 0}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted">Low confidence:</span>{' '}
-                            <strong>{pdfReadinessData?.parser_result?.low_confidence_count ?? 0}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted">Unknown confidence:</span>{' '}
-                            <strong>{pdfReadinessData?.parser_result?.unknown_confidence_count ?? 0}</strong>
-                          </div>
-                          <div>
-                            <span className="text-muted">Import readiness:</span>{' '}
-                            <strong style={{ color: 'var(--danger)' }}>
-                              {pdfReadinessData?.import_readiness?.enabled ? 'Enabled' : 'Disabled'}
-                            </strong>
-                          </div>
-                        </div>
-                        <div style={{ color: 'var(--warning)', fontWeight: '700', marginBottom: '6px' }}>
-                          {isMpesaStatementPreview
-                            ? 'M-Pesa statement preview is available. Import to review queue is coming later.'
-                            : 'Loop preview rows are for validation only. Import is not enabled yet.'}
-                        </div>
-                        <div style={{ color: 'var(--warning)', fontWeight: '700', marginBottom: '6px' }}>
-                          {isMpesaStatementPreview
-                            ? 'M-Pesa row validation is for parser review only. Import is not enabled yet.'
-                            : 'Loop row validation is for parser review only. Import is not enabled yet.'}
-                        </div>
-                        {pdfReadinessData?.import_readiness?.reason && (
-                          <div style={{ color: 'var(--text-muted)' }}>{pdfReadinessData.import_readiness.reason}</div>
-                        )}
-
-                        {pdfReadinessData?.import_readiness && (
-                          <div style={{ marginTop: '8px', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface-elevated)' }}>
-                            <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>Import Readiness</div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
-                              <div>
-                                <span className="text-muted">Import disabled:</span>{' '}
-                                <strong>{pdfReadinessData?.import_readiness?.enabled ? 'No' : 'Yes'}</strong>
-                              </div>
-                              <div>
-                                <span className="text-muted">Validation required:</span>{' '}
-                                <strong>{pdfReadinessData?.import_readiness?.validation_required ? 'Yes' : 'No'}</strong>
-                              </div>
-                              <div>
-                                <span className="text-muted">Ready for future import:</span>{' '}
-                                <strong>{pdfReadinessData?.import_readiness?.ready_for_future_import_count ?? 0}</strong>
-                              </div>
-                              <div>
-                                <span className="text-muted">Blocked count:</span>{' '}
-                                <strong>{pdfReadinessData?.import_readiness?.blocked_count ?? 0}</strong>
-                              </div>
-                            </div>
-                            {Array.isArray(pdfReadinessData?.import_readiness?.blocking_reasons) && pdfReadinessData.import_readiness.blocking_reasons.length > 0 && (
-                              <div style={{ marginTop: '8px' }}>
-                                <div style={{ fontWeight: '700', color: 'var(--warning)', marginBottom: '4px' }}>Blocking reasons</div>
-                                <ul style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-secondary)' }}>
-                                  {pdfReadinessData.import_readiness.blocking_reasons.map((reason, idx) => (
-                                    <li key={idx}>{reason}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {pdfReadinessData?.parser_result?.warnings?.length > 0 && (
-                          <div style={{ marginTop: '8px' }}>
-                            <div style={{ fontWeight: '700', color: 'var(--warning)', marginBottom: '4px' }}>Parser warnings</div>
-                            <ul style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-secondary)' }}>
-                              {pdfReadinessData.parser_result.warnings.map((warning, idx) => (
-                                <li key={idx}>{warning}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {Array.isArray(pdfReadinessData?.preview_rows) && pdfReadinessData.preview_rows.length > 0 && (
-                      <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}>
-                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>{previewRowsTitle}</div>
-                        <div style={{ overflowX: 'auto' }}>
-                          <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
-                            <thead>
-                              {isMpesaStatementPreview ? (
-                                <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', backgroundColor: 'var(--bg-surface-elevated)' }}>
-                                  <th style={{ padding: '8px' }}>Date</th>
-                                  <th style={{ padding: '8px' }}>Time</th>
-                                  <th style={{ padding: '8px' }}>Code</th>
-                                  <th style={{ padding: '8px' }}>Description</th>
-                                  <th style={{ padding: '8px' }}>Payer</th>
-                                  <th style={{ padding: '8px' }}>Phone</th>
-                                  <th style={{ padding: '8px' }}>Reference</th>
-                                  <th style={{ padding: '8px' }}>Type</th>
-                                  <th style={{ padding: '8px' }}>Direction</th>
-                                  <th style={{ padding: '8px', textAlign: 'right' }}>Paid In</th>
-                                  <th style={{ padding: '8px', textAlign: 'right' }}>Withdrawn</th>
-                                  <th style={{ padding: '8px', textAlign: 'right' }}>Balance</th>
-                                  <th style={{ padding: '8px' }}>Confidence</th>
-                                  <th style={{ padding: '8px' }}>Status</th>
-                                </tr>
-                              ) : (
-                                <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', backgroundColor: 'var(--bg-surface-elevated)' }}>
-                                  <th style={{ padding: '8px' }}>Date</th>
-                                  <th style={{ padding: '8px' }}>Description</th>
-                                  <th style={{ padding: '8px' }}>Code</th>
-                                  <th style={{ padding: '8px' }}>Partner Ref</th>
-                                  <th style={{ padding: '8px' }}>Row Status</th>
-                                  <th style={{ padding: '8px' }}>Parser Confidence</th>
-                                  <th style={{ padding: '8px', textAlign: 'right' }}>Confidence Score</th>
-                                  <th style={{ padding: '8px' }}>Direction</th>
-                                  <th style={{ padding: '8px' }}>Channel</th>
-                                  <th style={{ padding: '8px', textAlign: 'right' }}>Debit</th>
-                                  <th style={{ padding: '8px', textAlign: 'right' }}>Credit</th>
-                                  <th style={{ padding: '8px', textAlign: 'right' }}>Amount</th>
-                                  <th style={{ padding: '8px', textAlign: 'right' }}>Balance</th>
-                                  <th style={{ padding: '8px' }}>Validation Errors</th>
-                                  <th style={{ padding: '8px' }}>Warnings</th>
-                                </tr>
-                              )}
-                            </thead>
-                            <tbody>
-                              {pdfReadinessData.preview_rows.map((row, idx) => (
-                                isMpesaStatementPreview ? (
-                                  <tr key={`${row.source_row_index || idx}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
-                                    <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>{row.transaction_date || 'N/A'}</td>
-                                    <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>{row.transaction_time || 'N/A'}</td>
-                                    <td style={{ padding: '8px', fontWeight: '700' }}>{row.transaction_code || 'N/A'}</td>
-                                    <td style={{ padding: '8px', maxInlineSize: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.description || ''}>{row.description || 'N/A'}</td>
-                                    <td style={{ padding: '8px' }}>{row.payer_name || 'N/A'}</td>
-                                    <td style={{ padding: '8px' }}>{row.payer_phone || 'N/A'}</td>
-                                    <td style={{ padding: '8px' }}>{row.reference_account || row.paybill_reference || 'N/A'}</td>
-                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.transaction_type || 'unknown').replace(/_/g, ' ')}</td>
-                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.direction || 'unknown').replace('_', ' ')}</td>
-                                    <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.credit || 0).toLocaleString()}</td>
-                                    <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.debit || 0).toLocaleString()}</td>
-                                    <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.balance || 0).toLocaleString()}</td>
-                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{row.parser_confidence || 'unknown'} ({row.confidence_score ?? 0})</td>
-                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.row_status || 'needs_attention').replace(/_/g, ' ')}</td>
-                                  </tr>
-                                ) : (
-                                  <tr key={`${row.source_row_index || idx}-${idx}`} style={{ borderBottom: '1px solid var(--border)' }}>
-                                    <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>{row.transaction_date || 'N/A'}</td>
-                                    <td style={{ padding: '8px', maxInlineSize: '320px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.description || ''}>{row.description || 'N/A'}</td>
-                                    <td style={{ padding: '8px', fontWeight: '700' }}>{row.transaction_code || 'N/A'}</td>
-                                    <td style={{ padding: '8px' }}>{row.partner_reference || 'N/A'}</td>
-                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.row_status || 'needs_attention').replace(/_/g, ' ')}</td>
-                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{row.parser_confidence || 'unknown'}</td>
-                                    <td style={{ padding: '8px', textAlign: 'right' }}>{row.confidence_score ?? 0}</td>
-                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.direction || 'unknown').replace('_', ' ')}</td>
-                                    <td style={{ padding: '8px', textTransform: 'capitalize' }}>{(row.collection_channel || 'unknown').replace('_', ' ')}</td>
-                                    <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.debit || 0).toLocaleString()}</td>
-                                    <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.credit || 0).toLocaleString()}</td>
-                                    <td style={{ padding: '8px', textAlign: 'right', fontWeight: '700' }}>{Number(row.amount || 0).toLocaleString()}</td>
-                                    <td style={{ padding: '8px', textAlign: 'right' }}>{Number(row.balance || 0).toLocaleString()}</td>
-                                    <td style={{ padding: '8px' }}>
-                                      {Array.isArray(row.validation_errors) && row.validation_errors.length > 0
-                                        ? row.validation_errors.join('; ')
-                                        : 'None'}
-                                    </td>
-                                    <td style={{ padding: '8px' }}>
-                                      {Array.isArray(row.warnings) && row.warnings.length > 0
-                                        ? row.warnings.join('; ')
-                                        : 'None'}
-                                    </td>
-                                  </tr>
-                                )
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-
-                    {isLoopStatementPreview &&
-                      Array.isArray(pdfReadinessData?.preview_rows) &&
-                      pdfReadinessData.preview_rows.length > 0 &&
-                      Number(pdfReadinessData?.parser_result?.ready_for_review_count || 0) > 0 && (
-                        <div style={{ marginBottom: '12px', padding: '12px', border: '1px solid var(--success)', borderRadius: '6px', backgroundColor: 'rgba(var(--success-rgb), 0.06)' }}>
-                          <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>Import Loop PDF Rows to Review Queue</div>
-                          <div style={{ color: 'var(--warning)', fontWeight: '700', marginBottom: '8px' }}>
-                            This imports validated Loop rows into statement review only. It will not allocate, receipt, post ledger, or change invoice balances.
-                          </div>
-
-                          <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                            Type exact confirmation text: <strong>CONFIRM LOOP PDF IMPORT</strong>
-                          </label>
-                          <input
-                            type="text"
-                            value={pdfImportConfirmationText}
-                            onChange={(e) => setPdfImportConfirmationText(e.target.value)}
-                            placeholder="CONFIRM LOOP PDF IMPORT"
-                            style={{ width: '100%', marginBottom: '10px', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}
-                          />
-
-                          <button
-                            type="button"
-                            className="btn btn-primary"
-                            onClick={handleImportLoopPdfRows}
-                            disabled={pdfImportLoading || pdfImportConfirmationText !== 'CONFIRM LOOP PDF IMPORT'}
-                            style={{
-                              cursor: (pdfImportLoading || pdfImportConfirmationText !== 'CONFIRM LOOP PDF IMPORT') ? 'not-allowed' : 'pointer',
-                              opacity: (pdfImportLoading || pdfImportConfirmationText !== 'CONFIRM LOOP PDF IMPORT') ? 0.6 : 1
-                            }}
-                          >
-                            {pdfImportLoading ? 'Importing...' : 'Import to Review Queue'}
-                          </button>
-
-                          {pdfImportError && (
-                            <div className="alert alert-danger" style={{ marginTop: '10px', marginBottom: 0, fontSize: '11px', padding: '8px' }}>
-                              {pdfImportError}
-                            </div>
-                          )}
-
-                          {pdfImportResult && (
-                            <div style={{ marginTop: '10px', padding: '10px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface)' }}>
-                              <div style={{ fontWeight: '700', marginBottom: '6px', color: 'var(--text-primary)' }}>Import Result</div>
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px', fontSize: '11px' }}>
-                                <div><span className="text-muted">Batch ID:</span> <strong>{pdfImportResult?.batch?.id ?? 'N/A'}</strong></div>
-                                <div><span className="text-muted">Rows detected:</span> <strong>{pdfImportResult?.import_result?.rows_detected ?? 0}</strong></div>
-                                <div><span className="text-muted">Rows eligible:</span> <strong>{pdfImportResult?.import_result?.rows_eligible ?? 0}</strong></div>
-                                <div><span className="text-muted">Rows imported:</span> <strong>{pdfImportResult?.import_result?.rows_imported ?? 0}</strong></div>
-                                <div><span className="text-muted">Rows skipped:</span> <strong>{pdfImportResult?.import_result?.rows_skipped ?? 0}</strong></div>
-                                <div><span className="text-muted">Duplicate rows skipped:</span> <strong>{pdfImportResult?.import_result?.duplicate_rows_skipped ?? 0}</strong></div>
-                                <div><span className="text-muted">Needs attention rows skipped:</span> <strong>{pdfImportResult?.import_result?.needs_attention_rows_skipped ?? 0}</strong></div>
-                                <div><span className="text-muted">Fee rows skipped:</span> <strong>{pdfImportResult?.import_result?.fee_rows_skipped ?? 0}</strong></div>
-                              </div>
-                              <div style={{ marginTop: '8px', color: 'var(--text-muted)' }}>
-                                {pdfImportResult?.safety_message || 'Loop PDF import created statement review rows only. No transactions, allocations, receipts, ledger entries, invoices, tenants, or balances were changed.'}
-                              </div>
-
-                              <div style={{ marginTop: '8px', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface-elevated)' }}>
-                                <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>Matching Suggestions</div>
-                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                                  Rows with suggestions: <strong>{pdfImportResult?.matching_summary?.rows_with_suggestions ?? 0}</strong>
-                                </div>
-                                <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                                  Rows without suggestions: <strong>{pdfImportResult?.matching_summary?.rows_without_suggestions ?? 0}</strong>
-                                </div>
-                                <div style={{ marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                                  Suggestions are review-only. No allocation or receipt is created.
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                    {pdfReadinessData?.warnings && (
-                      <div style={{ marginBottom: '12px', padding: '10px', border: '1px solid var(--warning)', borderRadius: '6px', backgroundColor: 'rgba(var(--warning-rgb), 0.06)' }}>
-                        <div style={{ fontWeight: '700', color: 'var(--warning)', marginBottom: '6px' }}>Warnings</div>
-                        <ul style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-secondary)' }}>
-                          {pdfReadinessData.warnings.map((warning, idx) => (
-                            <li key={idx}>{warning}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {pdfReadinessData?.next_parser_steps && (
-                      <div style={{ marginBottom: '12px' }}>
-                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>Next parser steps</div>
-                        <ol style={{ margin: 0, paddingLeft: '16px', color: 'var(--text-muted)' }}>
-                          {pdfReadinessData.next_parser_steps.map((step, idx) => (
-                            <li key={idx}>{step}</li>
-                          ))}
-                        </ol>
-                      </div>
-                    )}
-
-                    <div style={{ padding: '10px', borderRadius: '6px', backgroundColor: 'var(--bg-surface)', color: 'var(--text-muted)' }}>
-                      {pdfReadinessData?.safety_message || 'PDF statement upload readiness is preview-only. No statement review, invoice, tenant, receipt, ledger, transaction, allocation, or balance record has been changed.'}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{
-                    border: '1px solid var(--border)',
-                    borderRadius: '8px',
-                    padding: '40px 20px',
-                    textAlign: 'center',
-                    backgroundColor: 'var(--bg-surface-elevated)',
-                    color: 'var(--text-muted)'
-                  }}>
-                    <FileSpreadsheet size={36} style={{ color: 'var(--text-muted)', marginBottom: '12px', opacity: 0.5 }} />
-                    <p style={{ fontSize: '12px', margin: 0, fontWeight: '500' }}>
-                      Preview will appear here after statement preview is available.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* STEP 5: IMPORT TO REVIEW QUEUE */}
-            {wizardStep === 5 && (
-              <div>
-                <h4 style={{ fontSize: '13px', fontWeight: '700', marginBottom: '12px' }}>Step 5: Finalize Import</h4>
-                <div style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  padding: '24px',
-                  backgroundColor: 'var(--bg-surface-elevated)',
-                  marginBottom: '16px'
-                }}>
-                  <div style={{ fontSize: '12px', marginBottom: '12px' }}>
-                    <strong>Selected Source:</strong> {importSource ? importSource.toUpperCase() : 'N/A'}
-                  </div>
-                  <div style={{ fontSize: '12px', marginBottom: '12px' }}>
-                    <strong>Selected Provider:</strong> {importProvider ? importProvider.toUpperCase() : 'N/A'}
-                  </div>
-                  <div style={{ fontSize: '12px' }}>
-                    <strong>Validation Status:</strong> <span style={{ color: (importSource === 'csv' || importSource === 'universal_statement') && parsedPreviewRows.length > 0 ? 'var(--success)' : 'var(--warning)', fontWeight: '700' }}>{(importSource === 'csv' || importSource === 'universal_statement') && parsedPreviewRows.length > 0 ? 'PARSED PREVIEW READY' : 'PENDING PARSING'}</span>
-                  </div>
-                </div>
-
-                {importSource === 'universal_statement' ? (
-                  <div>
-                    {universalPreviewData?.detected_provider === 'MPESA' ? (
-                      <div style={{
-                        padding: '16px',
-                        border: '1px solid var(--border)',
-                        borderRadius: '8px',
-                        backgroundColor: 'var(--bg-surface-elevated)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '10px'
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
-                          <ShieldAlert size={16} style={{ color: 'var(--warning)', flexShrink: 0 }} />
-                          <span style={{ fontSize: '12px', fontWeight: '600' }}>
-                            M-Pesa statement preview is available. Import to review queue is coming later.
-                          </span>
-                        </div>
-                        <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
-                          M-Pesa preview rows are parser-validation output only. No statement review rows, batches, transactions, allocations, receipts, ledger entries, invoices, tenants, or balances are changed.
-                        </p>
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          disabled
-                          style={{ width: '100%', cursor: 'not-allowed', opacity: 0.5 }}
-                        >
-                          Import M-Pesa Rows — Coming Later
-                        </button>
-                      </div>
-                    ) : (universalPreviewData?.detected_provider === 'LOOP_STATEMENT' || universalPreviewData?.detected_provider === 'LOOP') ? (
-                      <div style={{
-                        padding: '16px',
-                        border: '1px solid var(--border)',
-                        borderRadius: '8px',
-                        backgroundColor: 'var(--bg-surface-elevated)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '10px'
-                      }}>
-                        <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                          Type exact confirmation text: <strong>CONFIRM LOOP PDF IMPORT</strong>
-                        </label>
-                        <input
-                          type="text"
-                          value={pdfImportConfirmationText}
-                          onChange={(e) => {
-                            setPdfImportConfirmationText(e.target.value);
-                            setPdfImportError('');
-                          }}
-                          placeholder="CONFIRM LOOP PDF IMPORT"
-                          style={{ width: '100%', padding: '8px', border: '1px solid var(--border)', borderRadius: '6px', backgroundColor: 'var(--bg-surface-elevated)' }}
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          disabled={pdfImportLoading || pdfImportConfirmationText !== 'CONFIRM LOOP PDF IMPORT'}
-                          onClick={handleImportLoopPdfRows}
-                          style={{
-                            width: '100%',
-                            cursor: (pdfImportLoading || pdfImportConfirmationText !== 'CONFIRM LOOP PDF IMPORT') ? 'not-allowed' : 'pointer',
-                            opacity: (pdfImportLoading || pdfImportConfirmationText !== 'CONFIRM LOOP PDF IMPORT') ? 0.6 : 1
-                          }}
-                        >
-                          {pdfImportLoading ? 'Importing Loop PDF Rows...' : 'Confirm and Import Loop PDF'}
-                        </button>
-                        {pdfImportError && (
-                          <div style={{ color: 'var(--danger)', fontSize: '11px' }}>{pdfImportError}</div>
-                        )}
-                        {pdfImportResult && (
-                          <div style={{ padding: '8px', borderRadius: '4px', backgroundColor: 'rgba(76,175,80,0.1)', color: 'var(--success)', fontSize: '11px' }}>
-                            {pdfImportResult.message}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          disabled={!isImportEnabled || importing}
-                          onClick={handleImportCSV}
-                          style={{
-                            width: '100%',
-                            cursor: (!isImportEnabled || importing) ? 'not-allowed' : 'pointer',
-                            opacity: (!isImportEnabled || importing) ? 0.6 : 1
-                          }}
-                        >
-                          {importing ? 'Importing...' : 'Import Statement to Review Queue'}
-                        </button>
-                        <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>
-                          Importing only saves evidence rows for review. It does not reconcile payments or update invoices.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                ) : importSource === 'csv' ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      disabled={!isImportEnabled || importing}
-                      onClick={handleImportCSV}
-                      style={{
-                        width: '100%',
-                        cursor: (!isImportEnabled || importing) ? 'not-allowed' : 'pointer',
-                        opacity: (!isImportEnabled || importing) ? 0.6 : 1
-                      }}
-                    >
-                      {importing ? 'Importing...' : 'Import CSV to Review Queue'}
-                    </button>
-                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>
-                      Importing only saves evidence rows for review. It does not reconcile payments or update invoices.
-                    </p>
-                  </div>
-                ) : importSource === 'mpesa_statement' ? (
-                  <div style={{
-                    padding: '16px',
-                    border: '1px solid var(--border)',
-                    borderRadius: '8px',
-                    backgroundColor: 'var(--bg-surface-elevated)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
-                      <ShieldAlert size={16} style={{ color: 'var(--warning)', flexShrink: 0 }} />
-                      <span style={{ fontSize: '12px', fontWeight: '600' }}>
-                        M-Pesa statement preview is available. Import to review queue is coming later.
-                      </span>
-                    </div>
-                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
-                      M-Pesa preview rows are parser-validation output only. No statement review rows, batches, transactions, allocations, receipts, ledger entries, invoices, tenants, or balances are changed.
-                    </p>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      disabled
-                      style={{ width: '100%', cursor: 'not-allowed', opacity: 0.5 }}
-                    >
-                      Import M-Pesa Rows — Coming Later
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{
-                    padding: '16px',
-                    border: '1px solid var(--border)',
-                    borderRadius: '8px',
-                    backgroundColor: 'var(--bg-surface-elevated)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)' }}>
-                      <ShieldAlert size={16} style={{ color: 'var(--warning)', flexShrink: 0 }} />
-                      <span style={{ fontSize: '12px', fontWeight: '600' }}>
-                        This source is not enabled for import yet. Import support is coming later.
-                      </span>
-                    </div>
-                    <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
-                      Upload a statement from M-Pesa or a supported bank. Smart Landlord will read the rows, suggest matches against tenants and invoices, and show what needs your review.
-                    </p>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      disabled
-                      style={{ width: '100%', cursor: 'not-allowed', opacity: 0.5 }}
-                    >
-                      Import Unavailable — Coming Later
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* MODAL FOOTER BUTTONS */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: '16px', marginTop: '24px' }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => {
-                  if (wizardStep === 1) {
-                    setShowImportWizard(false);
-                  } else {
-                    setWizardStep(wizardStep - 1);
-                  }
-                }}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <ArrowLeft size={14} />
-                {wizardStep === 1 ? 'Cancel' : 'Back'}
-              </button>
-
-              {wizardStep < 5 && (
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => setWizardStep(wizardStep + 1)}
-                  disabled={(wizardStep === 1 && !importSource) || (wizardStep === 3 && !importProvider)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    opacity: ((wizardStep === 1 && !importSource) || (wizardStep === 3 && !importProvider)) ? 0.6 : 1,
-                    cursor: ((wizardStep === 1 && !importSource) || (wizardStep === 3 && !importProvider)) ? 'not-allowed' : 'pointer'
-                  }}
-                >
-                  Next
-                  <ArrowRight size={14} />
-                </button>
-              )}
             </div>
 
           </div>
