@@ -57,7 +57,8 @@ const defaultDb = {
   statement_uploads: [],
   statement_extracted_transactions: [],
   confirmed_statement_transactions: [],
-  bank_reconciliation_decisions: []
+  bank_reconciliation_decisions: [],
+  payments: []
 };
 
 // Reading the DB

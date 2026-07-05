@@ -6,6 +6,7 @@ import { db as localDb } from '../db.js';
 import { normalizePaymentEvidence } from '../services/payment-evidence/normalizePaymentEvidence.js';
 import { classifyPaymentEvidenceRow } from '../services/payment-evidence/classifyPaymentEvidenceRow.js';
 import { StatementIngestionService } from '../services/payment-evidence/StatementIngestionService.js';
+import { PaymentDomainService } from '../services/payment/PaymentDomainService.js';
 
 // Memory-only multer instance for PDF readiness preview (no files written to disk)
 const pdfUpload = multer({
@@ -1929,6 +1930,7 @@ function requireLandlordOrSuperAdmin(req, res, next) {
 export function createPaymentEvidenceRoutes(pgDb) {
   const router = express.Router();
   const activeDb = pgDb || localDb;
+  const paymentService = new PaymentDomainService(activeDb);
 
   // POST /api/statement-reconciliation/preview
   // Universal statement reconciliation preview endpoint.
@@ -3322,13 +3324,35 @@ export function createPaymentEvidenceRoutes(pgDb) {
 
     const createdTx = await activeDb.insert('transactions', txData);
 
+    // Bridge payment evidence confirmation to unified payments table
+    const createdPayment = await paymentService.capturePayment({
+      organization_id: orgId,
+      payer_type: 'tenant',
+      payer_id: tenant.id,
+      payer_name: tenant.full_name,
+      payer_phone: tenant.phone_number,
+      source_type: 'mpesa',
+      source_id: row.id,
+      amount: allocation_amount,
+      currency: tenant.currency || 'KES',
+      received_at: row.transaction_date,
+      description: row.description || 'M-Pesa Payment Evidence Match Confirmation',
+      reference: row.transaction_code,
+      external_reference: row.transaction_code,
+      created_by_user_id: userId
+    });
+
     const allocationData = {
       organization_id: orgId,
       transaction_id: createdTx.id,
+      payment_id: createdPayment.id,
       invoice_id: invoice.id,
+      amount: allocation_amount,
       amount_allocated: allocation_amount,
       allocated_by: userId,
-      allocated_at: new Date().toISOString()
+      allocated_by_user_id: userId,
+      allocated_at: new Date().toISOString(),
+      allocation_source: 'mpesa_reconciliation'
     };
 
     await activeDb.insert('payment_allocations', allocationData);
@@ -3556,13 +3580,35 @@ export function createPaymentEvidenceRoutes(pgDb) {
 
     const createdTx = await activeDb.insert('transactions', txData);
 
+    // Bridge payment evidence confirmation to unified payments table
+    const createdPayment = await paymentService.capturePayment({
+      organization_id: orgId,
+      payer_type: 'tenant',
+      payer_id: tenant.id,
+      payer_name: tenant.full_name,
+      payer_phone: tenant.phone_number,
+      source_type: 'mpesa',
+      source_id: row.id,
+      amount: allocationAmount,
+      currency: tenant.currency || 'KES',
+      received_at: row.transaction_date,
+      description: row.description || 'M-Pesa Payment Evidence',
+      reference: row.transaction_code,
+      external_reference: row.transaction_code,
+      created_by_user_id: userId
+    });
+
     const allocationData = {
       organization_id: orgId,
       transaction_id: createdTx.id,
+      payment_id: createdPayment.id,
       invoice_id: invoice.id,
+      amount: allocationAmount,
       amount_allocated: allocationAmount,
       allocated_by: userId,
-      allocated_at: new Date().toISOString()
+      allocated_by_user_id: userId,
+      allocated_at: new Date().toISOString(),
+      allocation_source: 'mpesa_reconciliation'
     };
     const createdAllocation = await activeDb.insert('payment_allocations', allocationData);
 

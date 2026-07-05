@@ -45,7 +45,8 @@ const TABLES_WITH_UPDATED_AT = new Set([
   'statement_uploads',
   'statement_extracted_transactions',
   'confirmed_statement_transactions',
-  'bank_reconciliation_decisions'
+  'bank_reconciliation_decisions',
+  'payments'
 ]);
 
 function createPool() {

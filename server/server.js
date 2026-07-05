@@ -15,6 +15,7 @@ import { createNotificationRoutes } from './routes/notificationRoutes.js';
 import { createSaasBillingRoutes } from './routes/saasBillingRoutes.js';
 import { createPaymentEvidenceRoutes } from './routes/paymentEvidenceRoutes.js';
 import { NotificationService } from './notificationService.js';
+import { PaymentDomainService } from './services/payment/PaymentDomainService.js';
 import { sendEmailWithConfig } from './mailerService.js';
 import { EMAIL_MODES, maskSmtpConfig, normalizeSmtpConfig, prepareSmtpConfigForStorage, resolveEmailDeliveryConfig, validateSmtpConfig } from './emailConfigService.js';
 import { maskSmsConfig, normalizeSmsConfig, prepareSmsConfigForStorage, validateSmsConfig } from './smsConfigService.js';
@@ -3085,7 +3086,7 @@ app.get('/api/payments', (req, res) => {
 });
 
 // Record manual payment
-app.post('/api/payments', (req, res) => {
+app.post('/api/payments', async (req, res) => {
   const orgId = req.auth?.organizationId;
   const { tenant_id, amount, payment_method, reference_number, transaction_date, notes } = req.body;
   const userId = req.auth?.userId;
@@ -3125,7 +3126,27 @@ app.post('/api/payments', (req, res) => {
     reconciled_at: new Date().toISOString()
   });
 
-  // Allocate payment to unpaid invoices
+  const paymentService = new PaymentDomainService(db);
+
+  // Capture Payment record
+  const paymentRecord = await paymentService.capturePayment({
+    organization_id: orgId,
+    payer_type: 'tenant',
+    payer_id: tenant.id,
+    payer_name: tenant.full_name,
+    payer_phone: tenant.phone_number,
+    source_type: 'manual',
+    source_id: transaction.id,
+    amount: parseFloat(amount),
+    currency: tenant.currency || 'KES',
+    received_at: transaction_date || new Date().toISOString(),
+    description: notes || 'Manual Payment Entry',
+    reference: reference_number || null,
+    external_reference: reference_number || null,
+    created_by_user_id: userId
+  });
+
+  // Allocate payment to unpaid invoices using unified paymentService
   let remainingAmount = parseFloat(amount);
   const unpaidInvoices = db.find('invoices', { tenant_id: tenant.id })
     .filter(inv => inv.status === 'issued' || inv.status === 'partially_paid' || inv.status === 'overdue')
@@ -3135,23 +3156,15 @@ app.post('/api/payments', (req, res) => {
     if (remainingAmount <= 0) break;
 
     const toAllocate = Math.min(inv.balance, remainingAmount);
-    const newPaid = inv.amount_paid + toAllocate;
-    const newBal = inv.balance - toAllocate;
-    const newStatus = newBal === 0 ? 'paid' : 'partially_paid';
 
-    db.update('invoices', inv.id, {
-      amount_paid: newPaid,
-      balance: newBal,
-      status: newStatus
-    });
-
-    db.insert('payment_allocations', {
+    await paymentService.allocatePayment({
       organization_id: orgId,
-      transaction_id: transaction.id,
+      payment_id: paymentRecord.id,
       invoice_id: inv.id,
-      amount_allocated: toAllocate,
-      allocated_by: userId,
-      allocated_at: new Date().toISOString()
+      amount: toAllocate,
+      allocated_by_user_id: userId,
+      allocation_source: 'manual',
+      notes
     });
 
     remainingAmount -= toAllocate;

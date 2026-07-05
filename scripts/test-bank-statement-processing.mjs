@@ -539,7 +539,7 @@ async function runAllBackendSuites() {
   await runBackendSuite('json');
 
   // Test Postgres backend
-  const pgDbUrl = 'postgres://postgres:postgres@localhost:5432/smart_landlord_test';
+  const pgDbUrl = process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/smart_landlord_test';
   await cleanPostgresDb(pgDbUrl);
   await runBackendSuite('postgres', pgDbUrl);
 

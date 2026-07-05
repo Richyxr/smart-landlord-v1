@@ -8,6 +8,7 @@ import path from 'path';
 import { readDb, writeDb } from '../db.js';
 import { StatementParserRegistry } from '../services/payment-evidence/StatementParserRegistry.js';
 import { MatchSuggestionService } from '../services/payment-evidence/MatchEngine.js';
+import { PaymentDomainService } from '../services/payment/PaymentDomainService.js';
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -839,6 +840,61 @@ export function createFinancialRoutes(pgDb) {
       );
 
       const createdTransaction = txResult.rows[0];
+
+      // Instantiate transactional payment service
+      const txClientWrapper = {
+        find: async (t, f) => {
+          const keys = Object.keys(f);
+          const vals = Object.values(f);
+          const where = keys.map((k, i) => `${k} = $${i + 1}`).join(' AND ');
+          const res = await client.query(`SELECT * FROM ${t} WHERE ${where}`, vals);
+          return res.rows;
+        },
+        findOne: async (t, f) => {
+          const keys = Object.keys(f);
+          const vals = Object.values(f);
+          const where = keys.map((k, i) => `${k} = $${i + 1}`).join(' AND ');
+          const res = await client.query(`SELECT * FROM ${t} WHERE ${where} LIMIT 1`, vals);
+          return res.rows[0] || null;
+        },
+        insert: async (t, rowData) => {
+          const keys = Object.keys(rowData);
+          const vals = Object.values(rowData);
+          const params = keys.map((_, i) => `$${i + 1}`).join(', ');
+          const queryText = `INSERT INTO ${t} (${keys.join(', ')}) VALUES (${params}) RETURNING *`;
+          const res = await client.query(queryText, vals);
+          return res.rows[0];
+        },
+        update: async (t, id, updates) => {
+          const keys = Object.keys(updates);
+          const vals = Object.values(updates);
+          const setClause = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
+          const queryText = `UPDATE ${t} SET ${setClause} WHERE id = $1 RETURNING *`;
+          const res = await client.query(queryText, [id, ...vals]);
+          return res.rows;
+        }
+      };
+
+      const txPaymentService = new PaymentDomainService(txClientWrapper);
+
+      // Capture Payment
+      const createdPayment = await txPaymentService.capturePayment({
+        organization_id: orgId,
+        payer_type: 'tenant',
+        payer_id: tenant.id,
+        payer_name: tenant.full_name,
+        payer_phone: tenant.phone_number,
+        source_type: 'manual',
+        source_id: createdTransaction.id,
+        amount: paymentAmount,
+        currency: tenant.currency || 'KES',
+        received_at: paymentDate.toISOString(),
+        description: paymentNote || 'Manual Payment Entry',
+        reference: referenceNumber || null,
+        external_reference: referenceNumber || null,
+        created_by_user_id: userId
+      });
+
       let remainingAmount = paymentAmount;
 
       const invoicesResult = await client.query(
@@ -858,36 +914,17 @@ export function createFinancialRoutes(pgDb) {
         if (remainingAmount <= 0) break;
 
         const toAllocate = Math.min(Number(invoice.balance), remainingAmount);
-        const newPaid = Number(invoice.amount_paid) + toAllocate;
-        const newBalance = Number(invoice.balance) - toAllocate;
 
-        await client.query(
-          `
-            UPDATE invoices
-            SET amount_paid = $1,
-                balance = $2,
-                status = $3,
-                updated_at = now()
-            WHERE id = $4
-              AND organization_id = $5
-          `,
-          [newPaid, newBalance, calculateInvoiceStatus(newBalance), invoice.id, orgId]
-        );
-
-        await client.query(
-          `
-            INSERT INTO payment_allocations (
-              organization_id,
-              transaction_id,
-              invoice_id,
-              amount_allocated,
-              allocated_by,
-              allocated_at
-            )
-            VALUES ($1, $2, $3, $4, $5, now())
-          `,
-          [orgId, createdTransaction.id, invoice.id, toAllocate, userId]
-        );
+        // Allocate payment (which automatically updates invoice payment state!)
+        await txPaymentService.allocatePayment({
+          organization_id: orgId,
+          payment_id: createdPayment.id,
+          invoice_id: invoice.id,
+          amount: toAllocate,
+          allocated_by_user_id: userId,
+          allocation_source: 'manual',
+          notes: paymentNote
+        });
 
         remainingAmount -= toAllocate;
       }
@@ -1117,6 +1154,12 @@ export function createFinancialRoutes(pgDb) {
       return dbData[table].length < beforeLen;
     }
   };
+  const paymentService = new PaymentDomainService({
+    find: (t, f) => dbFind(t, f),
+    findOne: (t, f) => dbFindOne(t, f),
+    insert: (t, d) => dbInsert(t, d),
+    update: (t, id, d) => dbUpdate(t, id, d)
+  });
 
   const processUpload = async (uploadId, buffer, filename, orgId, file_type) => {
     try {
@@ -1732,6 +1775,25 @@ export function createFinancialRoutes(pgDb) {
         created_by: userId
       });
 
+      // Bridge bank transaction to payments table (captured status, no invoice mutation)
+      await paymentService.capturePayment({
+        organization_id: orgId,
+        payer_type: 'tenant',
+        payer_id: tenant.id,
+        payer_name: tenant.full_name,
+        payer_phone: tenant.phone_number,
+        source_type: 'bank_statement',
+        source_id: tx.id,
+        source_hash: tx.source_hash || `bank_tx_${tx.id}`,
+        amount: Number(tx.amount),
+        currency: 'KES',
+        received_at: tx.transaction_date,
+        description: tx.description,
+        reference: tx.reference,
+        external_reference: tx.reference,
+        created_by_user_id: userId
+      });
+
       // Update bank transaction status to Match Approved
       const matchService = new MatchSuggestionService();
       const suggestions = await matchService.getSuggestions(tx, {
@@ -1878,6 +1940,134 @@ export function createFinancialRoutes(pgDb) {
       }
 
       res.json(results);
+    })
+  );
+
+  // GET /api/billing/payments
+  router.get(
+    '/billing/payments',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const list = await dbFind('payments', { organization_id: orgId }) || [];
+      for (const p of list) {
+        if (typeof p.metadata_json === 'string') {
+          try {
+            p.metadata_json = JSON.parse(p.metadata_json);
+          } catch (_) {}
+        }
+      }
+      res.json(list);
+    })
+  );
+
+  // GET /api/billing/payments/:id
+  router.get(
+    '/billing/payments/:id',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const id = Number(req.params.id);
+      const payment = await dbFindOne('payments', { id, organization_id: orgId });
+      if (!payment) {
+        return res.status(404).json({ error: 'Payment not found.' });
+      }
+      if (typeof payment.metadata_json === 'string') {
+        try {
+          payment.metadata_json = JSON.parse(payment.metadata_json);
+        } catch (_) {}
+      }
+      res.json(payment);
+    })
+  );
+
+  // GET /api/billing/invoices/:id/payment-summary
+  router.get(
+    '/billing/invoices/:id/payment-summary',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const id = Number(req.params.id);
+      try {
+        const summary = await paymentService.getInvoicePaymentSummary(id, orgId);
+        res.json(summary);
+      } catch (err) {
+        if (err.message.includes('not found')) {
+          return res.status(404).json({ error: err.message });
+        }
+        return res.status(400).json({ error: err.message });
+      }
+    })
+  );
+
+  // POST /api/billing/payments/capture
+  router.post(
+    '/billing/payments/capture',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId, userId } = getContext(req);
+      const input = { ...req.body, organization_id: orgId, created_by_user_id: userId };
+      try {
+        const payment = await paymentService.capturePayment(input);
+        res.json({ success: true, payment });
+      } catch (err) {
+        return res.status(400).json({ error: err.message });
+      }
+    })
+  );
+
+  // POST /api/billing/payments/:id/verify
+  router.post(
+    '/billing/payments/:id/verify',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const id = Number(req.params.id);
+      try {
+        const payment = await paymentService.verifyPayment(id, orgId);
+        res.json({ success: true, payment });
+      } catch (err) {
+        if (err.message.includes('not found')) {
+          return res.status(404).json({ error: err.message });
+        }
+        return res.status(400).json({ error: err.message });
+      }
+    })
+  );
+
+  // POST /api/billing/payments/:id/allocate
+  router.post(
+    '/billing/payments/:id/allocate',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId, userId } = getContext(req);
+      const paymentId = Number(req.params.id);
+      const { invoice_id, amount, notes, metadata_json } = req.body;
+
+      try {
+        const allocation = await paymentService.allocatePayment({
+          organization_id: orgId,
+          payment_id: paymentId,
+          invoice_id: Number(invoice_id),
+          amount: Number(amount),
+          allocated_by_user_id: userId,
+          allocation_source: 'manual',
+          notes,
+          metadata_json
+        });
+        res.json({ success: true, allocation });
+      } catch (err) {
+        if (err.message.includes('not found')) {
+          return res.status(404).json({ error: err.message });
+        }
+        return res.status(400).json({ error: err.message });
+      }
     })
   );
 
