@@ -1,19 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import StatementImports from '../components/StatementImports.jsx';
-import BankTransactions from './BankTransactions.jsx';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
+import PaymentEvidence from './PaymentEvidence.jsx';
+import { EmptyState } from '../components/ui-smart';
 import { CircleDollarSign, AlertTriangle, CheckCircle, Users, Zap, FileText, Printer, Bell, Check, CheckCircle2, Plus, DoorOpen, Droplets, Pencil, Clock, Mail, Phone, MessageSquare, Smartphone, ChevronRight, Send, X } from 'lucide-react';
 
-export default function Invoices({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab, onNavigate }) {
+export default function Invoices({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab, onNavigate, user, role }) {
   const [invoices, setInvoices] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [units, setUnits] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [landlordMpesaShortcode, setLandlordMpesaShortcode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
   // Tab Navigation
-  const [activeSubTab, setActiveSubTab] = useState('overview'); // overview, due_tenants, invoices, readings, utility_settings
+  const [activeSubTab, setActiveSubTab] = useState('overview'); // overview, invoices, payments, banking, utilities
   const [searchTerm, setSearchTerm] = useState('');
 
   // View States for Invoice Actions
@@ -73,7 +74,11 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
   useEffect(() => {
     if (initialSubTab) {
-      setActiveSubTab(initialSubTab);
+      let target = initialSubTab;
+      if (initialSubTab === 'readings' || initialSubTab === 'utility_settings') {
+        target = 'utilities';
+      }
+      setActiveSubTab(target);
       clearInitialSubTab?.();
     }
   }, [initialSubTab]);
@@ -86,14 +91,16 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
     setLoading(true);
     setError('');
     try {
-      const [resInvs, resTenants, resUnits] = await Promise.all([
+      const [resInvs, resTenants, resUnits, resPayments] = await Promise.all([
         fetch('/api/invoices', { headers }),
         fetch('/api/tenants', { headers }),
-        fetch('/api/units', { headers })
+        fetch('/api/units', { headers }),
+        fetch('/api/payments', { headers })
       ]);
       setInvoices(await resInvs.json());
       setTenants(await resTenants.json());
       setUnits(await resUnits.json());
+      setPayments(await resPayments.json());
 
       // Source-of-truth for landlord rent collection instructions.
       // Caretakers may receive 403 on integrations endpoint, so we fail safely.
@@ -1060,12 +1067,10 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
         {[
           { id: 'overview', label: 'Overview' },
-          { id: 'due_tenants', label: 'Due Tenants' },
           { id: 'invoices', label: 'Invoices' },
-          { id: 'readings', label: 'Meter Readings' },
-          { id: 'utility_settings', label: 'Utility Settings' },
-          { id: 'statement_imports', label: 'Statement Imports' },
-          { id: 'bank_transactions', label: 'Bank Transactions' }
+          { id: 'payments', label: 'Payments' },
+          { id: 'banking', label: 'Banking' },
+          { id: 'utilities', label: 'Utilities' }
         ].map(tab => (
           <button
             key={tab.id}
@@ -1131,8 +1136,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
             <div 
               className="sl-metric-card sl-metric-success sl-clickable"
-              onClick={() => onNavigate?.('landlord_reconciliation')}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNavigate?.('landlord_reconciliation'); } }}
+              onClick={() => setActiveSubTab('banking')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveSubTab('banking'); } }}
               role="button"
               tabIndex={0}
               style={{ cursor: 'pointer', outline: 'none' }}
@@ -1163,8 +1168,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
             <div 
               className="sl-metric-card sl-metric-warning sl-clickable"
-              onClick={() => { setActiveSubTab('readings'); setError(''); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveSubTab('readings'); setError(''); } }}
+              onClick={() => { setActiveSubTab('utilities'); setError(''); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveSubTab('utilities'); setError(''); } }}
               role="button"
               tabIndex={0}
               style={{ cursor: 'pointer', outline: 'none' }}
@@ -1228,25 +1233,25 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                   title: 'Payments',
                   description: 'View tenant payments, pending confirmations, and payment history.',
                   action: 'Open Payments',
-                  onClick: () => setShowPaymentForm(true)
+                  onClick: () => setActiveSubTab('payments')
                 },
                 {
                   title: 'Statement Reconciliation',
                   description: 'Upload bank or M-Pesa statements, review matched and unmatched payments, and confirm tenant allocations.',
-                  action: 'Open Statement Reconciliation',
-                  onClick: () => onNavigate?.('landlord_reconciliation')
+                  action: 'Open Banking',
+                  onClick: () => setActiveSubTab('banking')
                 },
                 {
                   title: 'Receipts',
                   description: 'View receipt previews and issued receipts from confirmed payments.',
                   action: 'View Receipts',
-                  onClick: () => onNavigate?.('landlord_payment_evidence')
+                  onClick: () => setActiveSubTab('banking')
                 },
                 {
                   title: 'Billing Settings',
                   description: 'Configure utility billing and billing cycle settings.',
                   action: 'Open Billing Settings',
-                  onClick: () => setActiveSubTab('utility_settings')
+                  onClick: () => setActiveSubTab('utilities')
                 }
               ].map((item) => (
                 <div
@@ -1428,6 +1433,9 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'fit-content', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }} onClick={() => setActiveSubTab('overview')}>
+              ← Back to Overview
+            </button>
 
             <input
               type="text"
@@ -1710,261 +1718,332 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
         </div>
       )}
 
-      {/* METER READINGS SUB-TAB */}
-      {activeSubTab === 'readings' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          
+      {/* BANKING SUB-TAB (RECONCILIATION) */}
+      {activeSubTab === 'banking' && (
+        <PaymentEvidence
+          organization={organization}
+          refreshTrigger={refreshTrigger}
+          user={user}
+          role={role}
+          onNavigate={onNavigate}
+        />
+      )}
+
+      {/* PAYMENTS LOG SUB-TAB */}
+      {activeSubTab === 'payments' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Utility Log Registry</span>
-            <span className="badge badge-info">active cycle</span>
-          </div>
-
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              padding: '12px 16px',
-              borderRadius: 'var(--radius-md)',
-              background: 'var(--warning-glow)',
-              border: '1px solid var(--warning)',
-              color: '#fbbf24',
-              fontSize: '12px',
-              lineHeight: '1.5'
-            }}
-          >
-            <AlertTriangle size={16} />
-            <span>Utility billing settings and meter readings require backend persistence before production billing automation.</span>
-          </div>
-
-          {!enableWater && !enableElec ? (
-            <div className="card" style={{ textAlign: 'center', padding: '24px 16px', color: 'var(--text-secondary)' }}>
-              Utility readings are currently disabled. Please enable water or electricity logging inside the <strong>Utility Settings</strong> tab.
+            <div>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700' }}>Tenant Payments</h3>
+              <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                View all captured payments, M-Pesa push confirmations, cash receipt logs, and allocations.
+              </p>
             </div>
-          ) : (
-            units.map(u => {
-              const currentReading = readings[u.id];
-              const activeTenant = activeTenants.find(t => String(t.unit_id) === String(u.id));
-              
-              return (
-                <div key={u.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  <div className="flex-row">
-                    <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <DoorOpen size={16} style={{ color: 'var(--primary)' }} />
-                      <span>Unit {u.unit_code} ({u.property_name})</span>
-                    </h4>
-                    <span className={`sl-status-badge ${currentReading ? 'sl-status-success' : 'sl-status-warning'}`}>
-                      {currentReading ? 'logged' : 'pending'}
-                    </span>
-                  </div>
-                  <p style={{ fontSize: '12px', margin: 0 }}>Tenant: <strong>{activeTenant ? activeTenant.full_name : 'Vacant'}</strong></p>
-                  
-                  <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
-                  
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '12px' }}>
-                    {enableWater && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Droplets size={14} style={{ color: 'var(--info)' }} />
-                        <span>Water: <strong style={{ color: 'var(--info)' }}>{currentReading?.water ? `${currentReading.water} m³` : '--'}</strong></span>
+            <button className="btn btn-primary btn-sm" onClick={() => { setShowPaymentForm(true); resetPaymentForm(); }}>
+              Record Payment
+            </button>
+          </div>
+
+          <div className="card">
+            {payments.length === 0 ? (
+              <EmptyState
+                icon={CircleDollarSign}
+                title="No payments recorded"
+                description="Manual cash/bank payments or confirmed auto-allocations will appear here."
+              />
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="sl-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Tenant</th>
+                      <th>Reference</th>
+                      <th>Method</th>
+                      <th style={{ textAlign: 'right' }}>Amount</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {payments.map(pay => (
+                      <tr key={pay.id}>
+                        <td>{new Date(pay.transaction_date).toLocaleDateString('en-KE')}</td>
+                        <td>
+                          <div style={{ fontWeight: '600' }}>{pay.tenant_name}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Unit {pay.unit_code}</div>
+                        </td>
+                        <td>
+                          <span className="badge badge-info" style={{ fontFamily: 'monospace' }}>
+                            {pay.reference_number}
+                          </span>
+                        </td>
+                        <td style={{ textTransform: 'capitalize' }}>{pay.payment_method}</td>
+                        <td style={{ textAlign: 'right', fontWeight: '700', color: 'var(--success)' }}>
+                          +{formatCurrency(pay.amount)}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-xs"
+                            onClick={() => {
+                              setPaymentReceipt({
+                                receipt_number: pay.reference_number || `REC-${pay.id}`,
+                                tenant_name: pay.tenant_name,
+                                tenant_account_number: pay.tenant_account_number || 'N/A',
+                                amount_paid: Number(pay.amount),
+                                payment_method: pay.payment_method || 'mpesa',
+                                reference_number: pay.reference_number || pay.id,
+                                transaction_date: pay.transaction_date,
+                                balance_after_payment: pay.balance_after_payment !== undefined ? pay.balance_after_payment : 0,
+                                allocation_summary: []
+                              });
+                            }}
+                          >
+                            <Printer size={12} style={{ marginRight: '4px' }} />
+                            Receipt
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* UTILITIES SUB-TAB */}
+      {activeSubTab === 'utilities' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          
+          {/* Section 1: Meter Readings */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700' }}>Utility Log Registry</h3>
+              <span className="badge badge-info">active cycle</span>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '12px 16px',
+                borderRadius: 'var(--radius-md)',
+                background: 'var(--warning-glow)',
+                border: '1px solid var(--warning)',
+                color: '#fbbf24',
+                fontSize: '12px',
+                lineHeight: '1.5'
+              }}
+            >
+              <AlertTriangle size={16} />
+              <span>Utility billing settings and meter readings require backend persistence before production billing automation.</span>
+            </div>
+
+            {!enableWater && !enableElec ? (
+              <div className="card" style={{ textAlign: 'center', padding: '24px 16px', color: 'var(--text-secondary)' }}>
+                Utility readings are currently disabled. Please enable water or electricity logging inside the <strong>Utility Cost Rules</strong> card below.
+              </div>
+            ) : (
+              units.map(u => {
+                const currentReading = readings[u.id];
+                const activeTenant = activeTenants.find(t => String(t.unit_id) === String(u.id));
+                
+                return (
+                  <div key={u.id} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div className="flex-row">
+                      <h4 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <DoorOpen size={16} style={{ color: 'var(--primary)' }} />
+                        <span>Unit {u.unit_code} ({u.property_name})</span>
+                      </h4>
+                      <span className={`sl-status-badge ${currentReading ? 'sl-status-success' : 'sl-status-warning'}`}>
+                        {currentReading ? 'logged' : 'pending'}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '12px', margin: 0 }}>Tenant: <strong>{activeTenant ? activeTenant.full_name : 'Vacant'}</strong></p>
+                    
+                    <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '12px' }}>
+                      {enableWater && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Droplets size={14} style={{ color: 'var(--info)' }} />
+                          <span>Water: <strong style={{ color: 'var(--info)' }}>{currentReading?.water ? `${currentReading.water} m³` : '--'}</strong></span>
+                        </div>
+                      )}
+                      {enableElec && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Zap size={14} style={{ color: 'var(--warning)' }} />
+                          <span>Electricity: <strong style={{ color: 'var(--warning)' }}>{currentReading?.electricity ? `${currentReading.electricity} kWh` : '--'}</strong></span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    {currentReading?.date && (
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+                        Last updated: {currentReading.date}
                       </div>
                     )}
-                    {enableElec && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Zap size={14} style={{ color: 'var(--warning)' }} />
-                        <span>Electricity: <strong style={{ color: 'var(--warning)' }}>{currentReading?.electricity ? `${currentReading.electricity} kWh` : '--'}</strong></span>
-                      </div>
+
+                    {activeTenant && (
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        style={{ marginTop: '8px', width: 'fit-content', alignSelf: 'flex-end', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        onClick={() => {
+                          setReadingUnitId(u.id);
+                          setWaterVal(currentReading?.water || '');
+                          setElecVal(currentReading?.electricity || '');
+                        }}
+                      >
+                        <Pencil size={12} /> Update Reading
+                      </button>
                     )}
                   </div>
+                );
+              })
+            )}
+
+            {/* UPDATE READING MODAL */}
+            {readingUnitId && (
+              <div className="modal-backdrop">
+                <form onSubmit={handleSaveReading} className="modal-content">
+                  <h3 style={{ fontWeight: '700', fontSize: '16px', margin: 0 }}>Update Unit Readings</h3>
                   
-                  {currentReading?.date && (
-                    <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-                      Last updated: {currentReading.date}
+                  {enableWater && (
+                    <div className="form-group">
+                      <label className="form-label">Water Reading (m³)</label>
+                      <input
+                        type="number"
+                        required
+                        placeholder="e.g. 104.5"
+                        className="form-control"
+                        value={waterVal}
+                        onChange={e => setWaterVal(e.target.value)}
+                      />
                     </div>
                   )}
 
-                  {activeTenant && (
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      style={{ marginTop: '8px', width: 'fit-content', alignSelf: 'flex-end', display: 'flex', alignItems: 'center', gap: '6px' }}
-                      onClick={() => {
-                        setReadingUnitId(u.id);
-                        setWaterVal(currentReading?.water || '');
-                        setElecVal(currentReading?.electricity || '');
-                      }}
-                    >
-                      <Pencil size={12} /> Update Reading
-                    </button>
+                  {enableElec && (
+                    <div className="form-group">
+                      <label className="form-label">Electricity Reading (kWh)</label>
+                      <input
+                        type="number"
+                        required
+                        placeholder="e.g. 340.2"
+                        className="form-control"
+                        value={elecVal}
+                        onChange={e => setElecVal(e.target.value)}
+                      />
+                    </div>
                   )}
-                </div>
-              );
-            })
-          )}
 
-          {/* UPDATE READING MODAL */}
-          {readingUnitId && (
-            <div className="modal-backdrop">
-              <form onSubmit={handleSaveReading} className="modal-content">
-                <h3 style={{ fontWeight: '700', fontSize: '16px', margin: 0 }}>Update Unit Readings</h3>
-                
-                {enableWater && (
-                  <div className="form-group">
-                    <label className="form-label">Water Reading (m³)</label>
-                    <input
-                      type="number"
-                      required
-                      placeholder="e.g. 104.5"
-                      className="form-control"
-                      value={waterVal}
-                      onChange={e => setWaterVal(e.target.value)}
-                    />
+                  <div className="flex-gap" style={{ marginTop: '8px' }}>
+                    <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setReadingUnitId(null)}>
+                      Cancel
+                    </button>
+                    <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
+                      Save Readings
+                    </button>
                   </div>
-                )}
+                </form>
+              </div>
+            )}
+          </div>
 
-                {enableElec && (
-                  <div className="form-group">
-                    <label className="form-label">Electricity Reading (kWh)</label>
-                    <input
-                      type="number"
-                      required
-                      placeholder="e.g. 340.2"
-                      className="form-control"
-                      value={elecVal}
-                      onChange={e => setElecVal(e.target.value)}
-                    />
-                  </div>
-                )}
+          <div style={{ borderTop: '2px solid var(--border)', margin: '10px 0' }} />
 
-                <div className="flex-gap" style={{ marginTop: '8px' }}>
-                  <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setReadingUnitId(null)}>
-                    Cancel
-                  </button>
-                  <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
-                    Save Readings
-                  </button>
-                </div>
-              </form>
+          {/* Section 2: Cost Rules Settings */}
+          <form onSubmit={handleSaveSettings} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <h3 style={{ fontFamily: 'var(--font-title)', fontSize: '15px', fontWeight: '700', margin: 0 }}>Utility Cost Rules</h3>
+            
+            <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'bold' }}>
+                <input
+                  type="checkbox"
+                  checked={enableWater}
+                  onChange={e => setEnableWater(e.target.checked)}
+                />
+                Enable Water Billing
+              </label>
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '24px' }}>
+                Require monthly water meter readings for tenants and calculate cost.
+              </p>
             </div>
-          )}
+
+            {enableWater && (
+              <div className="form-group" style={{ marginLeft: '24px' }}>
+                <label className="form-label">Water Cost per m³ ({organization.billing_currency || 'KES'})</label>
+                <input
+                  type="number"
+                  required
+                  className="form-control"
+                  placeholder="150"
+                  value={waterCost}
+                  onChange={e => setWaterCost(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'bold' }}>
+                <input
+                  type="checkbox"
+                  checked={enableElec}
+                  onChange={e => setEnableElec(e.target.checked)}
+                />
+                Enable Electricity Billing
+              </label>
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '24px' }}>
+                Require monthly power meter readings and add to tenant utility bills.
+              </p>
+            </div>
+
+            {enableElec && (
+              <div className="form-group" style={{ marginLeft: '24px' }}>
+                <label className="form-label">Electricity Cost per kWh ({organization.billing_currency || 'KES'})</label>
+                <input
+                  type="number"
+                  required
+                  className="form-control"
+                  placeholder="25"
+                  value={elecCost}
+                  onChange={e => setElecCost(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div className="form-group">
+              <label className="form-label">Monthly Meter Reading Deadline Day</label>
+              <input
+                type="number"
+                min="1"
+                max="28"
+                required
+                className="form-control"
+                value={deadlineDay}
+                onChange={e => setDeadlineDay(e.target.value)}
+              />
+              <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
+                Caretakers must submit all unit meter readings by this calendar day.
+              </p>
+            </div>
+
+            {settingsSaved && (
+              <div style={{ color: 'var(--success)', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <Check size={12} /> Settings saved locally successfully!
+              </div>
+            )}
+
+            <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }}>
+              Save Billing Settings
+            </button>
+          </form>
 
         </div>
       )}
 
-      {/* UTILITY SETTINGS SUB-TAB */}
-      {activeSubTab === 'utility_settings' && (
-        <form onSubmit={handleSaveSettings} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <h3 style={{ fontFamily: 'var(--font-title)', fontSize: '16px', margin: 0 }}>Utility Cost Rules</h3>
-
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              padding: '12px 16px',
-              borderRadius: 'var(--radius-md)',
-              background: 'var(--warning-glow)',
-              border: '1px solid var(--warning)',
-              color: '#fbbf24',
-              fontSize: '12px',
-              lineHeight: '1.5'
-            }}
-          >
-            <AlertTriangle size={16} />
-            <span>Utility billing settings and meter readings require backend persistence before production billing automation.</span>
-          </div>
-          
-          <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'bold' }}>
-              <input
-                type="checkbox"
-                checked={enableWater}
-                onChange={e => setEnableWater(e.target.checked)}
-              />
-              Enable Water Billing
-            </label>
-            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '24px' }}>
-              Require monthly water meter readings for tenants and calculate cost.
-            </p>
-          </div>
-
-          {enableWater && (
-            <div className="form-group" style={{ marginLeft: '24px' }}>
-              <label className="form-label">Water Cost per m³ ({organization.billing_currency || 'KES'})</label>
-              <input
-                type="number"
-                required
-                className="form-control"
-                placeholder="150"
-                value={waterCost}
-                onChange={e => setWaterCost(e.target.value)}
-              />
-            </div>
-          )}
-
-          <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 'bold' }}>
-              <input
-                type="checkbox"
-                checked={enableElec}
-                onChange={e => setEnableElec(e.target.checked)}
-              />
-              Enable Electricity Billing
-            </label>
-            <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', marginLeft: '24px' }}>
-              Require monthly power meter readings and add to tenant utility bills.
-            </p>
-          </div>
-
-          {enableElec && (
-            <div className="form-group" style={{ marginLeft: '24px' }}>
-              <label className="form-label">Electricity Cost per kWh ({organization.billing_currency || 'KES'})</label>
-              <input
-                type="number"
-                required
-                className="form-control"
-                placeholder="25"
-                value={elecCost}
-                onChange={e => setElecCost(e.target.value)}
-              />
-            </div>
-          )}
-
-          <div className="form-group">
-            <label className="form-label">Monthly Meter Reading Deadline Day</label>
-            <input
-              type="number"
-              min="1"
-              max="28"
-              required
-              className="form-control"
-              value={deadlineDay}
-              onChange={e => setDeadlineDay(e.target.value)}
-            />
-            <p style={{ fontSize: '11px', color: 'var(--text-muted)', margin: 0 }}>
-              Caretakers must submit all unit meter readings by this calendar day.
-            </p>
-          </div>
-
-          {settingsSaved && (
-            <div style={{ color: 'var(--success)', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Check size={12} /> Settings saved locally successfully!
-            </div>
-          )}
-
-          <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }}>
-            Save Billing Settings
-          </button>
-        </form>
-      )}
-
-      {/* STATEMENT IMPORTS SUB-TAB */}
-      {activeSubTab === 'statement_imports' && (
-        <StatementImports organization={organization} />
-      )}
-
-      {/* BANK TRANSACTIONS SUB-TAB */}
-      {activeSubTab === 'bank_transactions' && (
-        <BankTransactions organization={organization} />
-      )}
 
     </div>
   );

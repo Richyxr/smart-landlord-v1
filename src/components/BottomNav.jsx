@@ -62,5 +62,3 @@ export default function BottomNav({ role, activeTab, onChangeTab }) {
     </div>
   );
 }
-
-

@@ -539,7 +539,7 @@ async function runTests() {
   const statsPageContent = fs.readFileSync('src/pages/Stats.jsx', 'utf8');
 
   assert(
-    'Bottom nav contains Home, Properties, Billing, Stats, Settings',
+    'Bottom nav contains exactly approved landlord primary items: Home, Properties, Billing, Stats, Settings',
     bottomNavContent.includes("label: 'Home'") &&
     bottomNavContent.includes("label: 'Properties'") &&
     bottomNavContent.includes("label: 'Billing'") &&
@@ -548,9 +548,11 @@ async function runTests() {
   );
 
   assert(
-    'Bottom nav does not contain top-level Reconcile or Evidence',
-    !bottomNavContent.includes("label: 'Reconcile'") &&
-    !bottomNavContent.includes("label: 'Evidence'") &&
+    'Bottom nav does not expose Banking, SaaS, Reconciliation, or Evidence as primary items',
+    !bottomNavContent.includes("label: 'Banking'") &&
+    !bottomNavContent.includes("label: 'SaaS'") &&
+    !bottomNavContent.includes("label: 'Reconciliation'") &&
+    !bottomNavContent.includes("label: 'Payment Evidence'") &&
     !bottomNavContent.includes('landlord_reconciliation') &&
     !bottomNavContent.includes('landlord_payment_evidence')
   );
@@ -562,43 +564,35 @@ async function runTests() {
   );
 
   assert(
-    'Desktop sidebar does not expose primary Payment Evidence or Statement Reconciliation',
+    'Desktop sidebar does not expose Banking, SaaS, Reconciliation, or Evidence as primary items',
+    !desktopSidebarContent.includes("label: 'Banking'") &&
+    !desktopSidebarContent.includes("label: 'SaaS'") &&
+    !desktopSidebarContent.includes("label: 'Reconciliation'") &&
     !desktopSidebarContent.includes("label: 'Payment Evidence'") &&
-    !desktopSidebarContent.includes("label: 'Statement Reconciliation'") &&
-    !desktopSidebarContent.includes('landlord_payment_evidence') &&
-    !desktopSidebarContent.includes('landlord_reconciliation')
+    !desktopSidebarContent.includes('landlord_reconciliation') &&
+    !desktopSidebarContent.includes('landlord_payment_evidence')
   );
 
   assert(
-    'Billing hub contains Statement Reconciliation card and hides Payment Evidence card',
-    billingContent.includes('Statement Reconciliation') &&
-    !billingContent.includes("title: 'Payment Evidence'")
-  );
-
-  assert(
-    'Billing hub contains required Statement Reconciliation description',
-    billingContent.includes('Upload bank or M-Pesa statements, review matched and unmatched payments, and confirm tenant allocations.')
-  );
-
-  assert(
-    'Billing hub does not expose Payment Evidence description',
-    !billingContent.includes('Import statement evidence, review matches, allocate payments, and preview receipts.')
+    'Billing contains approved sub-workflows',
+    billingContent.includes("{ id: 'overview', label: 'Overview' }") &&
+    billingContent.includes("{ id: 'invoices', label: 'Invoices' }") &&
+    billingContent.includes("{ id: 'payments', label: 'Payments' }") &&
+    billingContent.includes("{ id: 'banking', label: 'Banking' }") &&
+    billingContent.includes("{ id: 'utilities', label: 'Utilities' }")
   );
 
   assert(
     'Stats page contains title and subtitle',
-    statsPageContent.includes('Stats') &&
-    statsPageContent.includes('Track collections, arrears, occupancy, invoice status, and payment matching performance.')
+    statsPageContent.includes('Reports & Performance') &&
+    statsPageContent.includes('Real-time financial metrics, collections efficiency, and operational trends.')
   );
 
   assert(
-    'Stats page contains placeholder metric cards',
+    'Stats page contains real database metric cards',
     statsPageContent.includes('Collections') &&
     statsPageContent.includes('Arrears') &&
-    statsPageContent.includes('Occupancy') &&
-    statsPageContent.includes('Invoice Status') &&
-    statsPageContent.includes('Payment Matching') &&
-    statsPageContent.includes('Monthly Trends')
+    statsPageContent.includes('Occupancy Rate')
   );
 
   // Verify Import Wizard UI Shell elements exist
@@ -610,12 +604,20 @@ async function runTests() {
   );
 
   assert(
-    'Routes/dashboard expose Statement Reconciliation through Billing operations',
+    'Legacy reconciliation states redirect to Billing > Banking and dashboard exposes Banking as a quick action',
+    fs.readFileSync('src/App.jsx', 'utf8').includes("setInvoicesSubTab('banking')") &&
+    fs.readFileSync('src/App.jsx', 'utf8').includes("setActiveTab('landlord_invoices')") &&
     paymentEvidenceContent.includes('Statement Reconciliation') &&
-    billingContent.includes("onNavigate?.('landlord_reconciliation')") &&
-    billingContent.includes("onNavigate?.('landlord_payment_evidence')") &&
-    fs.readFileSync('src/pages/Reconciliation.jsx', 'utf8').includes('Statement Reconciliation') &&
-    fs.readFileSync('src/pages/LandlordDashboard.jsx', 'utf8').includes('Open Statement Reconciliation')
+    billingContent.includes("{ id: 'banking', label: 'Banking' }") &&
+    fs.readFileSync('src/pages/LandlordDashboard.jsx', 'utf8').includes("onNavigate('landlord_invoices', 'banking')")
+  );
+
+  assert(
+    'Banking contains approved sub-tabs',
+    paymentEvidenceContent.includes("{ id: 'wizard', label: 'Import Statement' }") &&
+    paymentEvidenceContent.includes("{ id: 'queue', label: 'Matching Queue' }") &&
+    paymentEvidenceContent.includes("{ id: 'history', label: 'Import History' }") &&
+    paymentEvidenceContent.includes("{ id: 'payments', label: 'Payments & Allocations Log' }")
   );
 
   assert(

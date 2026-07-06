@@ -41,15 +41,21 @@ export default function App() {
   const [promptState, setPromptState] = useState(null);
 
   const handleNavigate = (page, subTab) => {
-    setActiveTab(page);
-    if (page === 'landlord_properties' && subTab) {
-      setPropertiesSubTab(subTab);
+    let targetPage = page;
+    let targetSubTab = subTab;
+    if (page === 'landlord_reconciliation' || page === 'landlord_payment_evidence') {
+      targetPage = 'landlord_invoices';
+      targetSubTab = 'banking';
     }
-    if (page === 'landlord_settings' && subTab) {
-      setSettingsSubTab(subTab);
+    setActiveTab(targetPage);
+    if (targetPage === 'landlord_properties' && targetSubTab) {
+      setPropertiesSubTab(targetSubTab);
     }
-    if (page === 'landlord_invoices' && subTab) {
-      setInvoicesSubTab(subTab);
+    if (targetPage === 'landlord_settings' && targetSubTab) {
+      setSettingsSubTab(targetSubTab);
+    }
+    if (targetPage === 'landlord_invoices' && targetSubTab) {
+      setInvoicesSubTab(targetSubTab);
     }
   };
 
@@ -300,6 +306,13 @@ export default function App() {
     setRefreshTrigger(prev => prev + 1);
   };
 
+  useEffect(() => {
+    if (activeTab === 'landlord_reconciliation' || activeTab === 'landlord_payment_evidence') {
+      setInvoicesSubTab('banking');
+      setActiveTab('landlord_invoices');
+    }
+  }, [activeTab]);
+
   const handleMockUnlock = () => {
     setIsLocked(false);
     triggerRefresh();
@@ -381,12 +394,33 @@ export default function App() {
             initialSubTab={invoicesSubTab}
             clearInitialSubTab={() => setInvoicesSubTab(null)}
             onNavigate={handleNavigate}
+            user={user}
+            role={role}
           />
         );
       case 'landlord_reconciliation':
-        return <PaymentEvidence organization={organization} refreshTrigger={refreshTrigger} user={user} role={role} />;
       case 'landlord_payment_evidence':
-        return <PaymentEvidence organization={organization} refreshTrigger={refreshTrigger} user={user} role={role} />;
+        return (
+          <Invoices
+            organization={organization}
+            refreshTrigger={refreshTrigger}
+            onRefresh={triggerRefresh}
+            initialSubTab="banking"
+            clearInitialSubTab={() => setInvoicesSubTab(null)}
+            onNavigate={handleNavigate}
+            user={user}
+            role={role}
+          />
+        );
+      case 'landlord_subscription':
+        return (
+          <SaaSInvoices
+            organization={organization}
+            refreshTrigger={refreshTrigger}
+            onRefresh={triggerRefresh}
+            forceShowLock={false}
+          />
+        );
       case 'landlord_stats':
         return <Stats />;
       case 'landlord_settings':

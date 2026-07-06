@@ -25,8 +25,15 @@ import {
   isSourceImportSupported
 } from '../lib/providerAdapterRegistry.js';
 
-export default function PaymentEvidence({ organization, refreshTrigger, user, role }) {
+import BankTransactions from './BankTransactions.jsx';
+import StatementImports from '../components/StatementImports.jsx';
+
+export default function PaymentEvidence({ organization, refreshTrigger, user, role, onNavigate }) {
   const fileInputRef = React.useRef(null);
+  const [activeSubTab, setActiveSubTab] = useState('wizard'); // wizard, queue, history, payments
+  const [paymentsLog, setPaymentsLog] = useState([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [paymentsError, setPaymentsError] = useState('');
   const [evidenceRows, setEvidenceRows] = useState([]);
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -44,6 +51,29 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     media.addEventListener('change', listener);
     return () => media.removeEventListener('change', listener);
   }, []);
+
+  useEffect(() => {
+    if (activeSubTab === 'payments') {
+      fetchPaymentsLog();
+    }
+  }, [activeSubTab, refreshTrigger]);
+
+  const fetchPaymentsLog = async () => {
+    setLoadingPayments(true);
+    setPaymentsError('');
+    try {
+      const headers = {};
+      const res = await fetch('/api/payments', { headers });
+      if (!res.ok) throw new Error('Failed to load payments.');
+      const data = await res.json();
+      setPaymentsLog(Array.isArray(data) ? data : (data && Array.isArray(data.payments) ? data.payments : []));
+    } catch (err) {
+      console.error(err);
+      setPaymentsError(err.message || 'Failed to fetch payments.');
+    } finally {
+      setLoadingPayments(false);
+    }
+  };
 
   const [strength, setStrength] = useState('');
   const [channel, setChannel] = useState('');
@@ -1476,8 +1506,100 @@ Please split the file into smaller batches or wait for the upcoming server-side 
         </div>
       </div>
 
-      {/* Page Stepper */}
-      <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* BANKING SUB-TABS */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
+        {[
+          { id: 'wizard', label: 'Import Statement' },
+          { id: 'queue', label: 'Matching Queue' },
+          { id: 'history', label: 'Import History' },
+          { id: 'payments', label: 'Payments & Allocations Log' }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            style={{
+              flex: 1,
+              padding: '12px 4px',
+              border: 'none',
+              background: 'none',
+              color: activeSubTab === tab.id ? 'var(--primary)' : 'var(--text-secondary)',
+              borderBottom: activeSubTab === tab.id ? '2px solid var(--primary)' : 'none',
+              fontWeight: '600',
+              cursor: 'pointer',
+              fontSize: '11px',
+              transition: 'all 0.2s'
+            }}
+            onClick={() => setActiveSubTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeSubTab === 'queue' && (
+        <BankTransactions organization={organization} />
+      )}
+
+      {activeSubTab === 'history' && (
+        <StatementImports organization={organization} />
+      )}
+
+      {activeSubTab === 'payments' && (
+        <div className="card" style={{ padding: '20px' }}>
+          <h3 className="card-title">Payments & Allocations Log</h3>
+          <p className="text-muted" style={{ fontSize: '12px', marginBottom: '16px' }}>
+            List of all captured/verified payments and their current allocation status.
+          </p>
+
+          {loadingPayments ? (
+            <p style={{ textAlign: 'center', padding: '20px' }}>Loading payments...</p>
+          ) : paymentsError ? (
+            <p style={{ color: 'var(--danger)', textAlign: 'center', padding: '20px' }}>{paymentsError}</p>
+          ) : paymentsLog.length === 0 ? (
+            <p style={{ textAlign: 'center', padding: '20px' }}>No payments logged.</p>
+          ) : (
+            <div className="table-responsive" style={{ overflowX: 'auto' }}>
+              <table className="table" style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                    <th style={{ padding: '8px' }}>Reference</th>
+                    <th style={{ padding: '8px' }}>Date</th>
+                    <th style={{ padding: '8px' }}>Amount</th>
+                    <th style={{ padding: '8px' }}>Payer</th>
+                    <th style={{ padding: '8px' }}>Status</th>
+                    <th style={{ padding: '8px' }}>Allocation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paymentsLog.map(p => (
+                    <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '8px' }}><strong>{p.reference_number}</strong></td>
+                      <td style={{ padding: '8px' }}>{p.transaction_date ? new Date(p.transaction_date).toLocaleDateString() : 'N/A'}</td>
+                      <td style={{ padding: '8px' }}>KES {Number(p.amount || 0).toLocaleString()}</td>
+                      <td style={{ padding: '8px' }}>{p.payer_name || p.phone_number || 'Unknown'}</td>
+                      <td style={{ padding: '8px' }}>
+                        <span className={`badge ${p.status === 'captured' || p.status === 'verified' ? 'badge-success' : 'badge-warning'}`}>
+                          {p.status}
+                        </span>
+                      </td>
+                      <td style={{ padding: '8px' }}>
+                        <span className={`badge ${p.allocation_status === 'fully_allocated' ? 'badge-success' : p.allocation_status === 'partially_allocated' ? 'badge-info' : 'badge-secondary'}`}>
+                          {p.allocation_status ? p.allocation_status.replace(/_/g, ' ') : 'unallocated'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeSubTab === 'wizard' && (
+        <>
+        {/* Page Stepper */}
+        <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -3914,6 +4036,9 @@ Please split the file into smaller batches or wait for the upcoming server-side 
 
           </div>
         </div>
+      )}
+
+      </>
       )}
 
     </div>
