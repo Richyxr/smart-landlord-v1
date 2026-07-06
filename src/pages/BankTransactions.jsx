@@ -50,6 +50,81 @@ export default function BankTransactions({ organization }) {
   const [searchingManual, setSearchingManual] = useState(false);
   const [showManualSearch, setShowManualSearch] = useState(false);
 
+  // Allocation Preview & Control Layer States
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [previewData, setPreviewData] = useState(null);
+  const [previewError, setPreviewError] = useState('');
+  const [allocating, setAllocating] = useState(false);
+  const [allocationSuccessData, setAllocationSuccessData] = useState(null);
+
+  const handleOpenPreviewModal = async () => {
+    if (!selectedTx) return;
+    setShowPreviewModal(true);
+    setLoadingPreview(true);
+    setPreviewError('');
+    setPreviewData(null);
+    setAllocationSuccessData(null);
+
+    const invoiceId = selectedTx.matched_invoice_id;
+    if (!invoiceId) {
+      setPreviewError('No invoice is currently matched to this transaction.');
+      setLoadingPreview(false);
+      return;
+    }
+
+    try {
+      const paymentRes = await fetch(`/api/billing/bank-transactions/${selectedTx.id}/payment`);
+      const payment = await paymentRes.json();
+      if (!paymentRes.ok) {
+        throw new Error(payment.error || 'Failed to fetch associated payment.');
+      }
+
+      const previewRes = await fetch(`/api/billing/payments/${payment.id}/allocation-preview?invoice_id=${invoiceId}&bank_transaction_id=${selectedTx.id}`);
+      const preview = await previewRes.json();
+      if (!previewRes.ok) {
+        throw new Error(preview.error || 'Failed to fetch allocation preview.');
+      }
+
+      setPreviewData(preview);
+    } catch (err) {
+      setPreviewError(err.message);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const handleAllocatePayment = async () => {
+    if (!previewData || !selectedTx) return;
+    setAllocating(true);
+    setPreviewError('');
+    try {
+      const res = await fetch(`/api/billing/payments/${previewData.payment.id}/allocate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoice_id: previewData.invoice.id,
+          amount: previewData.suggested_allocation_amount,
+          bank_transaction_id: selectedTx.id,
+          allocation_source: 'bank_reconciliation',
+          notes: 'Approved bank match allocation'
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Allocation failed.');
+
+      setAllocationSuccessData(data.allocation);
+      setSuccessMsg('Payment allocated successfully!');
+      setSelectedTx(null);
+      setShowPreviewModal(false);
+      fetchTransactions();
+    } catch (err) {
+      setPreviewError(err.message);
+    } finally {
+      setAllocating(false);
+    }
+  };
+
   useEffect(() => {
     fetchTransactions();
   }, [statusFilter, providerFilter, page]);
@@ -690,15 +765,27 @@ export default function BankTransactions({ organization }) {
                     </button>
                   </>
                 ) : (
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    style={{ flex: 1, height: '28px', fontSize: '11px', border: '1px solid var(--border)' }}
-                    disabled={submittingAction}
-                    onClick={handleReturnToQueue}
-                  >
-                    Return to Unmatched Queue
-                  </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+                    {(selectedTx.status === 'Match Approved' || selectedTx.status === 'Ready for Allocation') && (
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ width: '100%', height: '32px', fontSize: '12px', fontWeight: 'bold' }}
+                        onClick={handleOpenPreviewModal}
+                      >
+                        Preview Allocation
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      style={{ width: '100%', height: '28px', fontSize: '11px', border: '1px solid var(--border)' }}
+                      disabled={submittingAction}
+                      onClick={handleReturnToQueue}
+                    >
+                      Return to Unmatched Queue
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -707,6 +794,248 @@ export default function BankTransactions({ organization }) {
         )}
 
       </div>
+
+      {/* Allocation Preview Modal */}
+      {showPreviewModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.6)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+          padding: '16px'
+        }}>
+          <div className="card" style={{
+            width: '100%',
+            maxWidth: '540px',
+            background: 'var(--bg-surface-elevated)',
+            border: '1px solid var(--border)',
+            borderRadius: '12px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            maxHeight: '90vh'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '14px 16px',
+              borderBottom: '1px solid var(--border)',
+              background: 'var(--bg-surface)'
+            }}>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', fontFamily: 'var(--font-title)' }}>
+                Preview Allocation Details
+              </h3>
+              <button
+                type="button"
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
+                onClick={() => setShowPreviewModal(false)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div style={{ padding: '16px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {loadingPreview ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px', gap: '12px' }}>
+                  <Loader2 className="animate-spin" size={24} style={{ color: 'var(--primary)' }} />
+                  <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Loading allocation preview...</span>
+                </div>
+              ) : previewError ? (
+                <div style={{
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  border: '1px solid var(--error)',
+                  color: 'var(--error)',
+                  padding: '12px',
+                  borderRadius: '6px',
+                  fontSize: '13px'
+                }}>
+                  {previewError}
+                </div>
+              ) : previewData ? (
+                <>
+                  {/* Summary Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div style={{ background: 'var(--bg-surface)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Payment Source</span>
+                      <div style={{ fontSize: '13px', fontWeight: 'bold', marginTop: '2px' }}>
+                        {previewData.payment?.payer_name || 'Unknown Tenant'}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        Status: <span style={{ textTransform: 'uppercase', fontWeight: 'bold', color: 'var(--success)' }}>{previewData.payment?.status}</span>
+                      </div>
+                      <div style={{ fontSize: '12px', fontWeight: '700', marginTop: '4px', color: 'var(--success)' }}>
+                        {formatCurrency(previewData.payment_available_amount)} Available
+                      </div>
+                    </div>
+
+                    <div style={{ background: 'var(--bg-surface)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Target Invoice</span>
+                      <div style={{ fontSize: '13px', fontWeight: 'bold', marginTop: '2px', color: 'var(--primary)' }}>
+                        {previewData.invoice?.invoice_number}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        Status: <span style={{ textTransform: 'uppercase', fontWeight: 'bold' }}>{previewData.invoice?.status}</span>
+                      </div>
+                      <div style={{ fontSize: '12px', fontWeight: '700', marginTop: '4px' }}>
+                        {formatCurrency(previewData.invoice_outstanding_balance)} Balance
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Allocation Math */}
+                  <div style={{
+                    background: 'var(--bg-surface)',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
+                    fontSize: '12px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '4px' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Bank Transaction Amount:</span>
+                      <span style={{ fontWeight: '600' }}>{formatCurrency(selectedTx.amount)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '4px' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Amount to Allocate:</span>
+                      <span style={{ fontWeight: '700', color: 'var(--primary)' }}>{formatCurrency(previewData.suggested_allocation_amount)}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                      <span style={{ color: 'var(--text-primary)' }}>New Invoice Balance:</span>
+                      <span style={{ color: previewData.new_invoice_balance === 0 ? 'var(--success)' : 'var(--text-primary)' }}>
+                        {formatCurrency(previewData.new_invoice_balance)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Warnings & Errors */}
+                  {previewData.warnings && previewData.warnings.length > 0 && (
+                    <div style={{
+                      background: 'rgba(245, 158, 11, 0.1)',
+                      border: '1px solid var(--warning)',
+                      color: 'var(--warning)',
+                      padding: '10px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      {previewData.warnings.map((warn, wIdx) => (
+                        <div key={wIdx}>⚠️ {warn}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Eligibility Checks Checklist */}
+                  <div>
+                    <h4 style={{ margin: '0 0 6px 0', fontSize: '11px', textTransform: 'uppercase', color: 'var(--text-muted)' }}>
+                      Eligibility Validation Checks
+                    </h4>
+                    <div style={{
+                      background: 'var(--bg-surface)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '8px',
+                      padding: '10px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      fontSize: '11px'
+                    }}>
+                      {Object.entries(previewData.eligibility?.checks || {}).map(([key, passed]) => (
+                        <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>
+                            {key === 'paymentExists' && 'Payment record exists'}
+                            {key === 'paymentVerifiedOrCaptured' && 'Payment is captured or verified'}
+                            {key === 'paymentHasAvailableBalance' && 'Payment has available balance'}
+                            {key === 'invoiceExists' && 'Invoice record exists'}
+                            {key === 'sameOrganization' && 'Belongs to same organization'}
+                            {key === 'invoiceAllocatable' && 'Invoice is allocatable (not void/paid)'}
+                            {key === 'decisionValid' && 'Matching decision is valid and pending'}
+                            {key === 'notAlreadyAllocated' && 'Not already allocated to this invoice'}
+                            {key === 'sourceHashUnused' && 'Source transaction hash is unused'}
+                          </span>
+                          <span style={{
+                            fontWeight: 'bold',
+                            color: passed ? 'var(--success)' : 'var(--error)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '2px'
+                          }}>
+                            {passed ? 'Passed' : 'Failed'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Rejection / Reasons */}
+                  {!previewData.eligibility?.eligible && previewData.eligibility?.reasons?.length > 0 && (
+                    <div style={{
+                      background: 'rgba(239, 68, 68, 0.1)',
+                      border: '1px solid var(--error)',
+                      color: 'var(--error)',
+                      padding: '10px',
+                      borderRadius: '6px',
+                      fontSize: '11px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px'
+                    }}>
+                      <div style={{ fontWeight: 'bold' }}>Reconciliation Blocked:</div>
+                      {previewData.eligibility.reasons.map((reason, rIdx) => (
+                        <div key={rIdx}>• {reason}</div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : null}
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding: '12px 16px',
+              borderTop: '1px solid var(--border)',
+              background: 'var(--bg-surface)',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '10px'
+            }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ height: '32px', fontSize: '12px', border: '1px solid var(--border)' }}
+                onClick={() => setShowPreviewModal(false)}
+              >
+                Cancel
+              </button>
+              {previewData && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ height: '32px', fontSize: '12px', fontWeight: 'bold' }}
+                  disabled={!previewData.eligibility?.eligible || allocating}
+                  onClick={handleAllocatePayment}
+                >
+                  {allocating ? <Loader2 className="animate-spin" size={14} /> : 'Allocate Payment'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

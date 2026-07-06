@@ -9,6 +9,7 @@ import { readDb, writeDb } from '../db.js';
 import { StatementParserRegistry } from '../services/payment-evidence/StatementParserRegistry.js';
 import { MatchSuggestionService } from '../services/payment-evidence/MatchEngine.js';
 import { PaymentDomainService } from '../services/payment/PaymentDomainService.js';
+import { AllocationEligibilityService } from '../services/payment/AllocationEligibilityService.js';
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -2040,6 +2041,105 @@ export function createFinancialRoutes(pgDb) {
     })
   );
 
+  // GET /api/billing/bank-transactions/:id/payment
+  router.get(
+    '/billing/bank-transactions/:id/payment',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const id = Number(req.params.id);
+      const payment = await dbFindOne('payments', {
+        organization_id: orgId,
+        source_type: 'bank_statement',
+        source_id: id
+      });
+      if (!payment) {
+        return res.status(404).json({ error: 'Associated payment not found.' });
+      }
+      res.json(payment);
+    })
+  );
+
+  // GET /api/billing/payments/:id/allocation-preview
+  router.get(
+    '/billing/payments/:id/allocation-preview',
+    requireAuthenticatedContext,
+    requireLandlord,
+    asyncHandler(async (req, res) => {
+      const { orgId } = getContext(req);
+      const paymentId = Number(req.params.id);
+      const { invoice_id, decision_id, bank_transaction_id } = req.query;
+
+      if (!invoice_id) {
+        return res.status(400).json({ error: 'invoice_id is required.' });
+      }
+
+      const activeDb = {
+        find: (t, f) => dbFind(t, f),
+        findOne: (t, f) => dbFindOne(t, f),
+        insert: (t, r) => dbInsert(t, r),
+        update: (t, q, u) => dbUpdate(t, q, u),
+        delete: (t, q) => dbDelete(t, q),
+        pool: pgDb?.pool
+      };
+
+      const payment = await dbFindOne('payments', { id: paymentId, organization_id: orgId });
+      const invoice = await dbFindOne('invoices', { id: Number(invoice_id), organization_id: orgId });
+
+      const eligibilityService = new AllocationEligibilityService(activeDb);
+      const eligibility = await eligibilityService.checkEligibility({
+        organization_id: orgId,
+        payment_id: paymentId,
+        invoice_id: Number(invoice_id),
+        decision_id: decision_id ? Number(decision_id) : undefined,
+        bank_transaction_id: bank_transaction_id ? Number(bank_transaction_id) : undefined
+      });
+
+      // Calculate availability
+      let availablePaymentAmount = 0;
+      if (payment) {
+        const allocations = await activeDb.find('payment_allocations', { organization_id: orgId, payment_id: paymentId }) || [];
+        const totalAllocated = allocations.reduce((sum, a) => sum + Number(a.amount || a.amount_allocated || 0), 0);
+        availablePaymentAmount = Math.max(0, Number(payment.amount) - totalAllocated);
+      }
+
+      const outstandingInvoiceBalance = invoice ? Number(invoice.balance || 0) : 0;
+      const suggestedAllocationAmount = Math.min(availablePaymentAmount, outstandingInvoiceBalance);
+      const newInvoiceBalance = Math.max(0, outstandingInvoiceBalance - suggestedAllocationAmount);
+      
+      const overpaymentAmount = availablePaymentAmount > outstandingInvoiceBalance ? (availablePaymentAmount - outstandingInvoiceBalance) : 0;
+      const underpaymentAmount = availablePaymentAmount < outstandingInvoiceBalance ? (outstandingInvoiceBalance - availablePaymentAmount) : 0;
+
+      // Recheck eligibility with the suggested amount to populate any amount-specific warnings
+      const finalEligibility = await eligibilityService.checkEligibility({
+        organization_id: orgId,
+        payment_id: paymentId,
+        invoice_id: Number(invoice_id),
+        amount: suggestedAllocationAmount,
+        decision_id: decision_id ? Number(decision_id) : undefined,
+        bank_transaction_id: bank_transaction_id ? Number(bank_transaction_id) : undefined
+      });
+
+      res.json({
+        payment,
+        invoice,
+        payment_available_amount: availablePaymentAmount,
+        invoice_outstanding_balance: outstandingInvoiceBalance,
+        suggested_allocation_amount: suggestedAllocationAmount,
+        new_invoice_balance: newInvoiceBalance,
+        overpayment_amount: overpaymentAmount,
+        underpayment_amount: underpaymentAmount,
+        eligibility: finalEligibility,
+        warnings: finalEligibility.warnings,
+        receipt_readiness_preview: {
+          ready: finalEligibility.eligible,
+          message: finalEligibility.eligible ? "Receipt generation will be available after allocation is confirmed." : "Receipt generation unavailable due to eligibility errors."
+        }
+      });
+    })
+  );
+
   // POST /api/billing/payments/:id/allocate
   router.post(
     '/billing/payments/:id/allocate',
@@ -2048,7 +2148,7 @@ export function createFinancialRoutes(pgDb) {
     asyncHandler(async (req, res) => {
       const { orgId, userId } = getContext(req);
       const paymentId = Number(req.params.id);
-      const { invoice_id, amount, notes, metadata_json } = req.body;
+      const { invoice_id, amount, decision_id, bank_transaction_id, allocation_source, notes, metadata_json } = req.body;
 
       try {
         const allocation = await paymentService.allocatePayment({
@@ -2057,7 +2157,9 @@ export function createFinancialRoutes(pgDb) {
           invoice_id: Number(invoice_id),
           amount: Number(amount),
           allocated_by_user_id: userId,
-          allocation_source: 'manual',
+          allocation_source: allocation_source || 'manual',
+          decision_id: decision_id ? Number(decision_id) : undefined,
+          bank_transaction_id: bank_transaction_id ? Number(bank_transaction_id) : undefined,
           notes,
           metadata_json
         });
