@@ -470,11 +470,46 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
     });
   };
 
+  const sectionMeta = {
+    properties: {
+      title: 'Rental Properties',
+      helper: 'Register buildings, estates, and commercial spaces before adding units or assigning tenants.',
+      actionLabel: 'Add Property',
+      badge: 'Portfolio'
+    },
+    units: {
+      title: 'Rental Units',
+      helper: 'Manage rooms, apartments, shops, and other rentable spaces within each property.',
+      actionLabel: 'Add Unit',
+      badge: 'Inventory'
+    },
+    tenants: {
+      title: 'Tenants & Leases',
+      helper: 'View active tenant accounts, lease contacts, billing days, and balances.',
+      actionLabel: 'Add Tenant',
+      badge: 'Occupancy'
+    },
+    caretakers: {
+      title: 'Property Staff',
+      helper: 'Invite caretakers, assign them to properties, and manage field access.',
+      actionLabel: 'Add Staff Member',
+      badge: 'Operations'
+    }
+  };
+
+  const activeSection = sectionMeta[activeTab] || sectionMeta.properties;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '16px' }}>
+      <div>
+        <h2 className="page-title" style={{ margin: 0 }}>Properties</h2>
+        <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
+          Organize properties, units, tenants, and staff from one portfolio workspace.
+        </p>
+      </div>
       
       {/* TABS HEADER */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'properties' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'properties' ? '2px solid var(--primary)' : 'none', fontWeight: '600', cursor: 'pointer' }}
           onClick={() => { setActiveTab('properties'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
@@ -501,7 +536,17 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
         </button>
       </div>
 
-      {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px', fontWeight: 'bold' }}>{error}</div>}
+      <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+        <div>
+          <span className="kpi-lbl">{activeSection.badge}</span>
+          <h3 className="card-title" style={{ margin: '2px 0 4px 0' }}>{activeSection.title}</h3>
+          <p className="text-muted" style={{ fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
+            {activeSection.helper}
+          </p>
+        </div>
+      </div>
+
+      {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', fontWeight: 'bold' }}>{error}</div>}
 
       {/* RENDER FORMS */}
       {showAddForm && (
@@ -745,7 +790,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       {!showAddForm && (
         <button
           className="btn btn-primary"
-          style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '6px' }}
+          style={{ width: 'fit-content', display: 'flex', alignItems: 'center', gap: '6px' }}
           onClick={() => {
             setShowAddForm(true);
             setEditId(null);
@@ -756,7 +801,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
             setResetPinResult(null);
           }}
         >
-          <Plus size={14} /> Add {activeTab.charAt(0).toUpperCase() + activeTab.slice(1, -1)}
+          <Plus size={14} /> {activeSection.actionLabel}
         </button>
       )}
 
