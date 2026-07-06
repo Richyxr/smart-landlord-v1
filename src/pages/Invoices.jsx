@@ -430,6 +430,41 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
     );
   });
 
+  const billingSections = {
+    overview: {
+      title: 'Billing Overview',
+      helper: 'Scan due balances, payment progress, invoice activity, utility readiness, and the next billing actions.',
+      badge: 'Operations'
+    },
+    invoices: {
+      title: 'Invoice Records',
+      helper: 'Create, issue, remind, print, void, and review tenant invoices from one ledger view.',
+      badge: `${invoices.length} total`
+    },
+    payments: {
+      title: 'Tenant Payments',
+      helper: 'Review captured payments, references, receipt previews, and allocation status.',
+      badge: `${payments.length} recorded`
+    },
+    banking: {
+      title: 'Banking',
+      helper: 'Upload statements, review matching suggestions, confirm allocations, and inspect payment evidence.',
+      badge: 'Reconciliation'
+    },
+    utilities: {
+      title: 'Utilities',
+      helper: 'Track meter readings and local utility cost rules before billing automation is enabled.',
+      badge: 'Readiness'
+    },
+    due_tenants: {
+      title: 'Due Tenants',
+      helper: 'Search active tenants with current balances and send billing reminders.',
+      badge: `${unpaidTenantsCount} unpaid`
+    }
+  };
+
+  const activeBillingSection = billingSections[activeSubTab] || billingSections.overview;
+
   // Render Form / Details / Print views first (if active)
   if (showAddForm) {
     return (
@@ -684,7 +719,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '18px' }}>
       
       {/* SECURITY PIN MODAL */}
       {pinTargetId && (
@@ -1060,11 +1095,18 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
       })()}
 
       {/* RENDER BILLING HEADER */}
-      <h2 style={{ fontFamily: 'var(--font-title)', fontSize: '22px', marginBottom: '4px' }}>Billing Operations</h2>
-      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Manage invoices, due tenants, utilities, and payment dispatching.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+        <div>
+          <h2 className="page-title" style={{ margin: 0 }}>Billing Operations</h2>
+          <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0', lineHeight: 1.5 }}>
+            Manage tenant invoices, payments, banking reconciliation, and utility billing work from one workspace.
+          </p>
+        </div>
+        <span className="badge badge-info" style={{ whiteSpace: 'nowrap' }}>{organization?.billing_currency || 'KES'}</span>
+      </div>
 
       {/* RENDER BILLING SUB-TABS */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)', overflowX: 'auto' }}>
         {[
           { id: 'overview', label: 'Overview' },
           { id: 'invoices', label: 'Invoices' },
@@ -1077,6 +1119,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
             type="button"
             style={{
               flex: 1,
+              minWidth: '86px',
               padding: '12px 4px',
               border: 'none',
               background: 'none',
@@ -1094,11 +1137,36 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
         ))}
       </div>
 
-      {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px', fontWeight: 'bold' }}>{error}</div>}
+      <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+        <div>
+          <span className="kpi-lbl">{activeBillingSection.badge}</span>
+          <h3 className="card-title" style={{ margin: '2px 0 4px 0' }}>{activeBillingSection.title}</h3>
+          <p className="text-muted" style={{ fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
+            {activeBillingSection.helper}
+          </p>
+        </div>
+      </div>
+
+      {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', fontWeight: 'bold' }}>{error}</div>}
 
       {/* OVERVIEW SUB-TAB */}
       {activeSubTab === 'overview' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' }}>
+            <div className="card" style={{ padding: '12px' }}>
+              <span className="kpi-lbl">Expected Rent</span>
+              <div style={{ fontSize: '18px', fontWeight: '800', marginTop: '4px' }}>{formatCurrency(totalMonthlyRent)}</div>
+            </div>
+            <div className="card" style={{ padding: '12px' }}>
+              <span className="kpi-lbl">Collected</span>
+              <div style={{ fontSize: '18px', fontWeight: '800', color: 'var(--success)', marginTop: '4px' }}>{formatCurrency(paidThisMonth)}</div>
+            </div>
+            <div className="card" style={{ padding: '12px' }}>
+              <span className="kpi-lbl">Outstanding</span>
+              <div style={{ fontSize: '18px', fontWeight: '800', color: totalArrears > 0 ? 'var(--danger)' : 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(totalArrears)}</div>
+            </div>
+          </div>
+
           {/* KPI Dashboard Grid */}
           <div className="grid-2">
             
@@ -1204,9 +1272,9 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
           <div className="sl-card sl-card-primary">
             <h4 style={{ fontWeight: '700', fontSize: '14px', marginBottom: '6px' }}>Billing Operations Center</h4>
             <p style={{ fontSize: '12px', lineHeight: '1.6', marginBottom: '12px' }}>
-              Welcome to the Landlord Billing Dashboard. Review due tenants, allocate pending invoices, or update water/electricity meter records before generating rent receipts.
+              Review due tenants, create invoices, inspect payments, or prepare utility records before the next billing cycle.
             </p>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button className="btn btn-primary btn-sm" onClick={() => { setShowAddForm(true); resetForm(); }}>
                 Create New Invoice
               </button>
@@ -1257,10 +1325,10 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                 <div
                   key={item.title}
                   className="sl-card"
-                  style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: '8px', minHeight: '132px' }}
                 >
                   <div style={{ fontWeight: '800', fontSize: '13px', color: 'var(--text-primary)' }}>{item.title}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{item.description}</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.5, flex: 1 }}>{item.description}</div>
                   <button type="button" className="btn btn-secondary btn-sm" onClick={item.onClick} style={{ alignSelf: 'flex-start' }}>
                     {item.action}
                   </button>
@@ -1626,10 +1694,10 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
       {/* INVOICES SUB-TAB */}
       {activeSubTab === 'invoices' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Invoice Records: {invoices.length} total</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Invoice Records: <strong>{invoices.length}</strong> total</span>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => { setShowPaymentForm(true); setError(''); }}>
                 <CircleDollarSign size={14} /> Record Payment
@@ -1647,7 +1715,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
               </div>
               <div className="sl-empty-state-title">No invoices registered yet</div>
               <div className="sl-empty-state-desc">
-                Click "Create New Invoice" above to generate a bill for an active tenant, or navigate to Properties to add units and tenants first.
+                Create an invoice for an active tenant when the billing cycle starts, or add tenants from Properties first.
               </div>
             </div>
           ) : (
@@ -1732,7 +1800,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
       {/* PAYMENTS LOG SUB-TAB */}
       {activeSubTab === 'payments' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700' }}>Tenant Payments</h3>
               <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
@@ -1749,7 +1817,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
               <EmptyState
                 icon={CircleDollarSign}
                 title="No payments recorded"
-                description="Manual cash/bank payments or confirmed auto-allocations will appear here."
+                description="Manual cash or bank payments and confirmed allocations will appear here."
               />
             ) : (
               <div style={{ overflowX: 'auto' }}>
@@ -1819,8 +1887,13 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
           
           {/* Section 1: Meter Readings */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700' }}>Utility Log Registry</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700' }}>Utility Log Registry</h3>
+                <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  Review local water and electricity readings before billing them through invoices.
+                </p>
+              </div>
               <span className="badge badge-info">active cycle</span>
             </div>
 
