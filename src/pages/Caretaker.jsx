@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, MapPin, ClipboardList, Search, FileEdit, Droplets, Zap, User, Check, MessageSquare, Phone, Mail, X } from 'lucide-react';
 
-export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh, onChangeRoute }) {
+export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh }) {
   const routeTabMap = {
     caretaker_dashboard: 'dashboard',
     caretaker_readings: 'submit',
@@ -17,19 +17,6 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
       setActiveTab(nextTab);
     }
   }, [activeRoute]);
-
-  useEffect(() => {
-    const reverseMap = {
-      dashboard: 'caretaker_dashboard',
-      submit: 'caretaker_readings',
-      messages: 'caretaker_messages',
-      profile: 'caretaker_profile'
-    };
-    const targetRoute = reverseMap[activeTab];
-    if (targetRoute && targetRoute !== activeRoute && typeof onChangeRoute === 'function') {
-      onChangeRoute(targetRoute);
-    }
-  }, [activeTab, activeRoute, onChangeRoute]);
   const [assignedProperties, setAssignedProperties] = useState([]);
   const [units, setUnits] = useState([]);
   const [readingsHistory, setReadingsHistory] = useState([]);
@@ -37,62 +24,6 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
   const [activePartnerId, setActivePartnerId] = useState(null);
   const [activeChatMessages, setActiveChatMessages] = useState([]);
   const [newMsgBody, setNewMsgBody] = useState('');
-
-  useEffect(() => {
-    if (typeof window !== 'undefined' && activeTab === 'messages') {
-      const url = new URL(window.location.href);
-      const currentChatWith = url.searchParams.get('chatWith');
-      if (activePartnerId) {
-        if (currentChatWith !== String(activePartnerId)) {
-          url.searchParams.set('chatWith', activePartnerId);
-          window.history.pushState(null, '', url.pathname + url.search);
-        }
-      } else {
-        if (currentChatWith) {
-          url.searchParams.delete('chatWith');
-          window.history.pushState(null, '', url.pathname + url.search);
-        }
-      }
-    }
-  }, [activePartnerId, activeTab]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined' && activeTab === 'messages') {
-      const searchParams = new URLSearchParams(window.location.search);
-      const chatWith = searchParams.get('chatWith');
-      if (chatWith && chatWith !== String(activePartnerId)) {
-        const chat = chatPartners.find(c => String(c.partner_id) === chatWith);
-        if (chat) {
-          setActivePartnerId(chat.partner_id);
-          setActiveChatMessages(chat.messages);
-        } else {
-          setActivePartnerId(chatWith);
-        }
-      } else if (!chatWith && activePartnerId) {
-        setActivePartnerId(null);
-      }
-    }
-  }, [chatPartners, activeTab]);
-
-  useEffect(() => {
-    const handlePopState = () => {
-      if (typeof window !== 'undefined' && activeTab === 'messages') {
-        const searchParams = new URLSearchParams(window.location.search);
-        const chatWith = searchParams.get('chatWith');
-        if (chatWith) {
-          const chat = chatPartners.find(c => String(c.partner_id) === chatWith);
-          if (chat) {
-            setActivePartnerId(chat.partner_id);
-            setActiveChatMessages(chat.messages);
-          }
-        } else {
-          setActivePartnerId(null);
-        }
-      }
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, [chatPartners, activeTab]);
   
   // Submit Reading Form State
   const [submitMode, setSubmitMode] = useState('list'); // 'list' or 'search'

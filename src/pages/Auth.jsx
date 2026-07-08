@@ -33,57 +33,14 @@ function getFriendlyAuthError(error) {
   }
 }
 
-const getAuthScreenFromUrl = () => {
-  if (typeof window === 'undefined') return 'welcome';
-  const path = window.location.pathname;
-  const token = new URLSearchParams(window.location.search).get('token');
-  
-  if (path === '/login') return 'login';
-  if (path === '/register') return 'register';
-  if (path === '/forgot-password') return 'forgot_password';
-  if (path === '/reset-password') return 'reset_password';
-  if (path === '/reset-pin') return 'reset_pin';
-  if (path === '/verify-email') return 'verify_email';
-  return token ? 'reset_password' : 'welcome';
-};
-
 export default function Auth({ onAuthSuccess }) {
+  const isPinResetPath = typeof window !== 'undefined' && window.location.pathname === '/reset-pin';
   const initialResetToken = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('token') || ''
     : '';
-  const [screen, setScreen] = useState(() => getAuthScreenFromUrl());
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    let path = '/';
-    if (screen === 'login') path = '/login';
-    else if (screen === 'register') path = '/register';
-    else if (screen === 'forgot_password') path = '/forgot-password';
-    else if (screen === 'reset_password') path = '/reset-password';
-    else if (screen === 'reset_pin') path = '/reset-pin';
-    else if (screen === 'verify_email') path = '/verify-email';
-    
-    const searchParams = new URLSearchParams(window.location.search);
-    const token = searchParams.get('token');
-    const query = token ? `?token=${token}` : '';
-    
-    const targetUrl = path + query;
-    if (window.location.pathname + window.location.search !== targetUrl) {
-      window.history.pushState(null, '', targetUrl);
-    }
-  }, [screen]);
-
-  useEffect(() => {
-    const handlePopState = () => {
-      setScreen(getAuthScreenFromUrl());
-      const searchParams = new URLSearchParams(window.location.search);
-      const token = searchParams.get('token') || '';
-      if (token) setResetToken(token);
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  const [screen, setScreen] = useState(
+    (isPinResetPath && initialResetToken) ? 'reset_pin' : (initialResetToken ? 'reset_password' : 'welcome')
+  ); // welcome, login, register, forgot_password, reset_password, reset_pin, verify_email, verify_phone, pin_setup
   
   // Registration State
   const [isCompany, setIsCompany] = useState(false);
