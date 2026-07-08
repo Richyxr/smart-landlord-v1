@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
 import { MessageSquare, Coins, Archive, Lock, FileText, Search, Check, X, Smartphone, Mail } from 'lucide-react';
+import { getSessionToken } from '../lib/session.js';
 
 const getChecklistLabel = (key, orgType) => {
   switch (key) {
