@@ -47,23 +47,6 @@ const getAuthScreenFromUrl = () => {
   return token ? 'reset_password' : 'welcome';
 };
 
-const getCurrentRelativeUrl = () => {
-  if (typeof window === 'undefined') return '';
-  return window.location.pathname + window.location.search;
-};
-
-const safePushUrl = (targetUrl) => {
-  if (typeof window !== 'undefined' && getCurrentRelativeUrl() !== targetUrl) {
-    window.history.pushState(null, '', targetUrl);
-  }
-};
-
-const safeReplaceUrl = (targetUrl) => {
-  if (typeof window !== 'undefined' && getCurrentRelativeUrl() !== targetUrl) {
-    window.history.replaceState(null, '', targetUrl);
-  }
-};
-
 export default function Auth({ onAuthSuccess }) {
   const initialResetToken = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('token') || ''
@@ -86,19 +69,17 @@ export default function Auth({ onAuthSuccess }) {
     const query = token ? `?token=${token}` : '';
     
     const targetUrl = path + query;
-    safePushUrl(targetUrl);
+    if (window.location.pathname + window.location.search !== targetUrl) {
+      window.history.pushState(null, '', targetUrl);
+    }
   }, [screen]);
 
   useEffect(() => {
     const handlePopState = () => {
-      const nextScreen = getAuthScreenFromUrl();
-      setScreen(prev => prev === nextScreen ? prev : nextScreen);
-      
+      setScreen(getAuthScreenFromUrl());
       const searchParams = new URLSearchParams(window.location.search);
       const token = searchParams.get('token') || '';
-      if (token) {
-        setResetToken(prev => prev === token ? prev : token);
-      }
+      if (token) setResetToken(token);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);

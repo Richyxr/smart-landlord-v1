@@ -122,8 +122,8 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
 
   useEffect(() => {
     const nextTab = routeTabMap[activeRoute];
-    if (nextTab) {
-      setActiveTab(prev => prev === nextTab ? prev : nextTab);
+    if (nextTab && nextTab !== activeTab) {
+      setActiveTab(nextTab);
     }
   }, [activeRoute]);
 

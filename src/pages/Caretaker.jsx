@@ -1,23 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, MapPin, ClipboardList, Search, FileEdit, Droplets, Zap, User, Check, MessageSquare, Phone, Mail, X } from 'lucide-react';
 
-const getCurrentRelativeUrl = () => {
-  if (typeof window === 'undefined') return '';
-  return window.location.pathname + window.location.search;
-};
-
-const safePushUrl = (targetUrl) => {
-  if (typeof window !== 'undefined' && getCurrentRelativeUrl() !== targetUrl) {
-    window.history.pushState(null, '', targetUrl);
-  }
-};
-
-const safeReplaceUrl = (targetUrl) => {
-  if (typeof window !== 'undefined' && getCurrentRelativeUrl() !== targetUrl) {
-    window.history.replaceState(null, '', targetUrl);
-  }
-};
-
 export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh, onChangeRoute }) {
   const routeTabMap = {
     caretaker_dashboard: 'dashboard',
@@ -30,8 +13,8 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
 
   useEffect(() => {
     const nextTab = routeTabMap[activeRoute];
-    if (nextTab) {
-      setActiveTab(prev => prev === nextTab ? prev : nextTab);
+    if (nextTab && nextTab !== activeTab) {
+      setActiveTab(nextTab);
     }
   }, [activeRoute]);
 
@@ -62,12 +45,12 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
       if (activePartnerId) {
         if (currentChatWith !== String(activePartnerId)) {
           url.searchParams.set('chatWith', activePartnerId);
-          safePushUrl(url.pathname + url.search);
+          window.history.pushState(null, '', url.pathname + url.search);
         }
       } else {
         if (currentChatWith) {
           url.searchParams.delete('chatWith');
-          safePushUrl(url.pathname + url.search);
+          window.history.pushState(null, '', url.pathname + url.search);
         }
       }
     }
@@ -80,13 +63,13 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
       if (chatWith && chatWith !== String(activePartnerId)) {
         const chat = chatPartners.find(c => String(c.partner_id) === chatWith);
         if (chat) {
-          setActivePartnerId(prev => String(prev) === String(chat.partner_id) ? prev : chat.partner_id);
+          setActivePartnerId(chat.partner_id);
           setActiveChatMessages(chat.messages);
         } else {
-          setActivePartnerId(prev => String(prev) === String(chatWith) ? prev : chatWith);
+          setActivePartnerId(chatWith);
         }
       } else if (!chatWith && activePartnerId) {
-        setActivePartnerId(prev => prev === null ? null : null);
+        setActivePartnerId(null);
       }
     }
   }, [chatPartners, activeTab]);
@@ -99,11 +82,11 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
         if (chatWith) {
           const chat = chatPartners.find(c => String(c.partner_id) === chatWith);
           if (chat) {
-            setActivePartnerId(prev => String(prev) === String(chat.partner_id) ? prev : chat.partner_id);
+            setActivePartnerId(chat.partner_id);
             setActiveChatMessages(chat.messages);
           }
         } else {
-          setActivePartnerId(prev => prev === null ? null : null);
+          setActivePartnerId(null);
         }
       }
     };
