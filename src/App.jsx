@@ -215,7 +215,15 @@ export default function App() {
     } else if (authRole === 'caretaker') {
       setActiveTab('caretaker_dashboard');
     } else {
-      setActiveTab('landlord_dashboard');
+      const route = getTabFromUrl();
+      if (route) {
+        setActiveTab(route.active);
+        if (route.active === 'landlord_properties') setPropertiesSubTab(route.sub);
+        if (route.active === 'landlord_invoices') setInvoicesSubTab(route.sub);
+        if (route.active === 'landlord_settings') setSettingsSubTab(route.sub);
+      } else {
+        setActiveTab('landlord_dashboard');
+      }
     }
   };
 
@@ -312,6 +320,73 @@ export default function App() {
       setActiveTab('landlord_invoices');
     }
   }, [activeTab]);
+
+  const syncStateFromUrl = () => {
+    const route = getTabFromUrl();
+    if (!route) return;
+    
+    if (route.active !== activeTab) {
+      setActiveTab(route.active);
+    }
+    
+    if (route.active === 'landlord_properties') {
+      setPropertiesSubTab(route.sub);
+    } else if (route.active === 'landlord_invoices') {
+      setInvoicesSubTab(route.sub);
+    } else if (route.active === 'landlord_settings') {
+      setSettingsSubTab(route.sub);
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      syncStateFromUrl();
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (authRestoring) return;
+    
+    let path = '/home';
+    let query = '';
+    
+    if (activeTab === 'landlord_dashboard') {
+      path = '/home';
+    } else if (activeTab === 'landlord_properties') {
+      path = '/properties';
+      if (propertiesSubTab && propertiesSubTab !== 'properties') {
+        query = `?tab=${propertiesSubTab}`;
+      }
+    } else if (activeTab === 'landlord_invoices') {
+      path = '/billing';
+      if (invoicesSubTab && invoicesSubTab !== 'overview') {
+        query = `?tab=${invoicesSubTab}`;
+        if (invoicesSubTab === 'banking') {
+          const searchParams = new URLSearchParams(window.location.search);
+          const bTab = searchParams.get('bankingTab');
+          if (bTab) {
+            query += `&bankingTab=${bTab}`;
+          }
+        }
+      }
+    } else if (activeTab === 'landlord_stats') {
+      path = '/stats';
+    } else if (activeTab === 'landlord_settings') {
+      path = '/settings';
+      if (settingsSubTab && settingsSubTab !== 'readiness') {
+        query = `?tab=${settingsSubTab}`;
+      }
+    } else {
+      return; // Skip non-landlord pages
+    }
+    
+    const targetUrl = path + query;
+    if (window.location.pathname + window.location.search !== targetUrl) {
+      window.history.pushState(null, '', targetUrl);
+    }
+  }, [activeTab, propertiesSubTab, invoicesSubTab, settingsSubTab, authRestoring]);
 
   const handleMockUnlock = () => {
     setIsLocked(false);
