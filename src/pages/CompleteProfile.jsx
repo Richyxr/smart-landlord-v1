@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { setSessionToken } from '../lib/session.js';
+import { setSessionToken, getSessionToken } from '../lib/session.js';
 
 export default function CompleteProfile({ user, organization, onComplete }) {
   const [isCompany, setIsCompany] = useState(organization?.type === 'company');
@@ -97,7 +97,7 @@ export default function CompleteProfile({ user, organization, onComplete }) {
     }
 
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = getSessionToken();
       const res = await fetch('/api/auth/complete-profile', {
         method: 'POST',
         headers: {
