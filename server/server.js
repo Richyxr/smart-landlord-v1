@@ -2049,12 +2049,28 @@ app.post('/api/auth/security-pin/change', async (req, res) => {
 
 // Request PIN Reset (Public)
 app.post('/api/auth/security-pin/reset-request', async (req, res) => {
-  const { email } = req.body;
+  const authenticatedEmail = req.auth?.user?.email ? String(req.auth.user.email).trim() : '';
+  const email = req.auth ? authenticatedEmail : req.body?.email;
+
+  if (req.auth && !authenticatedEmail) {
+    return res.status(400).json({
+      error: 'ACCOUNT_EMAIL_MISSING',
+      message: 'We could not find an email address for this account. Please contact support.'
+    });
+  }
+
   try {
     const result = await requestPinReset(email, req);
-    res.json(result);
+    res.json(req.auth
+      ? { ...result, message: 'If your account can receive email, reset instructions have been sent.' }
+      : result
+    );
   } catch (err) {
-    res.status(400).json({ error: err.message, message: err.message });
+    res.json({
+      ok: true,
+      success: true,
+      message: 'If your account can receive email, reset instructions have been sent.'
+    });
   }
 });
 

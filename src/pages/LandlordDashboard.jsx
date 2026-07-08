@@ -12,6 +12,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { DashboardCard, MetricCard, SetupAlert, SectionCard, StatusBadge, Button, EmptyState } from '../components/ui-smart';
+import { getSessionToken } from '../lib/session.js';
 
 export default function LandlordDashboard({ organization, onNavigate, refreshTrigger }) {
   const [stats, setStats] = useState({
@@ -28,7 +29,11 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
     readinessStatus: true,
     subscriptionStatus: 'trial',
     trialEndsAt: null,
-    subscriptionExpiresAt: null
+    subscriptionExpiresAt: null,
+    hasPropertiesData: false,
+    hasUnitsData: false,
+    hasPaymentsData: false,
+    hasInvoicesData: false
   });
   const [recentPayments, setRecentPayments] = useState([]);
   const [recentInvoices, setRecentInvoices] = useState([]);
@@ -41,7 +46,8 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
   const fetchStats = async () => {
     try {
       setLoading(true);
-      const headers = {};
+      const token = getSessionToken();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
       const [
         resProps,
@@ -65,39 +71,80 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
         fetch('/api/payments', { headers })
       ]);
 
-      const props = await resProps.json();
-      const units = await resUnits.json();
-      const tenants = await resTenants.json();
-      const invoices = await resInvoices.json();
-      const staging = await resStaging.json();
-      const readings = await resReadings.json();
-      const saas = await resSaaS.json();
-      const readiness = await resReadiness.json();
-      const payments = await resPayments.json();
+      const [
+        propsPayload,
+        unitsPayload,
+        tenantsPayload,
+        invoicesPayload,
+        stagingPayload,
+        readingsPayload,
+        saas,
+        readiness,
+        paymentsPayload
+      ] = await Promise.all([
+        resProps.json(),
+        resUnits.json(),
+        resTenants.json(),
+        resInvoices.json(),
+        resStaging.json(),
+        resReadings.json(),
+        resSaaS.json(),
+        resReadiness.json(),
+        resPayments.json()
+      ]);
 
-      const expected = units.reduce((acc, curr) => acc + (curr.rent_amount || 0), 0);
-      const collected = invoices
-        .filter((i) => i.status === 'paid')
-        .reduce((acc, curr) => acc + (curr.amount_paid || 0), 0);
-      const outstanding = invoices
-        .filter((i) => i.status === 'overdue' || i.status === 'partially_paid')
-        .reduce((acc, curr) => acc + (curr.balance || 0), 0);
+      const props = extractArray(propsPayload, ['properties']);
+      const units = extractArray(unitsPayload, ['units']);
+      const tenants = extractArray(tenantsPayload, ['tenants']);
+      const invoices = extractArray(invoicesPayload, ['invoices']);
+      const staging = extractArray(stagingPayload, ['rows', 'staging']);
+      const readings = extractArray(readingsPayload, ['meter_readings', 'readings']);
+      const payments = extractArray(paymentsPayload, ['payments', 'transactions']);
+
+      const propertyUnitCount = props.reduce((acc, prop) => acc + toNumber(prop.total_units), 0);
+      const propertyOccupiedCount = props.reduce((acc, prop) => acc + toNumber(prop.occupied_units), 0);
+      const unitCount = units.length > 0 ? units.length : propertyUnitCount;
+      const occupiedCount = units.length > 0
+        ? units.filter((u) => String(u.status || '').toLowerCase() === 'occupied').length
+        : propertyOccupiedCount;
+
+      const expected = units.length > 0
+        ? units.reduce((acc, curr) => acc + toNumber(curr.rent_amount), 0)
+        : props.reduce((acc, curr) => acc + toNumber(curr.expected_rent), 0);
+      const collected = payments.length > 0
+        ? payments
+          .filter(isCurrentMonthPayment)
+          .reduce((acc, curr) => acc + toNumber(curr.amount), 0)
+        : invoices
+          .filter((i) => String(i.status || '').toLowerCase() === 'paid')
+          .reduce((acc, curr) => acc + toNumber(curr.amount_paid), 0);
+      const outstanding = invoices.length > 0
+        ? invoices
+          .filter((i) => ['overdue', 'partially_paid', 'issued'].includes(String(i.status || '').toLowerCase()))
+          .reduce((acc, curr) => acc + toNumber(curr.balance), 0)
+        : tenants.reduce((acc, curr) => acc + toNumber(curr.balance), 0);
 
       setStats({
         propertiesCount: props.length,
-        unitsCount: units.length,
-        occupiedCount: units.filter((u) => u.status === 'occupied').length,
-        vacantCount: units.filter((u) => u.status === 'vacant').length,
+        unitsCount: unitCount,
+        occupiedCount,
+        vacantCount: units.length > 0
+          ? units.filter((u) => String(u.status || '').toLowerCase() === 'vacant').length
+          : Math.max(unitCount - occupiedCount, 0),
         expectedRent: expected,
         collectedRent: collected,
         arrears: outstanding,
         unmatchedCount: staging.filter((r) => r.status === 'unmatched' || r.status === 'needs_review').length,
         pendingReadingsCount: readings.filter((r) => r.status === 'submitted').length,
-        saasLocked: saas.organization.is_locked,
-        readinessStatus: readiness.is_ready,
-        subscriptionStatus: saas.organization.subscription_status,
-        trialEndsAt: saas.organization.trial_ends_at,
-        subscriptionExpiresAt: saas.organization.subscription_expires_at
+        saasLocked: !!saas.organization?.is_locked,
+        readinessStatus: readiness.is_ready !== false,
+        subscriptionStatus: saas.organization?.subscription_status || 'trial',
+        trialEndsAt: saas.organization?.trial_ends_at || null,
+        subscriptionExpiresAt: saas.organization?.subscription_expires_at || null,
+        hasPropertiesData: Array.isArray(propsPayload) || Array.isArray(propsPayload?.properties),
+        hasUnitsData: Array.isArray(unitsPayload) || Array.isArray(unitsPayload?.units) || propertyUnitCount > 0,
+        hasPaymentsData: Array.isArray(paymentsPayload) || Array.isArray(paymentsPayload?.payments) || Array.isArray(paymentsPayload?.transactions),
+        hasInvoicesData: Array.isArray(invoicesPayload) || Array.isArray(invoicesPayload?.invoices)
       });
 
       setRecentPayments(payments.slice(0, 3));
@@ -107,6 +154,29 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
     } finally {
       setLoading(false);
     }
+  };
+
+  const toNumber = (value) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
+
+  const extractArray = (payload, keys = []) => {
+    if (Array.isArray(payload)) return payload;
+    if (!payload || typeof payload !== 'object') return [];
+    for (const key of keys) {
+      if (Array.isArray(payload[key])) return payload[key];
+    }
+    return [];
+  };
+
+  const isCurrentMonthPayment = (payment) => {
+    const rawDate = payment.transaction_date || payment.received_at || payment.reconciled_at || payment.created_at;
+    if (!rawDate) return false;
+    const paymentDate = new Date(rawDate);
+    if (Number.isNaN(paymentDate.getTime())) return false;
+    const now = new Date();
+    return paymentDate.getFullYear() === now.getFullYear() && paymentDate.getMonth() === now.getMonth();
   };
 
   const formatCurrency = (val) => {
@@ -245,20 +315,20 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
         <div className="sl-dashboard-grid">
           <MetricCard
             label="Total Properties"
-            value={stats.propertiesCount}
+            value={stats.hasPropertiesData ? stats.propertiesCount : 'No data yet'}
             icon={Building2}
             onClick={() => onNavigate('landlord_properties', 'properties')}
           />
           <MetricCard
             label="Occupancy"
-            value={`${stats.occupiedCount} / ${stats.unitsCount}`}
+            value={stats.hasUnitsData ? `${stats.occupiedCount} / ${stats.unitsCount}` : 'No data yet'}
             helper="Active units"
             icon={Home}
             onClick={() => onNavigate('landlord_properties', 'units')}
           />
           <MetricCard
             label="Rent Collected"
-            value={formatCurrency(stats.collectedRent)}
+            value={(stats.hasPaymentsData || stats.hasInvoicesData) ? formatCurrency(stats.collectedRent) : 'No data yet'}
             helper="Current month"
             icon={Wallet}
             tone="success"
@@ -266,7 +336,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
           />
           <MetricCard
             label="Arrears"
-            value={formatCurrency(stats.arrears)}
+            value={stats.hasInvoicesData ? formatCurrency(stats.arrears) : 'No data yet'}
             helper="Unpaid balance"
             icon={AlertTriangle}
             tone={stats.arrears > 0 ? 'danger' : 'default'}
@@ -277,7 +347,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
         <DashboardCard accent="success">
           <span className="kpi-lbl">Current Month Collections</span>
           <h3 style={{ fontSize: '28px', color: 'var(--success)', fontFamily: 'var(--font-title)', fontWeight: '800', margin: '4px 0' }}>
-            {formatCurrency(stats.collectedRent)}
+            {(stats.hasPaymentsData || stats.hasInvoicesData) ? formatCurrency(stats.collectedRent) : 'No data yet'}
           </h3>
 
           <div style={{ borderTop: '1px solid var(--border)', margin: '12px 0' }} />
@@ -286,13 +356,13 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
             <div>
               <span className="kpi-lbl">Expected Revenue</span>
               <div style={{ fontSize: '15px', fontWeight: '600' }}>
-                {formatCurrency(stats.expectedRent)}
+                {stats.hasUnitsData ? formatCurrency(stats.expectedRent) : 'No data yet'}
               </div>
             </div>
             <div>
               <span className="kpi-lbl">Outstanding Arrears</span>
               <div style={{ fontSize: '15px', fontWeight: '600', color: stats.arrears > 0 ? 'var(--danger)' : 'var(--text-primary)' }}>
-                {formatCurrency(stats.arrears)}
+                {stats.hasInvoicesData ? formatCurrency(stats.arrears) : 'No data yet'}
               </div>
             </div>
           </div>

@@ -7,10 +7,47 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizat
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
-  const [resetEmail, setResetEmail] = useState('');
   const [resetSuccess, setResetSuccess] = useState('');
 
   if (!isOpen) return null;
+
+  const backdropStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    padding: '16px',
+    backgroundColor: 'rgba(3, 4, 7, 0.72)',
+    backdropFilter: 'blur(10px)',
+    zIndex: 1000
+  };
+
+  const modalStyle = {
+    backgroundColor: 'var(--bg-surface)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--border)',
+    padding: '24px',
+    borderRadius: '12px',
+    width: '100%',
+    maxWidth: '400px',
+    boxShadow: 'var(--shadow-lg)'
+  };
+
+  const inputStyle = {
+    textAlign: 'center',
+    fontSize: '28px',
+    letterSpacing: '8px',
+    width: '180px',
+    padding: '8px',
+    borderRadius: '6px',
+    border: '1px solid var(--border)',
+    backgroundColor: 'var(--bg-surface-elevated)',
+    color: 'var(--text-primary)'
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -52,10 +89,6 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizat
 
   const handleForgotSubmit = async (e) => {
     e.preventDefault();
-    if (!resetEmail) {
-      setError('Email address is required.');
-      return;
-    }
 
     setLoading(true);
     setError('');
@@ -65,9 +98,10 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizat
       const res = await fetch('/api/auth/security-pin/reset-request', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...(getSessionToken() ? { Authorization: `Bearer ${getSessionToken()}` } : {})
         },
-        body: JSON.stringify({ email: resetEmail })
+        body: JSON.stringify({})
       });
 
       const data = await res.json();
@@ -75,8 +109,7 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizat
         throw new Error(data.message || 'Failed to request PIN reset.');
       }
 
-      setResetSuccess(data.message || 'If the email matches a registered account, reset instructions have been sent.');
-      setResetEmail('');
+      setResetSuccess(data.message || 'If your account can receive email, reset instructions have been sent.');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -94,8 +127,8 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizat
 
   if (showForgot) {
     return (
-      <div className="modal-backdrop" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0, 0, 0, 0.5)', zIndex: 1000 }}>
-        <div className="modal-content" style={{ backgroundColor: 'var(--card-bg, #ffffff)', padding: '24px', borderRadius: '12px', width: '90%', maxWidth: '400px', boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)' }}>
+      <div className="modal-backdrop" style={backdropStyle}>
+        <div className="modal-content" style={modalStyle}>
           <button 
             type="button" 
             className="btn-back" 
@@ -109,23 +142,10 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizat
             <Mail size={18} /> Reset Security PIN
           </h3>
           <p style={{ fontSize: '13px', textAlign: 'center', marginBottom: '20px', color: 'var(--text-secondary)' }}>
-            Enter your registered email address to receive secure instructions to create a new Security PIN.
+            We will send reset instructions to your account email.
           </p>
 
           <form onSubmit={handleForgotSubmit}>
-            <div className="form-group" style={{ marginBottom: '16px' }}>
-              <input
-                type="email"
-                className="form-control"
-                value={resetEmail}
-                onChange={(e) => { setResetEmail(e.target.value); setError(''); }}
-                placeholder="email@example.com"
-                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-color, #e2e8f0)' }}
-                disabled={loading}
-                required
-              />
-            </div>
-
             {error && (
               <div role="alert" style={{ color: 'var(--danger, #ef4444)', fontSize: '12px', textAlign: 'center', marginBottom: '16px', fontWeight: '500' }}>
                 {error}
@@ -151,10 +171,10 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizat
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={loading || !resetEmail}
+                disabled={loading}
                 style={{ padding: '8px 16px', borderRadius: '6px', backgroundColor: 'var(--primary, #6b46c1)', color: '#fff', border: 'none' }}
               >
-                {loading ? 'Sending...' : 'Send Link'}
+                {loading ? 'Sending...' : 'Send Reset Link'}
               </button>
             </div>
           </form>
@@ -164,8 +184,8 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizat
   }
 
   return (
-    <div className="modal-backdrop" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0, 0, 0, 0.5)', zIndex: 1000 }}>
-      <div className="modal-content" style={{ backgroundColor: 'var(--card-bg, #ffffff)', padding: '24px', borderRadius: '12px', width: '90%', maxWidth: '400px', boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)' }}>
+    <div className="modal-backdrop" style={backdropStyle}>
+      <div className="modal-content" style={modalStyle}>
         <h3 className="card-title" style={{ fontSize: '18px', textAlign: 'center', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
           <Lock size={18} /> Enter Security PIN
         </h3>
@@ -183,15 +203,7 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizat
               value={pin}
               onChange={handlePinChange}
               placeholder="••••••"
-              style={{
-                textAlign: 'center',
-                fontSize: '28px',
-                letterSpacing: '8px',
-                width: '180px',
-                padding: '8px',
-                borderRadius: '6px',
-                border: '1px solid var(--border-color, #e2e8f0)'
-              }}
+              style={inputStyle}
               disabled={loading}
               autoFocus
             />
