@@ -86,6 +86,23 @@ const getTabFromUrl = () => {
   return null;
 };
 
+const getCurrentRelativeUrl = () => {
+  if (typeof window === 'undefined') return '';
+  return window.location.pathname + window.location.search;
+};
+
+const safePushUrl = (targetUrl) => {
+  if (typeof window !== 'undefined' && getCurrentRelativeUrl() !== targetUrl) {
+    window.history.pushState(null, '', targetUrl);
+  }
+};
+
+const safeReplaceUrl = (targetUrl) => {
+  if (typeof window !== 'undefined' && getCurrentRelativeUrl() !== targetUrl) {
+    window.history.replaceState(null, '', targetUrl);
+  }
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [role, setRole] = useState('landlord'); // landlord, caretaker, super_admin
@@ -421,16 +438,14 @@ export default function App() {
     const route = getTabFromUrl();
     if (!route) return;
     
-    if (route.active !== activeTab) {
-      setActiveTab(route.active);
-    }
+    setActiveTab(prev => prev === route.active ? prev : route.active);
     
     if (route.active === 'landlord_properties') {
-      setPropertiesSubTab(route.sub);
+      setPropertiesSubTab(prev => prev === route.sub ? prev : route.sub);
     } else if (route.active === 'landlord_invoices') {
-      setInvoicesSubTab(route.sub);
+      setInvoicesSubTab(prev => prev === route.sub ? prev : route.sub);
     } else if (route.active === 'landlord_settings') {
-      setSettingsSubTab(route.sub);
+      setSettingsSubTab(prev => prev === route.sub ? prev : route.sub);
     }
   };
 
@@ -440,15 +455,16 @@ export default function App() {
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [activeTab]);
+  }, []);
 
   useEffect(() => {
     if (authRestoring) return;
+    if (!user) return; // Guard: skip URL sync if not logged in to prevent conflict with Auth.jsx!
     
     // Redirect logic for incomplete profile onboarding
-    if (user && role === 'landlord' && organization && !organization.profile_completed) {
+    if (role === 'landlord' && organization && !organization.profile_completed) {
       if (window.location.pathname !== '/complete-profile') {
-        window.history.pushState(null, '', '/complete-profile');
+        safePushUrl('/complete-profile');
       }
       return;
     }
@@ -507,9 +523,7 @@ export default function App() {
     }
     
     const targetUrl = path + query;
-    if (window.location.pathname + window.location.search !== targetUrl) {
-      window.history.pushState(null, '', targetUrl);
-    }
+    safePushUrl(targetUrl);
   }, [activeTab, propertiesSubTab, invoicesSubTab, settingsSubTab, authRestoring, user, role, organization, impersonationSession]);
 
   const handleMockUnlock = () => {

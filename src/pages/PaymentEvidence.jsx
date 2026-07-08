@@ -29,6 +29,23 @@ import BankTransactions from './BankTransactions.jsx';
 import StatementImports from '../components/StatementImports.jsx';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
 
+const getCurrentRelativeUrl = () => {
+  if (typeof window === 'undefined') return '';
+  return window.location.pathname + window.location.search;
+};
+
+const safePushUrl = (targetUrl) => {
+  if (typeof window !== 'undefined' && getCurrentRelativeUrl() !== targetUrl) {
+    window.history.pushState(null, '', targetUrl);
+  }
+};
+
+const safeReplaceUrl = (targetUrl) => {
+  if (typeof window !== 'undefined' && getCurrentRelativeUrl() !== targetUrl) {
+    window.history.replaceState(null, '', targetUrl);
+  }
+};
+
 export default function PaymentEvidence({ organization, refreshTrigger, user, role, onNavigate }) {
   const fileInputRef = React.useRef(null);
   const [activeSubTab, setActiveSubTab] = useState(() => {
@@ -53,7 +70,7 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       } else {
         url.searchParams.set('bankingTab', activeSubTab);
       }
-      window.history.replaceState(null, '', url.pathname + url.search);
+      safeReplaceUrl(url.pathname + url.search);
     }
   }, [activeSubTab]);
 
@@ -129,12 +146,12 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       if (selectedRow) {
         if (currentEvidenceId !== String(selectedRow.id)) {
           url.searchParams.set('evidenceId', selectedRow.id);
-          window.history.pushState(null, '', url.pathname + url.search);
+          safePushUrl(url.pathname + url.search);
         }
       } else {
         if (currentEvidenceId) {
           url.searchParams.delete('evidenceId');
-          window.history.pushState(null, '', url.pathname + url.search);
+          safePushUrl(url.pathname + url.search);
         }
       }
     }
@@ -147,20 +164,20 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     if (evidenceId) {
       const match = evidenceRows.find(r => String(r.id) === String(evidenceId));
       if (match) {
-        setSelectedRow(match);
+        setSelectedRow(prev => prev && String(prev.id) === String(evidenceId) ? prev : match);
       } else {
         fetch(`/api/payment-evidence/rows?search=${encodeURIComponent(evidenceId)}`)
           .then(res => res.json())
           .then(data => {
             const row = Array.isArray(data) ? data.find(r => String(r.id) === String(evidenceId)) : null;
             if (row) {
-              setSelectedRow(row);
+              setSelectedRow(prev => prev && String(prev.id) === String(evidenceId) ? prev : row);
             }
           })
           .catch(e => console.error('Failed to fetch deep-linked evidence row:', e));
       }
     } else {
-      setSelectedRow(null);
+      setSelectedRow(prev => prev === null ? null : null);
     }
   }, [evidenceRows.length]);
 
@@ -168,26 +185,30 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
     const handlePopState = () => {
       const searchParams = new URLSearchParams(window.location.search);
       const bTab = searchParams.get('bankingTab');
-      if (bTab === 'matching' || bTab === 'queue') setActiveSubTab('queue');
-      else if (bTab === 'history') setActiveSubTab('history');
-      else if (bTab === 'payments') setActiveSubTab('payments');
-      else setActiveSubTab('wizard');
+      let targetTab = 'wizard';
+      if (bTab === 'matching' || bTab === 'queue') targetTab = 'queue';
+      else if (bTab === 'history') targetTab = 'history';
+      else if (bTab === 'payments') targetTab = 'payments';
+      
+      setActiveSubTab(prev => prev === targetTab ? prev : targetTab);
 
       const evidenceId = searchParams.get('evidenceId');
       if (evidenceId) {
         const match = evidenceRows.find(r => String(r.id) === String(evidenceId));
         if (match) {
-          setSelectedRow(match);
+          setSelectedRow(prev => prev && String(prev.id) === String(evidenceId) ? prev : match);
         } else {
           fetch(`/api/payment-evidence/rows?search=${encodeURIComponent(evidenceId)}`)
             .then(res => res.json())
             .then(data => {
               const row = Array.isArray(data) ? data.find(r => String(r.id) === String(evidenceId)) : null;
-              if (row) setSelectedRow(row);
+              if (row) {
+                setSelectedRow(prev => prev && String(prev.id) === String(evidenceId) ? prev : row);
+              }
             });
         }
       } else {
-        setSelectedRow(null);
+        setSelectedRow(prev => prev === null ? null : null);
       }
     };
     window.addEventListener('popstate', handlePopState);
