@@ -31,28 +31,8 @@ import SecurityPinModal from '../components/SecurityPinModal.jsx';
 
 export default function PaymentEvidence({ organization, refreshTrigger, user, role, onNavigate }) {
   const fileInputRef = React.useRef(null);
-  const [activeSubTab, setActiveSubTab] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const searchParams = new URLSearchParams(window.location.search);
-      if (searchParams.get('bankingTab') === 'matching') {
-        return 'queue';
-      }
-    }
-    return 'wizard';
-  });
+  const [activeSubTab, setActiveSubTab] = useState('wizard'); // wizard, queue, history, payments
   const [paymentsLog, setPaymentsLog] = useState([]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      if (activeSubTab === 'queue') {
-        url.searchParams.set('bankingTab', 'matching');
-      } else {
-        url.searchParams.delete('bankingTab');
-      }
-      window.history.replaceState(null, '', url.pathname + url.search);
-    }
-  }, [activeSubTab]);
   const [loadingPayments, setLoadingPayments] = useState(false);
   const [paymentsError, setPaymentsError] = useState('');
   const [evidenceRows, setEvidenceRows] = useState([]);
