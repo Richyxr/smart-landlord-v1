@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Mail, Smartphone, Lock } from 'lucide-react';
-import { setSessionToken } from '../lib/session.js';
+import { setSessionToken, getSessionToken } from '../lib/session.js';
 import { auth } from '../lib/firebase.js';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
@@ -513,7 +513,7 @@ export default function Auth({ onAuthSuccess }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+          ...(getSessionToken() ? { Authorization: `Bearer ${getSessionToken()}` } : {})
         },
         body: JSON.stringify({ organization_id: orgId, pin })
       });
