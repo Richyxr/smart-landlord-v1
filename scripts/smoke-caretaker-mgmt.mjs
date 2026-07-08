@@ -121,9 +121,22 @@ async function runTests() {
     const newPin = '654321';
 
     const landlord = await landlordLogin();
+    // Setup landlord security PIN
+    const setupRes = await fetch(`${BASE_URL}/api/auth/security-pin/setup`, {
+      method: 'POST',
+      headers: {
+        ...JSON_HEADERS,
+        Authorization: `Bearer ${landlord.auth_token}`
+      },
+      body: JSON.stringify({ newPin: '159263', confirmPin: '159263' })
+    });
+    const setupBody = await setupRes.text();
+    console.log('Setup PIN response:', setupRes.status, setupBody);
+
     const headers = {
       ...JSON_HEADERS,
-      Authorization: `Bearer ${landlord.auth_token}`
+      Authorization: `Bearer ${landlord.auth_token}`,
+      'x-security-pin': '159263'
     };
 
     await assertStatus(

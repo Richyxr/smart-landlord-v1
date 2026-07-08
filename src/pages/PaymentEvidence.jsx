@@ -27,6 +27,7 @@ import {
 
 import BankTransactions from './BankTransactions.jsx';
 import StatementImports from '../components/StatementImports.jsx';
+import SecurityPinModal from '../components/SecurityPinModal.jsx';
 
 export default function PaymentEvidence({ organization, refreshTrigger, user, role, onNavigate }) {
   const fileInputRef = React.useRef(null);
@@ -38,6 +39,7 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [pinAction, setPinAction] = useState(null); // { type: string, data?: any }
 
   // Filter States
   const [search, setSearch] = useState('');
@@ -1147,6 +1149,102 @@ Please split the file into smaller batches or wait for the upcoming server-side 
     );
   };
 
+    const handlePinSuccess = async (enteredPin) => {
+    const { notifySuccess, notifyError } = getBrandedConfirmAndNotify();
+    setLoading(true);
+
+    try {
+      if (pinAction.type === 'confirm_allocation') {
+        setConfirmingAllocation(true);
+        const res = await fetch(`/api/payment-evidence/${selectedRow.id}/confirm-allocation`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-security-pin': enteredPin
+          },
+          body: JSON.stringify({
+            confirmation_text: typedConfirmationText
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || data.error || 'Failed to execute allocation');
+        }
+
+        notifySuccess('Payment Confirmed', data.message || 'Statement row allocated successfully.');
+        setTypedConfirmationText('');
+
+        setSelectedRow(prev => prev ? { ...prev, status: 'manually_reconciled' } : null);
+        fetchAuditLogs(selectedRow.id);
+        fetchAllocationPreview(selectedRow.id);
+        await fetchEvidenceRows();
+      } else if (pinAction.type === 'confirm_selected_allocation') {
+        setConfirmingSelectedAllocation(true);
+        setSelectedAllocationError('');
+        const res = await fetch(`/api/payment-evidence/${selectedRow.id}/confirm-selected-allocation`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-security-pin': enteredPin
+          },
+          body: JSON.stringify({
+            confirmation_text: selectedAllocationConfirmationText
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || data.error || 'Failed to confirm selected allocation');
+        }
+
+        setSelectedAllocationResult(data);
+        setSelectedAllocationConfirmationText('');
+        notifySuccess('Selected Allocation Confirmed', data.message || 'Selected allocation was posted successfully.');
+
+        fetchAuditLogs(selectedRow.id);
+        fetchAllocationPreview(selectedRow.id);
+        fetchAllocationResult(selectedRow.id);
+        fetchConfirmedAllocationReceiptPreview(selectedRow.id);
+        await fetchEvidenceRows();
+      } else if (pinAction.type === 'issue_receipt') {
+        setIssuingReceipt(true);
+        const res = await fetch(`/api/payment-evidence/${selectedRow.id}/issue-receipt`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-security-pin': enteredPin
+          },
+          body: JSON.stringify({
+            confirmation_text: receiptIssueConfirmationText
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || data.error || 'Failed to issue receipt');
+        }
+
+        notifySuccess('Receipt Issued', data.message || 'Receipt issued successfully.');
+        setReceiptIssueConfirmationText('');
+        await fetchReceiptPreview(selectedRow.id);
+        await fetchReceiptResult(selectedRow.id);
+        await fetchReceiptPrintView(selectedRow.id);
+        await fetchAllocationResult(selectedRow.id);
+        await fetchEvidenceRows();
+      }
+      setPinAction(null);
+    } catch (err) {
+      console.error(err);
+      notifyError('Action Failed', err.message || 'Verification failed.');
+    } finally {
+      setLoading(false);
+      setConfirmingAllocation(false);
+      setConfirmingSelectedAllocation(false);
+      setIssuingReceipt(false);
+    }
+  };
+
   const handleConfirmAllocation = async () => {
     if (!selectedRow || !previewData?.confirmation_contract?.can_confirm_allocation) return;
 
@@ -1156,42 +1254,13 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       return;
     }
 
-    const { showConfirm, notifySuccess, notifyError } = getBrandedConfirmAndNotify();
+    const { showConfirm } = getBrandedConfirmAndNotify();
 
     showConfirm(
       "Confirm Allocation Execution",
       "Are you sure you want to execute this payment allocation? This will decrease the invoice balance and cannot be undone.",
       async () => {
-        setConfirmingAllocation(true);
-        try {
-          const res = await fetch(`/api/payment-evidence/${selectedRow.id}/confirm-allocation`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              confirmation_text: typedConfirmationText
-            })
-          });
-
-          const data = await res.json();
-          if (!res.ok) {
-            throw new Error(data.message || data.error || 'Failed to execute allocation');
-          }
-
-          notifySuccess('Payment Confirmed', data.message || 'Statement row allocated successfully.');
-          setTypedConfirmationText('');
-
-          setSelectedRow(prev => prev ? { ...prev, status: 'manually_reconciled' } : null);
-          fetchAuditLogs(selectedRow.id);
-          fetchAllocationPreview(selectedRow.id);
-          await fetchEvidenceRows();
-        } catch (err) {
-          console.error(err);
-          notifyError('Error', err.message || 'Failed to execute allocation.');
-        } finally {
-          setConfirmingAllocation(false);
-        }
+        setPinAction({ type: 'confirm_allocation' });
       }
     );
   };
@@ -1207,46 +1276,13 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       return;
     }
 
-    const { showConfirm, notifySuccess, notifyError } = getBrandedConfirmAndNotify();
+    const { showConfirm } = getBrandedConfirmAndNotify();
 
     showConfirm(
       'Confirm Selected Allocation',
       'This will post the allocation to the selected invoice. Receipt and ledger posting remain disabled.',
       async () => {
-        setConfirmingSelectedAllocation(true);
-        setSelectedAllocationError('');
-        try {
-          const res = await fetch(`/api/payment-evidence/${selectedRow.id}/confirm-selected-allocation`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              confirmation_text: selectedAllocationConfirmationText
-            })
-          });
-
-          const data = await res.json();
-          if (!res.ok) {
-            throw new Error(data.message || data.error || 'Failed to confirm selected allocation');
-          }
-
-          setSelectedAllocationResult(data);
-          setSelectedAllocationConfirmationText('');
-          notifySuccess('Selected Allocation Confirmed', data.message || 'Selected allocation was posted successfully.');
-
-          fetchAuditLogs(selectedRow.id);
-          fetchAllocationPreview(selectedRow.id);
-          fetchAllocationResult(selectedRow.id);
-          fetchConfirmedAllocationReceiptPreview(selectedRow.id);
-          await fetchEvidenceRows();
-        } catch (err) {
-          console.error(err);
-          setSelectedAllocationError(err.message || 'Failed to confirm selected allocation.');
-          notifyError('Selected Allocation Error', err.message || 'Failed to confirm selected allocation.');
-        } finally {
-          setConfirmingSelectedAllocation(false);
-        }
+        setPinAction({ type: 'confirm_selected_allocation' });
       }
     );
   };
@@ -1260,42 +1296,13 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       return;
     }
 
-    const { showConfirm, notifySuccess, notifyError } = getBrandedConfirmAndNotify();
+    const { showConfirm } = getBrandedConfirmAndNotify();
 
     showConfirm(
       "Confirm Receipt Issuance",
       "Issue a receipt for this already confirmed payment? This creates a receipt record only and does not move money.",
       async () => {
-        setIssuingReceipt(true);
-        try {
-          const res = await fetch(`/api/payment-evidence/${selectedRow.id}/issue-receipt`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              confirmation_text: receiptIssueConfirmationText
-            })
-          });
-
-          const data = await res.json();
-          if (!res.ok) {
-            throw new Error(data.message || data.error || 'Failed to issue receipt');
-          }
-
-          notifySuccess('Receipt Issued', data.message || 'Receipt issued successfully.');
-          setReceiptIssueConfirmationText('');
-          await fetchReceiptPreview(selectedRow.id);
-          await fetchReceiptResult(selectedRow.id);
-          await fetchReceiptPrintView(selectedRow.id);
-          await fetchAllocationResult(selectedRow.id);
-          await fetchEvidenceRows();
-        } catch (err) {
-          console.error(err);
-          notifyError('Receipt Error', err.message || 'Failed to issue receipt.');
-        } finally {
-          setIssuingReceipt(false);
-        }
+        setPinAction({ type: 'issue_receipt' });
       }
     );
   };
@@ -4038,6 +4045,14 @@ Please split the file into smaller batches or wait for the upcoming server-side 
         </div>
       )}
 
+      {pinAction && (
+        <SecurityPinModal
+          isOpen={!!pinAction}
+          onClose={() => setPinAction(null)}
+          organizationId={organization?.id}
+          onSuccess={handlePinSuccess}
+        />
+      )}
       </>
       )}
 

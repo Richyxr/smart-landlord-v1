@@ -57,6 +57,14 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
   const [error, setError] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
 
+  // Security PIN state
+  const [pinStatus, setPinStatus] = useState({ isSet: false });
+  const [setupPinValue, setSetupPinValue] = useState('');
+  const [setupConfirmPinValue, setSetupConfirmPinValue] = useState('');
+  const [currentPinValue, setCurrentPinValue] = useState('');
+  const [newPinValue, setNewPinValue] = useState('');
+  const [newConfirmPinValue, setNewConfirmPinValue] = useState('');
+
   // Profile Form State
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profileFirstName, setProfileFirstName] = useState('');
@@ -244,6 +252,12 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         if (!res.ok) throw new Error('Failed to fetch meter readings.');
         const data = await res.json();
         setMeterReadings(Array.isArray(data) ? data : (data && Array.isArray(data.meter_readings) ? data.meter_readings : []));
+      } else if (activeTab === 'security_pin') {
+        const res = await fetch('/api/auth/security-pin/status', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          setPinStatus(data);
+        }
       } else if (activeTab === 'notifications') {
         const settingsRes = await fetch('/api/settings/notifications', { headers }).catch(() => ({ ok: false }));
         let settingsData = null;
@@ -273,6 +287,91 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
     }
   };
 
+  const handleSetupPinSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setInfoMessage('');
+    setLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/setup-pin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getSessionToken()}`
+        },
+        body: JSON.stringify({ pin: setupPinValue, confirmPin: setupConfirmPinValue })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to set up PIN.');
+      }
+
+      setInfoMessage('Security PIN configured successfully.');
+      setSetupPinValue('');
+      setSetupConfirmPinValue('');
+      // Force reload by incrementing refreshTrigger or calling onRefresh
+      if (typeof onRefresh === 'function') {
+        onRefresh();
+      }
+      // Fetch PIN status manually to show immediate update
+      const resStatus = await fetch('/api/auth/security-pin/status', {
+        headers: { Authorization: `Bearer ${getSessionToken()}` }
+      });
+      if (resStatus.ok) {
+        const dataStatus = await resStatus.json();
+        setPinStatus(dataStatus);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChangePinSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setInfoMessage('');
+    setLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/security-pin/change', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getSessionToken()}`
+        },
+        body: JSON.stringify({ currentPin: currentPinValue, newPin: newPinValue, confirmPin: newConfirmPinValue })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to change PIN.');
+      }
+
+      setInfoMessage('Security PIN changed successfully.');
+      setCurrentPinValue('');
+      setNewPinValue('');
+      setNewConfirmPinValue('');
+      if (typeof onRefresh === 'function') {
+        onRefresh();
+      }
+      const resStatus = await fetch('/api/auth/security-pin/status', {
+        headers: { Authorization: `Bearer ${getSessionToken()}` }
+      });
+      if (resStatus.ok) {
+        const dataStatus = await resStatus.json();
+        setPinStatus(dataStatus);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleChecklistRowClick = (key) => {
     setInfoMessage('');
     setError('');
@@ -297,7 +396,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         setShowProfileModal(true);
         break;
       case 'pin_created':
-        setInfoMessage('Your 6-digit security PIN was configured during registration to protect financial actions.');
+        setActiveTab('security_pin');
         break;
       default:
         break;
@@ -971,6 +1070,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
           {[
             { id: 'readiness', label: 'Setup Checklist' },
             role !== 'caretaker' && { id: 'integrations', label: 'Integrations' },
+            role !== 'caretaker' && { id: 'security_pin', label: 'Security PIN' },
             { id: 'readings', label: 'Caretaker Readings' },
             { id: 'archive', label: 'Archive' },
             role !== 'caretaker' && { id: 'audits', label: 'Audit Logs' },
@@ -1805,6 +1905,114 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                   </span>
                 </div>
               ))
+            )}
+          </div>
+        </div>
+      )}
+      {/* SECURITY PIN TAB */}
+      {activeTab === 'security_pin' && !selectedInt && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className="card">
+            <h3 className="card-title">Security PIN Settings</h3>
+            <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Your Security PIN is used to authorize high-risk actions inside your session. It must be between 4 and 6 numeric digits.
+            </p>
+
+            <div style={{ padding: '12px', background: 'var(--bg-surface-elevated, #f7fafc)', borderRadius: '6px', fontSize: '13px', marginBottom: '20px', border: '1px solid var(--border-color, #e2e8f0)' }}>
+              <p style={{ margin: '0 0 6px' }}>
+                PIN Configuration Status: <strong style={{ color: pinStatus.isSet ? 'var(--success, #10b981)' : 'var(--danger, #ef4444)' }}>{pinStatus.isSet ? 'Configured' : 'Not Set'}</strong>
+              </p>
+              {pinStatus.isLocked && (
+                <p style={{ margin: '0 0 6px', color: 'var(--danger, #ef4444)', fontWeight: 'bold' }}>
+                  ⚠️ PIN Locked until: {new Date(pinStatus.lockedUntil).toLocaleString()}
+                </p>
+              )}
+              {pinStatus.pinLastVerifiedAt && (
+                <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                  Last verified: {new Date(pinStatus.pinLastVerifiedAt).toLocaleString()}
+                </p>
+              )}
+            </div>
+
+            {!pinStatus.isSet ? (
+              <form onSubmit={handleSetupPinSubmit} style={{ maxWidth: '360px' }}>
+                <h4 style={{ fontSize: '14px', marginBottom: '12px', fontWeight: '600' }}>Setup Security PIN</h4>
+                <div className="form-group" style={{ marginBottom: '12px' }}>
+                  <label className="form-label">Choose PIN</label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    className="form-control"
+                    placeholder="••••••"
+                    value={setupPinValue}
+                    onChange={e => setSetupPinValue(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                    style={{ letterSpacing: '4px', fontSize: '16px' }}
+                    required
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: '16px' }}>
+                  <label className="form-label">Confirm PIN</label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    className="form-control"
+                    placeholder="••••••"
+                    value={setupConfirmPinValue}
+                    onChange={e => setSetupConfirmPinValue(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                    style={{ letterSpacing: '4px', fontSize: '16px' }}
+                    required
+                  />
+                </div>
+                <button type="submit" className="btn btn-primary" disabled={loading || setupPinValue.length < 4}>
+                  {loading ? 'Configuring...' : 'Set Security PIN'}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleChangePinSubmit} style={{ maxWidth: '360px' }}>
+                <h4 style={{ fontSize: '14px', marginBottom: '12px', fontWeight: '600' }}>Change Security PIN</h4>
+                <div className="form-group" style={{ marginBottom: '12px' }}>
+                  <label className="form-label">Current PIN</label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    className="form-control"
+                    placeholder="••••••"
+                    value={currentPinValue}
+                    onChange={e => setCurrentPinValue(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                    style={{ letterSpacing: '4px', fontSize: '16px' }}
+                    required
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: '12px' }}>
+                  <label className="form-label">New PIN</label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    className="form-control"
+                    placeholder="••••••"
+                    value={newPinValue}
+                    onChange={e => setNewPinValue(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                    style={{ letterSpacing: '4px', fontSize: '16px' }}
+                    required
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: '16px' }}>
+                  <label className="form-label">Confirm New PIN</label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    className="form-control"
+                    placeholder="••••••"
+                    value={newConfirmPinValue}
+                    onChange={e => setNewConfirmPinValue(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                    style={{ letterSpacing: '4px', fontSize: '16px' }}
+                    required
+                  />
+                </div>
+                <button type="submit" className="btn btn-primary" disabled={loading || newPinValue.length < 4}>
+                  {loading ? 'Updating...' : 'Change Security PIN'}
+                </button>
+              </form>
             )}
           </div>
         </div>

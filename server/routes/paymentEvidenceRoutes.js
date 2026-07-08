@@ -7,6 +7,7 @@ import { normalizePaymentEvidence } from '../services/payment-evidence/normalize
 import { classifyPaymentEvidenceRow } from '../services/payment-evidence/classifyPaymentEvidenceRow.js';
 import { StatementIngestionService } from '../services/payment-evidence/StatementIngestionService.js';
 import { PaymentDomainService } from '../services/payment/PaymentDomainService.js';
+import { requireSecurityPin } from '../services/security/SecurityPinService.js';
 
 // Memory-only multer instance for PDF readiness preview (no files written to disk)
 const pdfUpload = multer({
@@ -3215,7 +3216,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
   }));
 
   // POST /api/payment-evidence/:id/confirm-allocation
-  router.post('/payment-evidence/:id/confirm-allocation', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+  router.post('/payment-evidence/:id/confirm-allocation', requireAuthenticatedContext, requireSecurityPin('confirm_allocation'), requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const rowId = Number(req.params.id);
 
@@ -3415,7 +3416,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
   // Controlled financial posting from selected evidence match. This endpoint may
   // create transaction/payment_allocation and update invoice/payment_evidence.
   // Receipt issuance and ledger posting are intentionally disabled.
-  router.post('/payment-evidence/:id/confirm-selected-allocation', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+  router.post('/payment-evidence/:id/confirm-selected-allocation', requireAuthenticatedContext, requireSecurityPin('confirm_selected_allocation'), requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const rowId = Number(req.params.id);
 
@@ -4161,7 +4162,7 @@ export function createPaymentEvidenceRoutes(pgDb) {
   }));
 
   // POST /api/payment-evidence/:id/issue-receipt
-  router.post('/payment-evidence/:id/issue-receipt', requireAuthenticatedContext, requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
+  router.post('/payment-evidence/:id/issue-receipt', requireAuthenticatedContext, requireSecurityPin('issue_receipt'), requireLandlordOrSuperAdmin, asyncHandler(async (req, res) => {
     const { orgId, userId } = getContext(req);
     const rowId = Number(req.params.id);
 

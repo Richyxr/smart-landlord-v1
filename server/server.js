@@ -16,6 +16,16 @@ import { createSaasBillingRoutes } from './routes/saasBillingRoutes.js';
 import { createPaymentEvidenceRoutes } from './routes/paymentEvidenceRoutes.js';
 import { NotificationService } from './notificationService.js';
 import { PaymentDomainService } from './services/payment/PaymentDomainService.js';
+import {
+  setSecurityPinDb,
+  setupPin,
+  verifyPin,
+  changePin,
+  requestPinReset,
+  resetPinWithToken,
+  getPinStatus,
+  requireSecurityPin
+} from './services/security/SecurityPinService.js';
 import { sendEmailWithConfig } from './mailerService.js';
 import { EMAIL_MODES, maskSmtpConfig, normalizeSmtpConfig, prepareSmtpConfigForStorage, resolveEmailDeliveryConfig, validateSmtpConfig } from './emailConfigService.js';
 import { maskSmsConfig, normalizeSmsConfig, prepareSmsConfigForStorage, validateSmsConfig } from './smsConfigService.js';
@@ -71,6 +81,7 @@ if (IS_PRODUCTION) {
 }
 
 const pgDb = DATA_BACKEND === 'postgres' ? createPostgresDb() : null;
+setSecurityPinDb(pgDb || db);
 const SESSION_SECRET = process.env.SESSION_SECRET || (IS_PRODUCTION ? null : 'smart-landlord-dev-session-secret');
 const SESSION_TTL_SECONDS = parseInt(process.env.SESSION_TTL_SECONDS || '86400', 10);
 const CARETAKER_PIN_PATTERN = /^\d{6}$/;
@@ -1950,45 +1961,128 @@ app.post('/api/auth/complete-profile', requireAuthenticated, async (req, res) =>
 });
 
 // Setup Security PIN
-app.post('/api/auth/setup-pin', (req, res) => {
-  const { organization_id, pin } = req.body;
-  if (!pin || pin.length !== 6) {
-    return res.status(400).json({ error: 'PIN must be exactly 6 digits.' });
+app.post('/api/auth/setup-pin', async (req, res) => {
+  const userId = req.auth?.userId;
+  const { pin, confirmPin } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'A valid session is required.' });
   }
 
-  const salt = bcrypt.genSaltSync(10);
-  const hash = bcrypt.hashSync(pin, salt);
-
-  db.update('organizations', parseInt(organization_id), { security_pin_hash: hash });
-
-  const org = db.findOne('organizations', { id: parseInt(organization_id) });
-
-  db.logAudit(parseInt(organization_id), org.owner_user_id, 'landlord', 'security_pin_created', 'organization', org.id, null, null, 'Security PIN configured', 'success');
-
-  res.json({ success: true, message: 'Security PIN configured successfully.' });
+  try {
+    const result = await setupPin(userId, pin, confirmPin || pin);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message, message: err.message });
+  }
 });
 
-// Verify PIN
-app.post('/api/auth/verify-pin', (req, res) => {
-  const { organization_id, pin } = req.body;
-  const org = db.findOne('organizations', { id: parseInt(organization_id) });
+// Verify PIN (Legacy compatibility)
+app.post('/api/auth/verify-pin', async (req, res) => {
+  const userId = req.auth?.userId;
+  const { pin } = req.body;
 
-  if (!org) {
-    return res.status(404).json({ error: 'Organization not found' });
+  if (!userId) {
+    return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'A valid session is required.' });
   }
 
-  if (!org.security_pin_hash) {
-    return res.status(400).json({ error: 'PIN has not been set up yet.' });
+  try {
+    await verifyPin(userId, pin, { action: 'api_verify_pin', req });
+    res.json({ success: true });
+  } catch (err) {
+    const status = err.message === 'PIN_LOCKED' ? 423 : 400;
+    res.status(status).json({ error: err.message, message: err.message });
+  }
+});
+
+// Setup Security PIN
+app.post('/api/auth/security-pin/setup', async (req, res) => {
+  const userId = req.auth?.userId;
+  const { newPin, confirmPin } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'A valid session is required.' });
   }
 
-  const isValid = bcrypt.compareSync(pin, org.security_pin_hash);
+  try {
+    const result = await setupPin(userId, newPin, confirmPin);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message, message: err.message });
+  }
+});
 
-  if (!isValid) {
-    db.logAudit(org.id, org.owner_user_id, 'landlord', 'pin_verification_failed', 'organization', org.id, null, null, 'Failed PIN verification', 'failed');
-    return res.status(400).json({ error: 'The security PIN is incorrect. This attempt has been logged.' });
+// Verify Security PIN (New standard endpoint)
+app.post('/api/auth/security-pin/verify', async (req, res) => {
+  const userId = req.auth?.userId;
+  const { pin } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'A valid session is required.' });
   }
 
-  res.json({ success: true });
+  try {
+    await verifyPin(userId, pin, { action: 'api_verify_pin', req });
+    res.json({ success: true });
+  } catch (err) {
+    const status = err.message === 'PIN_LOCKED' ? 423 : 400;
+    res.status(status).json({ error: err.message, message: err.message });
+  }
+});
+
+// Change Security PIN
+app.post('/api/auth/security-pin/change', async (req, res) => {
+  const userId = req.auth?.userId;
+  const { currentPin, newPin, confirmPin } = req.body;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'A valid session is required.' });
+  }
+
+  try {
+    const result = await changePin(userId, currentPin, newPin, confirmPin);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message, message: err.message });
+  }
+});
+
+// Request PIN Reset (Public)
+app.post('/api/auth/security-pin/reset-request', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const result = await requestPinReset(email, req);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message, message: err.message });
+  }
+});
+
+// Confirm PIN Reset (Public)
+app.post('/api/auth/security-pin/reset-confirm', async (req, res) => {
+  const { token, newPin, confirmPin } = req.body;
+  try {
+    const result = await resetPinWithToken(token, newPin, confirmPin);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message, message: err.message });
+  }
+});
+
+// Get PIN Status
+app.get('/api/auth/security-pin/status', async (req, res) => {
+  const userId = req.auth?.userId;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'A valid session is required.' });
+  }
+
+  try {
+    const status = await getPinStatus(userId);
+    res.json(status);
+  } catch (err) {
+    res.status(400).json({ error: err.message, message: err.message });
+  }
 });
 
 // Caretaker Login
@@ -2092,8 +2186,9 @@ if (pgDb) {
   app.use('/api', createIntegrationRoutes(pgDb));
 }
 
-// Mount financial routes (supports both PostgreSQL and JSON DB backends)
-app.use('/api', createFinancialRoutes(pgDb));
+if (pgDb) {
+  app.use('/api', createFinancialRoutes(pgDb));
+}
 
 // Mount notification routes (supports both PostgreSQL and JSON DB backends)
 app.use('/api', createNotificationRoutes(pgDb));
@@ -2153,7 +2248,7 @@ app.get('/api/properties/caretakers', (req, res) => {
   res.json(caretakersWithProps);
 });
 
-app.post('/api/properties/caretakers', (req, res) => {
+app.post('/api/properties/caretakers', requireSecurityPin('invite_caretaker'), (req, res) => {
   const orgId = req.auth?.organizationId;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
@@ -2267,7 +2362,7 @@ app.post('/api/properties/caretakers', (req, res) => {
   });
 });
 
-app.put('/api/properties/caretakers/:id', (req, res) => {
+app.put('/api/properties/caretakers/:id', requireSecurityPin('modify_caretaker'), (req, res) => {
   const orgId = req.auth?.organizationId;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
@@ -2375,7 +2470,7 @@ app.put('/api/properties/caretakers/:id', (req, res) => {
   res.json({ success: true, user: updatedUser });
 });
 
-app.post('/api/properties/caretakers/:id/reset-pin', (req, res) => {
+app.post('/api/properties/caretakers/:id/reset-pin', requireSecurityPin('reset_caretaker_pin'), (req, res) => {
   const orgId = req.auth?.organizationId;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
@@ -2509,7 +2604,7 @@ app.put('/api/properties/:id', (req, res) => {
   res.json(updated[0]);
 });
 
-app.delete('/api/properties/:id', (req, res) => {
+app.delete('/api/properties/:id', requireSecurityPin('delete_property'), (req, res) => {
   const orgId = req.auth?.organizationId;
   const propId = parseInt(req.params.id);
   const userId = req.auth?.userId;
@@ -2601,7 +2696,7 @@ app.put('/api/units/:id', (req, res) => {
   res.json(updated[0]);
 });
 
-app.delete('/api/units/:id', (req, res) => {
+app.delete('/api/units/:id', requireSecurityPin('delete_unit'), (req, res) => {
   const orgId = req.auth?.organizationId;
   const unitId = parseInt(req.params.id);
   const userId = req.auth?.userId;
@@ -2728,7 +2823,7 @@ app.put('/api/tenants/:id', (req, res) => {
   res.json(updated[0]);
 });
 
-app.post('/api/tenants/:id/vacate', (req, res) => {
+app.post('/api/tenants/:id/vacate', requireSecurityPin('vacate_tenant'), (req, res) => {
   const orgId = req.auth?.organizationId;
   const tenantId = parseInt(req.params.id);
   const userId = req.auth?.userId;
@@ -2940,18 +3035,11 @@ app.post('/api/invoices/:id/issue', (req, res) => {
   res.json(updated[0]);
 });
 
-// Void Invoice (Requires PIN in frontend UI flow, API logs validation)
-app.post('/api/invoices/:id/void', (req, res) => {
+app.post('/api/invoices/:id/void', requireSecurityPin('void_invoice'), (req, res) => {
   const orgId = req.auth?.organizationId;
   const invoiceId = parseInt(req.params.id);
-  const { pin } = req.body;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
-
-  const org = db.findOne('organizations', { id: orgId });
-  if (!org || !bcrypt.compareSync(pin, org.security_pin_hash)) {
-    return res.status(400).json({ error: 'Wrong security PIN.' });
-  }
 
   const invoice = db.findOne('invoices', { id: invoiceId, organization_id: orgId });
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
@@ -3196,18 +3284,12 @@ app.post('/api/payments', async (req, res) => {
   res.status(201).json(transaction);
 });
 
-// Reversing transaction (Requires PIN)
-app.post('/api/payments/:id/reverse', (req, res) => {
+app.post('/api/payments/:id/reverse', requireSecurityPin('reverse_payment'), (req, res) => {
   const orgId = req.auth?.organizationId;
   const txId = parseInt(req.params.id);
-  const { pin, reason } = req.body;
+  const { reason } = req.body;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
-
-  const org = db.findOne('organizations', { id: orgId });
-  if (!org || !bcrypt.compareSync(pin, org.security_pin_hash)) {
-    return res.status(400).json({ error: 'Wrong security PIN.' });
-  }
 
   const tx = db.findOne('transactions', { id: txId, organization_id: orgId });
   if (!tx) return res.status(404).json({ error: 'Transaction not found' });
@@ -3584,17 +3666,11 @@ app.post('/api/reconciliation/import-finalize', (req, res) => {
   }
 });
 
-// Manual Match / Reconcile Staging Row (Requires PIN)
-app.post('/api/reconciliation/match', (req, res) => {
+app.post('/api/reconciliation/match', requireSecurityPin('reconcile_match'), (req, res) => {
   const orgId = req.auth?.organizationId;
-  const { row_id, tenant_id, invoice_id, pin } = req.body;
+  const { row_id, tenant_id, invoice_id } = req.body;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
-
-  const org = db.findOne('organizations', { id: orgId });
-  if (!org || !bcrypt.compareSync(pin, org.security_pin_hash)) {
-    return res.status(400).json({ error: 'Wrong security PIN.' });
-  }
 
   const row = db.findOne('reconciliation_staging_rows', { id: parseInt(row_id), organization_id: orgId });
   if (!row) return res.status(404).json({ error: 'Staging row not found.' });
@@ -3703,7 +3779,7 @@ app.post('/api/reconciliation/match', (req, res) => {
 });
 
 // Ignore row
-app.post('/api/reconciliation/ignore', (req, res) => {
+app.post('/api/reconciliation/ignore', requireSecurityPin('reconcile_ignore'), (req, res) => {
   const orgId = req.auth?.organizationId;
   const { row_id } = req.body;
   const userId = req.auth?.userId;
@@ -4346,7 +4422,7 @@ app.get('/api/integrations', async (req, res) => {
 });
 
 // Save integration connection
-app.post('/api/integrations', async (req, res) => {
+app.post('/api/integrations', requireSecurityPin('save_integration'), async (req, res) => {
   const orgId = req.auth?.organizationId;
   const { provider_type, provider_name, environment, config_json } = req.body;
   const userId = req.auth?.userId;
@@ -4495,11 +4571,9 @@ app.post('/api/integrations/:id/test-sms', async (req, res) => {
   });
 });
 
-// Delete credentials (Requires PIN)
-app.post('/api/integrations/:id/delete', async (req, res) => {
+app.post('/api/integrations/:id/delete', requireSecurityPin('delete_integration'), async (req, res) => {
   const orgId = req.auth?.organizationId;
   const integrationId = parseInt(req.params.id);
-  const { pin } = req.body;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
 
@@ -4508,10 +4582,6 @@ app.post('/api/integrations/:id/delete', async (req, res) => {
   }
 
   const activeDb = pgDb || db;
-  const org = await activeDb.findOne('organizations', { id: orgId });
-  if (!org || !bcrypt.compareSync(pin, org.security_pin_hash)) {
-    return res.status(400).json({ error: 'Wrong security PIN.' });
-  }
 
   const integration = await activeDb.findOne('organization_integrations', { id: integrationId, organization_id: orgId });
   if (!integration) return res.status(404).json({ error: 'Integration not found.' });
@@ -4559,7 +4629,8 @@ app.get('/api/settings/readiness', async (req, res) => {
   const units = await activeDb.find('units', { organization_id: orgId, deleted_at: null });
   const tenants = await activeDb.find('tenants', { organization_id: orgId, deleted_at: null });
   const integrations = await activeDb.find('organization_integrations', { organization_id: orgId });
-  const pinSet = org.security_pin_hash ? true : false;
+  const pinRow = await activeDb.findOne('security_pins', { user_id: Number(org.owner_user_id) });
+  const pinSet = !!pinRow;
 
   const checklist = {
     profile_complete: (org.name && org.phone_number && org.email && org.country && org.billing_currency) ? true : false,
@@ -5525,7 +5596,7 @@ app.post('/api/admin/platform-sms/test', async (req, res) => {
 });
 
 // Update Organization Profile details
-app.put('/api/settings/profile', async (req, res) => {
+app.put('/api/settings/profile', requireSecurityPin('update_profile'), async (req, res) => {
   const orgId = req.auth?.organizationId;
   const role = req.auth?.role;
   const userId = req.auth?.userId;
@@ -5567,18 +5638,13 @@ app.put('/api/settings/profile', async (req, res) => {
   res.json({ organization: updatedOrg });
 });
 
-// Financial Archive (Requires PIN)
-app.post('/api/settings/archive', async (req, res) => {
+app.post('/api/settings/archive', requireSecurityPin('archive_transactions'), async (req, res) => {
   const orgId = req.auth?.organizationId;
-  const { pin, before_date, reason } = req.body;
+  const { before_date, reason } = req.body;
   const userId = req.auth?.userId;
   const role = req.auth?.role;
 
   const activeDb = pgDb || db;
-  const org = await activeDb.findOne('organizations', { id: orgId });
-  if (!org || !bcrypt.compareSync(pin, org.security_pin_hash)) {
-    return res.status(400).json({ error: 'Wrong security PIN.' });
-  }
 
   const txs = await activeDb.find('transactions', { organization_id: orgId, status: 'reconciled' });
   const toArchive = txs.filter(t => new Date(t.transaction_date) < new Date(before_date));

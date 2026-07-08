@@ -10,6 +10,7 @@ import { StatementParserRegistry } from '../services/payment-evidence/StatementP
 import { MatchSuggestionService } from '../services/payment-evidence/MatchEngine.js';
 import { PaymentDomainService } from '../services/payment/PaymentDomainService.js';
 import { AllocationEligibilityService } from '../services/payment/AllocationEligibilityService.js';
+import { requireSecurityPin } from '../services/security/SecurityPinService.js';
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -562,19 +563,11 @@ export function createFinancialRoutes(pgDb) {
     res.json(updated);
   }));
 
-  router.post('/invoices/:id/void', requireLandlord, asyncHandler(async (req, res) => {
+  router.post('/invoices/:id/void', requireLandlord, requireSecurityPin('void_invoice'), asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const invoiceId = parseInt(req.params.id);
-    const { pin } = req.body;
 
     const updated = await withTransaction(pgDb, async client => {
-      const pinResult = await verifyPin(client, orgId, pin);
-      if (!pinResult.valid) {
-        await logAudit(client, orgId, userId, role, 'pin_verification_failed', 'invoice', invoiceId, null, null, 'Failed invoice void PIN verification', 'failed');
-        const error = new Error('Wrong security PIN.');
-        error.statusCode = 400;
-        throw error;
-      }
 
       const invoiceResult = await client.query(
         'SELECT * FROM invoices WHERE id = $1 AND organization_id = $2 FOR UPDATE',
@@ -958,19 +951,12 @@ export function createFinancialRoutes(pgDb) {
     res.status(201).json(result);
   }));
 
-  router.post('/payments/:id/reverse', requireLandlord, asyncHandler(async (req, res) => {
+  router.post('/payments/:id/reverse', requireLandlord, requireSecurityPin('reverse_payment'), asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const txId = parseInt(req.params.id);
-    const { pin, reason } = req.body;
+    const { reason } = req.body;
 
     const result = await withTransaction(pgDb, async client => {
-      const pinResult = await verifyPin(client, orgId, pin);
-      if (!pinResult.valid) {
-        await logAudit(client, orgId, userId, role, 'pin_verification_failed', 'transaction', txId, null, null, 'Failed payment reversal PIN verification', 'failed');
-        const error = new Error('Wrong security PIN.');
-        error.statusCode = 400;
-        throw error;
-      }
 
       const txResult = await client.query(
         'SELECT * FROM transactions WHERE id = $1 AND organization_id = $2 FOR UPDATE',

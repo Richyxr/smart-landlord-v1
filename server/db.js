@@ -58,7 +58,9 @@ const defaultDb = {
   statement_extracted_transactions: [],
   confirmed_statement_transactions: [],
   bank_reconciliation_decisions: [],
-  payments: []
+  payments: [],
+  security_pins: [],
+  security_pin_reset_tokens: []
 };
 
 // Reading the DB

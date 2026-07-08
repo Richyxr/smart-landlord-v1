@@ -60,11 +60,21 @@ async function login(email) {
 
 async function saveMpesaSandboxIntegration(token) {
   const landlord = await login('landlord@demo.com');
-  const res = await fetch(`${BASE_URL}/api/integrations`, {
+  await fetch(`${BASE_URL}/api/auth/security-pin/setup`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${landlord.auth_token}`
+    },
+    body: JSON.stringify({ newPin: '159263', confirmPin: '159263' })
+  });
+
+  const res = await fetch(`${BASE_URL}/api/integrations`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${landlord.auth_token}`,
+      'x-security-pin': '159263'
     },
     body: JSON.stringify({
       provider_type: 'mpesa',
@@ -88,11 +98,21 @@ async function saveMpesaSandboxIntegration(token) {
 
 async function saveMpesaLiveIntegration(token) {
   const landlord = await login('landlord@demo.com');
-  const res = await fetch(`${BASE_URL}/api/integrations`, {
+  await fetch(`${BASE_URL}/api/auth/security-pin/setup`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${landlord.auth_token}`
+    },
+    body: JSON.stringify({ newPin: '159263', confirmPin: '159263' })
+  });
+
+  const res = await fetch(`${BASE_URL}/api/integrations`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${landlord.auth_token}`,
+      'x-security-pin': '159263'
     },
     body: JSON.stringify({
       provider_type: 'mpesa',

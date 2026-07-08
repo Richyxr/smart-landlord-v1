@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { encryptConfig, decryptConfig, maskConfig } from '../crypto.js';
 import { verifySmtpConfig, sendEmailWithConfig } from '../mailerService.js';
 import { renderTemplate } from '../emailTemplates.js';
+import { requireSecurityPin } from '../services/security/SecurityPinService.js';
 
 // ---------------------------------------------------------------------------
 // Phase 7: PostgreSQL-backed integration CRUD with real encryption
@@ -265,7 +266,7 @@ export function createIntegrationRoutes(pgDb) {
   // Encrypts config_json before storage. Extracts shortcode and passkey
   // into top-level columns for webhook routing (Phase 6 integration).
   // =========================================================================
-  router.post('/integrations', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+  router.post('/integrations', requireAuthenticatedContext, requireSecurityPin('save_integration'), asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const { provider_type, provider_name, environment, config_json } = req.body;
 
@@ -867,50 +868,9 @@ export function createIntegrationRoutes(pgDb) {
   // Soft-resets the integration: clears encrypted config, webhook secret,
   // and resets status to needs_credentials.  Preserves the row and test logs.
   // =========================================================================
-  router.post('/integrations/:id/delete', requireAuthenticatedContext, asyncHandler(async (req, res) => {
+  router.post('/integrations/:id/delete', requireAuthenticatedContext, requireSecurityPin('delete_integration'), asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const integrationId = parseInt(req.params.id);
-    const { pin } = req.body;
-
-    if (!pin) {
-      return res.status(400).json({ error: 'Security PIN is required to delete credentials.' });
-    }
-
-    // Validate PIN
-    const org = await pgDb.findOne('organizations', { id: orgId });
-    if (!org) {
-      return res.status(404).json({ error: 'Organization not found.' });
-    }
-
-    if (!org.security_pin_hash) {
-      return res.status(400).json({ error: 'Security PIN has not been configured. Please set up your PIN first.' });
-    }
-
-    const pinValid = bcrypt.compareSync(pin, org.security_pin_hash);
-
-    if (!pinValid) {
-      // Audit the failed PIN attempt
-      await pgDb.logAudit(
-        orgId, userId, role,
-        'integration_delete_pin_failed',
-        'organization_integrations',
-        integrationId,
-        null, null,
-        'Failed PIN verification when attempting to delete integration credentials.',
-        'failed'
-      );
-
-      // Also log to system_errors for Super Admin visibility
-      await pgDb.logError(
-        orgId, userId,
-        'integration_credential_delete',
-        `Failed PIN attempt when deleting integration ${integrationId} credentials.`,
-        null,
-        { integration_id: integrationId, actor_user_id: userId }
-      );
-
-      return res.status(400).json({ error: 'The security PIN is incorrect. This attempt has been logged.' });
-    }
 
     // Find the integration
     const integration = await pgDb.findOne('organization_integrations', {

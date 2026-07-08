@@ -1,6 +1,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { requireSecurityPin } from '../services/security/SecurityPinService.js';
 
 function asyncHandler(handler) {
   return (req, res, next) => {
@@ -112,7 +113,7 @@ export function createPropertyRoutes(pgDb) {
     res.json(caretakersWithProps);
   }));
 
-  router.post('/properties/caretakers', requireLandlord, asyncHandler(async (req, res) => {
+  router.post('/properties/caretakers', requireLandlord, requireSecurityPin('invite_caretaker'), asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const { name, email, phone_number, assigned_properties, pin: requestedPin } = req.body;
 
@@ -224,7 +225,7 @@ export function createPropertyRoutes(pgDb) {
     });
   }));
 
-  router.put('/properties/caretakers/:id', requireLandlord, asyncHandler(async (req, res) => {
+  router.put('/properties/caretakers/:id', requireLandlord, requireSecurityPin('modify_caretaker'), asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const caretakerId = parseInt(req.params.id, 10);
 
@@ -331,7 +332,7 @@ export function createPropertyRoutes(pgDb) {
     res.json({ success: true, user: updatedUser });
   }));
 
-  router.post('/properties/caretakers/:id/reset-pin', requireLandlord, asyncHandler(async (req, res) => {
+  router.post('/properties/caretakers/:id/reset-pin', requireLandlord, requireSecurityPin('reset_caretaker_pin'), asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const caretakerId = parseInt(req.params.id, 10);
     const { pin: requestedPin } = req.body || {};
@@ -458,7 +459,7 @@ export function createPropertyRoutes(pgDb) {
     res.json(updated);
   }));
 
-  router.delete('/properties/:id', requireLandlord, asyncHandler(async (req, res) => {
+  router.delete('/properties/:id', requireLandlord, requireSecurityPin('delete_property'), asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const propertyId = parseInt(req.params.id);
     const oldValue = await pgDb.findOne('properties', { id: propertyId, organization_id: orgId });
@@ -565,7 +566,7 @@ export function createPropertyRoutes(pgDb) {
     res.json(updated);
   }));
 
-  router.delete('/units/:id', requireLandlord, asyncHandler(async (req, res) => {
+  router.delete('/units/:id', requireLandlord, requireSecurityPin('delete_unit'), asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const unitId = parseInt(req.params.id);
     const oldValue = await pgDb.findOne('units', { id: unitId, organization_id: orgId });
@@ -697,7 +698,7 @@ export function createPropertyRoutes(pgDb) {
     res.json(updated);
   }));
 
-  router.post('/tenants/:id/vacate', requireLandlord, asyncHandler(async (req, res) => {
+  router.post('/tenants/:id/vacate', requireLandlord, requireSecurityPin('vacate_tenant'), asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const tenantId = parseInt(req.params.id);
     const oldValue = await pgDb.findOne('tenants', { id: tenantId, organization_id: orgId });

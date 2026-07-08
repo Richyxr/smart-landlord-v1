@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, Home, MapPin, DoorOpen, User, Phone, Mail, CreditCard, Calendar, Wrench, Plus, Check } from 'lucide-react';
+import SecurityPinModal from '../components/SecurityPinModal.jsx';
 
 export default function Properties({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab }) {
   const [activeTab, setActiveTab] = useState(initialSubTab || 'properties'); // properties, units, tenants, caretakers
@@ -11,6 +12,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
     }
   }, [initialSubTab]);
   const [properties, setProperties] = useState([]);
+  const [pinAction, setPinAction] = useState(null); // { type: string, id?: number, name?: string, data?: any }
   const [units, setUnits] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [caretakers, setCaretakers] = useState([]);
@@ -292,27 +294,114 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
     }
   };
 
+  const handlePinSuccess = async (enteredPin) => {
+    setLoading(true);
+    setError('');
+
+    try {
+      if (pinAction.type === 'delete_property') {
+        const res = await fetch(`/api/properties/${pinAction.id}`, {
+          method: 'DELETE',
+          headers: { ...headers, 'x-security-pin': enteredPin }
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || 'Failed to delete property.');
+        }
+        window.notifySuccess('Property Deleted', 'The property and its child units have been soft-deleted.');
+        fetchData();
+        onRefresh();
+      } else if (pinAction.type === 'delete_unit') {
+        const res = await fetch(`/api/units/${pinAction.id}`, {
+          method: 'DELETE',
+          headers: { ...headers, 'x-security-pin': enteredPin }
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || 'Failed to delete unit.');
+        }
+        window.notifySuccess('Unit Deleted', 'The unit has been soft-deleted.');
+        fetchData();
+        onRefresh();
+      } else if (pinAction.type === 'vacate_tenant') {
+        const res = await fetch(`/api/tenants/${pinAction.id}/vacate`, {
+          method: 'POST',
+          headers: { ...headers, 'x-security-pin': enteredPin }
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.message || 'Vacate tenant failed.');
+        }
+        window.notifySuccess('Tenant Vacated', 'The tenant has been vacated and the unit is now available.');
+        fetchData();
+        onRefresh();
+      } else if (pinAction.type === 'reset_caretaker_pin') {
+        setResetPinResult(null);
+        const res = await fetch(`/api/properties/caretakers/${pinAction.id}/reset-pin`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json', 'x-security-pin': enteredPin }
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || data.error || 'Failed to reset PIN.');
+        }
+        setResetPinResult({
+          name: data.user.name,
+          phone: data.user.phone_number,
+          pin: data.temporary_pin
+        });
+        window.notifySuccess('PIN Reset Success', 'A new temporary PIN has been generated.');
+      } else if (pinAction.type === 'create_caretaker' || pinAction.type === 'update_caretaker') {
+        const url = pinAction.type === 'update_caretaker' 
+          ? `/api/properties/caretakers/${editId}` 
+          : '/api/properties/caretakers';
+        const method = pinAction.type === 'update_caretaker' ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+          method,
+          headers: { ...headers, 'Content-Type': 'application/json', 'x-security-pin': enteredPin },
+          body: JSON.stringify(pinAction.data)
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || data.error || `Failed to ${editId ? 'update' : 'create'} caretaker.`);
+        }
+
+        if (editId) {
+          window.notifySuccess('Caretaker Updated', 'Caretaker updated successfully!');
+        } else {
+          window.showConfirm(
+            'Caretaker Created Successfully',
+            `Name: ${data.user.name}\nPhone: ${data.user.phone_number}\nSystem-Generated PIN: ${data.temporary_pin}\n\nIMPORTANT: Please copy and share this PIN with the caretaker. It will not be shown again!`,
+            () => {},
+            null,
+            'OK',
+            'Close',
+            true
+          );
+        }
+        
+        setShowAddForm(false);
+        setEditId(null);
+        resetCaretakerForm();
+        fetchData();
+        onRefresh();
+      }
+      setPinAction(null);
+    } catch (err) {
+      setError(err.message);
+      window.notifyError('Action Failed', err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleVacateTenant = async (id) => {
     window.showConfirm(
       'Vacate Tenant',
       'Are you sure you want to vacate this tenant? This will free the unit and mark the tenant history.',
       async () => {
-        setLoading(true);
-        try {
-          const res = await fetch(`/api/tenants/${id}/vacate`, {
-            method: 'POST',
-            headers
-          });
-          if (!res.ok) throw new Error('Vacate tenant failed.');
-          window.notifySuccess('Tenant Vacated', 'The tenant has been vacated and the unit is now available.');
-          fetchData();
-          onRefresh();
-        } catch (err) {
-          setError(err.message);
-          window.notifyError('Action Failed', err.message);
-        } finally {
-          setLoading(false);
-        }
+        setPinAction({ type: 'vacate_tenant', id });
       }
     );
   };
@@ -341,50 +430,17 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       return;
     }
 
-    try {
-      const url = editId ? `/api/properties/caretakers/${editId}` : '/api/properties/caretakers';
-      const method = editId ? 'PUT' : 'POST';
-      const res = await fetch(url, {
-        method,
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: ctName,
-          email: ctEmail || null,
-          phone_number: ctPhone,
-          status: ctStatus,
-          assigned_properties: ctAssignedProps
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || data.error || `Failed to ${editId ? 'update' : 'create'} caretaker.`);
+    setLoading(false);
+    setPinAction({
+      type: editId ? 'update_caretaker' : 'create_caretaker',
+      data: {
+        name: ctName,
+        email: ctEmail || null,
+        phone_number: ctPhone,
+        status: ctStatus,
+        assigned_properties: ctAssignedProps
       }
-
-      if (editId) {
-        window.notifySuccess('Caretaker Updated', 'Caretaker updated successfully!');
-      } else {
-        window.showConfirm(
-          'Caretaker Created Successfully',
-          `Name: ${data.user.name}\nPhone: ${data.user.phone_number}\nSystem-Generated PIN: ${data.temporary_pin}\n\nIMPORTANT: Please copy and share this PIN with the caretaker. It will not be shown again!`,
-          () => {},
-          null,
-          'OK',
-          'Close',
-          true
-        );
-      }
-      
-      setShowAddForm(false);
-      setEditId(null);
-      resetCaretakerForm();
-      fetchData();
-      onRefresh();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    });
   };
 
   const handleResetPin = async (id, name) => {
@@ -392,30 +448,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       'Reset Caretaker PIN',
       `Are you sure you want to reset the PIN for caretaker ${name}?`,
       async () => {
-        setError('');
-        setLoading(true);
-        setResetPinResult(null);
-        try {
-          const res = await fetch(`/api/properties/caretakers/${id}/reset-pin`, {
-            method: 'POST',
-            headers: { ...headers, 'Content-Type': 'application/json' }
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            throw new Error(data.message || data.error || 'Failed to reset PIN.');
-          }
-          setResetPinResult({
-            name: data.user.name,
-            phone: data.user.phone_number,
-            pin: data.temporary_pin
-          });
-          window.notifySuccess('PIN Reset Success', 'A new temporary PIN has been generated.');
-        } catch (err) {
-          setError(err.message);
-          window.notifyError('PIN Reset Failed', err.message);
-        } finally {
-          setLoading(false);
-        }
+        setPinAction({ type: 'reset_caretaker_pin', id, name });
       }
     );
   };
@@ -855,18 +888,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                         'Delete Property',
                         'Are you sure you want to delete this property? All child units will be soft-deleted.',
                         async () => {
-                          setLoading(true);
-                          try {
-                            const res = await fetch(`/api/properties/${p.id}`, { method: 'DELETE', headers });
-                            if (!res.ok) throw new Error('Failed to delete property.');
-                            window.notifySuccess('Property Deleted', 'The property and its child units have been soft-deleted.');
-                            fetchData();
-                            onRefresh();
-                          } catch (err) {
-                            window.notifyError('Delete Failed', err.message);
-                          } finally {
-                            setLoading(false);
-                          }
+                          setPinAction({ type: 'delete_property', id: p.id });
                         }
                       );
                     }}>Delete</button>
@@ -921,18 +943,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                         'Delete Unit',
                         'Are you sure you want to delete this unit? Any active tenant will be vacated.',
                         async () => {
-                          setLoading(true);
-                          try {
-                            const res = await fetch(`/api/units/${u.id}`, { method: 'DELETE', headers });
-                            if (!res.ok) throw new Error('Failed to delete unit.');
-                            window.notifySuccess('Unit Deleted', 'The unit has been soft-deleted.');
-                            fetchData();
-                            onRefresh();
-                          } catch (err) {
-                            window.notifyError('Delete Failed', err.message);
-                          } finally {
-                            setLoading(false);
-                          }
+                          setPinAction({ type: 'delete_unit', id: u.id });
                         }
                       );
                     }}>Delete</button>
@@ -1068,6 +1079,14 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
         </div>
       )}
 
+      {pinAction && (
+        <SecurityPinModal
+          isOpen={!!pinAction}
+          onClose={() => setPinAction(null)}
+          organizationId={organization?.id}
+          onSuccess={handlePinSuccess}
+        />
+      )}
     </div>
   );
 }

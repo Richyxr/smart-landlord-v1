@@ -34,10 +34,13 @@ function getFriendlyAuthError(error) {
 }
 
 export default function Auth({ onAuthSuccess }) {
+  const isPinResetPath = typeof window !== 'undefined' && window.location.pathname === '/reset-pin';
   const initialResetToken = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('token') || ''
     : '';
-  const [screen, setScreen] = useState(initialResetToken ? 'reset_password' : 'welcome'); // welcome, login, register, forgot_password, reset_password, verify_email, verify_phone, pin_setup
+  const [screen, setScreen] = useState(
+    (isPinResetPath && initialResetToken) ? 'reset_pin' : (initialResetToken ? 'reset_password' : 'welcome')
+  ); // welcome, login, register, forgot_password, reset_password, reset_pin, verify_email, verify_phone, pin_setup
   
   // Registration State
   const [isCompany, setIsCompany] = useState(false);
@@ -405,6 +408,50 @@ export default function Auth({ onAuthSuccess }) {
       }
     } catch (err) {
       setError(err.message || 'Password reset link is invalid or expired. Please request a new one.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPin = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (pin.length < 4 || pin.length > 6) {
+      setError('PIN must be between 4 and 6 digits.');
+      return;
+    }
+
+    if (pin !== confirmPin) {
+      setError('PINs do not match.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/security-pin/reset-confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: resetToken,
+          newPin: pin,
+          confirmPin
+        })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || 'PIN reset link is invalid or expired. Please request a new one.');
+      }
+
+      setResetComplete(true);
+      setPin('');
+      setConfirmPin('');
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    } catch (err) {
+      setError(err.message || 'PIN reset link is invalid or expired. Please request a new one.');
     } finally {
       setLoading(false);
     }
@@ -942,6 +989,117 @@ export default function Auth({ onAuthSuccess }) {
 
               <button type="submit" className="btn btn-primary" disabled={loading} style={{ marginTop: '10px' }}>
                 {loading ? 'Resetting...' : 'Reset Password'}
+              </button>
+            </form>
+          )}
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ marginTop: '12px' }}
+            onClick={() => {
+              setResetComplete(false);
+              setError('');
+              setScreen('login');
+              if (typeof window !== 'undefined') {
+                window.history.replaceState({}, '', window.location.pathname);
+              }
+            }}
+          >
+            Back to Sign In
+          </button>
+        </div>
+      )}
+
+      {/* RESET PIN SCREEN */}
+      {screen === 'reset_pin' && (
+        <div className="auth-panel">
+          {/* Brand Header */}
+          <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <img
+              src="/icons/maskable-192.png"
+              alt="Smart Landlord"
+              style={{
+                width: '60px',
+                height: '60px',
+                margin: '0 auto 8px auto',
+                display: 'block',
+                borderRadius: '12px',
+                boxShadow: 'var(--shadow-sm)'
+              }}
+            />
+            <h1 style={{
+              fontFamily: 'var(--font-title)',
+              fontSize: '20px',
+              fontWeight: '600',
+              margin: '0 0 2px 0',
+              color: 'var(--text-primary)'
+            }}>
+              Smart <span style={{ color: 'var(--primary)' }}>Landlord</span>
+            </h1>
+            <p style={{
+              fontSize: '12px',
+              color: 'var(--text-secondary)',
+              margin: 0
+            }}>
+              Property management made simple.
+            </p>
+          </div>
+
+          <h2 style={{ fontSize: '20px', marginBottom: '4px', textAlign: 'center' }}>Reset Security PIN</h2>
+          <p style={{ marginBottom: '20px', fontSize: '13px', color: 'var(--text-secondary)', textAlign: 'center' }}>Choose a new 4 to 6 digit security PIN for your Smart Landlord account.</p>
+
+          {resetComplete ? (
+            <>
+              <div role="status" style={{ color: 'var(--success)', fontSize: '13px', marginBottom: '16px', lineHeight: 1.5 }}>
+                Your Security PIN has been reset successfully. You can now login and use your new PIN to authorize critical actions.
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setResetComplete(false);
+                  setError('');
+                  setScreen('login');
+                }}
+              >
+                Back to Sign In
+              </button>
+            </>
+          ) : (
+            <form onSubmit={handleResetPin}>
+              <div className="form-group">
+                <label className="form-label">New Security PIN (4-6 digits)</label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  required
+                  className="form-control"
+                  placeholder="••••••"
+                  value={pin}
+                  onChange={e => setPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                  style={{ letterSpacing: '4px', fontSize: '16px' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Confirm PIN</label>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  required
+                  className="form-control"
+                  placeholder="••••••"
+                  value={confirmPin}
+                  onChange={e => setConfirmPin(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                  style={{ letterSpacing: '4px', fontSize: '16px' }}
+                />
+              </div>
+
+              {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', marginBottom: '16px' }}>{error}</div>}
+
+              <button type="submit" className="btn btn-primary" disabled={loading || pin.length < 4} style={{ marginTop: '10px' }}>
+                {loading ? 'Resetting...' : 'Reset Security PIN'}
               </button>
             </form>
           )}

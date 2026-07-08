@@ -3,6 +3,7 @@ import express from 'express';
 import multer from 'multer';
 import bcrypt from 'bcryptjs';
 import { NotificationService } from '../notificationService.js';
+import { requireSecurityPin } from '../services/security/SecurityPinService.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -500,18 +501,11 @@ export function createReconciliationRoutes(pgDb) {
     res.json(result);
   }));
 
-  router.post('/reconciliation/match', requireLandlord, asyncHandler(async (req, res) => {
+  router.post('/reconciliation/match', requireLandlord, requireSecurityPin('reconcile_match'), asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
-    const { row_id, tenant_id, invoice_id, pin } = req.body;
+    const { row_id, tenant_id, invoice_id } = req.body;
 
     const result = await withTransaction(pgDb, async client => {
-      const pinValid = await verifyPin(client, orgId, pin);
-      if (!pinValid) {
-        await logAudit(client, orgId, userId, role, 'pin_verification_failed', 'reconciliation_staging_rows', parseInt(row_id), null, null, 'Failed reconciliation PIN verification', 'failed');
-        const error = new Error('Wrong security PIN.');
-        error.statusCode = 400;
-        throw error;
-      }
 
       const rowResult = await client.query(
         `
@@ -642,7 +636,7 @@ export function createReconciliationRoutes(pgDb) {
     res.json(result);
   }));
 
-  router.post('/reconciliation/ignore', requireLandlord, asyncHandler(async (req, res) => {
+  router.post('/reconciliation/ignore', requireLandlord, requireSecurityPin('reconcile_ignore'), asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const { row_id } = req.body;
 
