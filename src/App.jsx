@@ -27,14 +27,85 @@ const demoMode =
   import.meta.env.VITE_DEMO_MODE === 'true' ||
   (import.meta.env.DEV && import.meta.env.VITE_DEMO_MODE !== 'false');
 
+const getTabFromUrl = () => {
+  if (typeof window === 'undefined') return null;
+  const path = window.location.pathname;
+  const searchParams = new URLSearchParams(window.location.search);
+  const tab = searchParams.get('tab');
+  
+  if (['/', '/login', '/register', '/forgot-password', '/reset-password', '/reset-pin', '/verify-email', '/complete-profile'].includes(path)) {
+    return null;
+  }
+
+  // Caretaker views
+  if (path === '/caretaker') {
+    return { active: 'caretaker_dashboard', sub: null };
+  }
+  if (path.startsWith('/caretaker/')) {
+    const sub = path.replace('/caretaker/', '');
+    if (sub === 'readings') return { active: 'caretaker_readings', sub: null };
+    if (sub === 'messages') return { active: 'caretaker_messages', sub: null };
+    if (sub === 'profile') return { active: 'caretaker_profile', sub: null };
+  }
+
+  // Admin views
+  if (path === '/admin') {
+    return { active: 'admin_dashboard', sub: null };
+  }
+  if (path.startsWith('/admin/')) {
+    const sub = path.replace('/admin/', '');
+    if (sub === 'landlords') return { active: 'admin_orgs', sub: null };
+    if (sub === 'billing') return { active: 'admin_pricing', sub: null };
+    if (sub === 'email') return { active: 'admin_email', sub: null };
+    if (sub === 'sms') return { active: 'admin_sms', sub: null };
+    if (sub === 'errors') return { active: 'admin_errors', sub: null };
+    if (sub === 'audits') return { active: 'admin_audits', sub: null };
+    if (sub === 'compliance') return { active: 'admin_compliance', sub: null };
+  }
+
+  // Landlord views
+  if (path === '/home') {
+    return { active: 'landlord_dashboard', sub: null };
+  }
+  if (path === '/properties') {
+    return { active: 'landlord_properties', sub: tab || 'properties' };
+  }
+  if (path === '/billing') {
+    return { active: 'landlord_invoices', sub: tab || 'overview' };
+  }
+  if (path === '/stats') {
+    return { active: 'landlord_stats', sub: null };
+  }
+  if (path === '/subscription') {
+    return { active: 'landlord_subscription', sub: null };
+  }
+  if (path === '/settings') {
+    return { active: 'landlord_settings', sub: tab || 'readiness' };
+  }
+
+  return null;
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [role, setRole] = useState('landlord'); // landlord, caretaker, super_admin
   const [organization, setOrganization] = useState(null);
-  const [activeTab, setActiveTab] = useState('landlord_dashboard');
-  const [propertiesSubTab, setPropertiesSubTab] = useState(null);
-  const [settingsSubTab, setSettingsSubTab] = useState(null);
-  const [invoicesSubTab, setInvoicesSubTab] = useState(null);
+  const [activeTab, setActiveTab] = useState(() => {
+    const route = getTabFromUrl();
+    return route ? route.active : 'landlord_dashboard';
+  });
+  const [propertiesSubTab, setPropertiesSubTab] = useState(() => {
+    const route = getTabFromUrl();
+    return (route && route.active === 'landlord_properties') ? route.sub : null;
+  });
+  const [settingsSubTab, setSettingsSubTab] = useState(() => {
+    const route = getTabFromUrl();
+    return (route && route.active === 'landlord_settings') ? route.sub : null;
+  });
+  const [invoicesSubTab, setInvoicesSubTab] = useState(() => {
+    const route = getTabFromUrl();
+    return (route && route.active === 'landlord_invoices') ? route.sub : null;
+  });
   const [authRestoring, setAuthRestoring] = useState(true);
   const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
   const [confirmState, setConfirmState] = useState(null);
@@ -211,7 +282,32 @@ export default function App() {
 
     // Set appropriate start tabs
     if (authRole === 'super_admin') {
-      setActiveTab('admin_dashboard');
+      const searchParams = new URLSearchParams(window.location.search);
+      const impOrgId = searchParams.get('impersonateOrgId');
+      if (impOrgId) {
+        // Automatically restore impersonation
+        fetch('/api/admin/impersonate/start', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ organization_id: Number(impOrgId), reason: 'Restored impersonation session from URL refresh' })
+        })
+          .then(res => {
+            if (res.ok) return res.json();
+            throw new Error('Failed to start impersonation');
+          })
+          .then(data => {
+            handleImpersonateStart(data.session, data.targetOrg, data.ownerUser, data.auth_token);
+          })
+          .catch(err => {
+            console.error('Failed to auto-restore impersonation:', err);
+            setActiveTab('admin_dashboard');
+          });
+      } else {
+        setActiveTab('admin_dashboard');
+      }
     } else if (authRole === 'caretaker') {
       setActiveTab('caretaker_dashboard');
     } else {
@@ -349,20 +445,35 @@ export default function App() {
   useEffect(() => {
     if (authRestoring) return;
     
+    // Redirect logic for incomplete profile onboarding
+    if (user && role === 'landlord' && organization && !organization.profile_completed) {
+      if (window.location.pathname !== '/complete-profile') {
+        window.history.pushState(null, '', '/complete-profile');
+      }
+      return;
+    }
+
     let path = '/home';
     let query = '';
+    
+    // If admin impersonation is active, preserve parameter
+    if (impersonationSession) {
+      query = `?impersonateOrgId=${impersonationSession.orgId}`;
+    }
     
     if (activeTab === 'landlord_dashboard') {
       path = '/home';
     } else if (activeTab === 'landlord_properties') {
       path = '/properties';
+      const qPrefix = query ? `${query}&` : '?';
       if (propertiesSubTab && propertiesSubTab !== 'properties') {
-        query = `?tab=${propertiesSubTab}`;
+        query = `${qPrefix}tab=${propertiesSubTab}`;
       }
     } else if (activeTab === 'landlord_invoices') {
       path = '/billing';
+      const qPrefix = query ? `${query}&` : '?';
       if (invoicesSubTab && invoicesSubTab !== 'overview') {
-        query = `?tab=${invoicesSubTab}`;
+        query = `${qPrefix}tab=${invoicesSubTab}`;
         if (invoicesSubTab === 'banking') {
           const searchParams = new URLSearchParams(window.location.search);
           const bTab = searchParams.get('bankingTab');
@@ -373,20 +484,33 @@ export default function App() {
       }
     } else if (activeTab === 'landlord_stats') {
       path = '/stats';
+    } else if (activeTab === 'landlord_subscription') {
+      path = '/subscription';
     } else if (activeTab === 'landlord_settings') {
       path = '/settings';
+      const qPrefix = query ? `${query}&` : '?';
       if (settingsSubTab && settingsSubTab !== 'readiness') {
-        query = `?tab=${settingsSubTab}`;
+        query = `${qPrefix}tab=${settingsSubTab}`;
       }
+    } else if (activeTab === 'admin_dashboard') {
+      path = '/admin';
+    } else if (activeTab.startsWith('admin_')) {
+      const sub = activeTab.replace('admin_', '');
+      path = `/admin/${sub === 'orgs' ? 'landlords' : sub === 'pricing' ? 'billing' : sub}`;
+    } else if (activeTab === 'caretaker_dashboard') {
+      path = '/caretaker';
+    } else if (activeTab.startsWith('caretaker_')) {
+      const sub = activeTab.replace('caretaker_', '');
+      path = `/caretaker/${sub === 'readings' ? 'readings' : sub}`;
     } else {
-      return; // Skip non-landlord pages
+      return; // Skip non-matched states
     }
     
     const targetUrl = path + query;
     if (window.location.pathname + window.location.search !== targetUrl) {
       window.history.pushState(null, '', targetUrl);
     }
-  }, [activeTab, propertiesSubTab, invoicesSubTab, settingsSubTab, authRestoring]);
+  }, [activeTab, propertiesSubTab, invoicesSubTab, settingsSubTab, authRestoring, user, role, organization, impersonationSession]);
 
   const handleMockUnlock = () => {
     setIsLocked(false);
@@ -517,14 +641,18 @@ export default function App() {
       case 'caretaker_readings':
       case 'caretaker_messages':
       case 'caretaker_profile':
-        return <Caretaker user={user} activeRoute={activeTab} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
+        return <Caretaker user={user} activeRoute={activeTab} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} onChangeRoute={setActiveTab} />;
 
       // Super Admin Pages
       case 'admin_dashboard':
       case 'admin_orgs':
       case 'admin_pricing':
       case 'admin_errors':
-        return <SuperAdmin activeRoute={activeTab} onImpersonateStart={handleImpersonateStart} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
+      case 'admin_email':
+      case 'admin_sms':
+      case 'admin_audits':
+      case 'admin_compliance':
+        return <SuperAdmin activeRoute={activeTab} onImpersonateStart={handleImpersonateStart} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} onChangeRoute={setActiveTab} />;
 
       default:
         return <div>Tab not found.</div>;

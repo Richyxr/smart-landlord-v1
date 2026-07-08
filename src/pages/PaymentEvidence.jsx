@@ -34,9 +34,10 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
   const [activeSubTab, setActiveSubTab] = useState(() => {
     if (typeof window !== 'undefined') {
       const searchParams = new URLSearchParams(window.location.search);
-      if (searchParams.get('bankingTab') === 'matching') {
-        return 'queue';
-      }
+      const bTab = searchParams.get('bankingTab');
+      if (bTab === 'matching' || bTab === 'queue') return 'queue';
+      if (bTab === 'history') return 'history';
+      if (bTab === 'payments') return 'payments';
     }
     return 'wizard';
   });
@@ -47,12 +48,15 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
       const url = new URL(window.location.href);
       if (activeSubTab === 'queue') {
         url.searchParams.set('bankingTab', 'matching');
-      } else {
+      } else if (activeSubTab === 'wizard') {
         url.searchParams.delete('bankingTab');
+      } else {
+        url.searchParams.set('bankingTab', activeSubTab);
       }
       window.history.replaceState(null, '', url.pathname + url.search);
     }
   }, [activeSubTab]);
+
   const [loadingPayments, setLoadingPayments] = useState(false);
   const [paymentsError, setPaymentsError] = useState('');
   const [evidenceRows, setEvidenceRows] = useState([]);
@@ -116,6 +120,79 @@ export default function PaymentEvidence({ organization, refreshTrigger, user, ro
 
   // Selected row for Detail Drawer
   const [selectedRow, setSelectedRow] = useState(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      const currentEvidenceId = url.searchParams.get('evidenceId');
+      
+      if (selectedRow) {
+        if (currentEvidenceId !== String(selectedRow.id)) {
+          url.searchParams.set('evidenceId', selectedRow.id);
+          window.history.pushState(null, '', url.pathname + url.search);
+        }
+      } else {
+        if (currentEvidenceId) {
+          url.searchParams.delete('evidenceId');
+          window.history.pushState(null, '', url.pathname + url.search);
+        }
+      }
+    }
+  }, [selectedRow]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const searchParams = new URLSearchParams(window.location.search);
+    const evidenceId = searchParams.get('evidenceId');
+    if (evidenceId) {
+      const match = evidenceRows.find(r => String(r.id) === String(evidenceId));
+      if (match) {
+        setSelectedRow(match);
+      } else {
+        fetch(`/api/payment-evidence/rows?search=${encodeURIComponent(evidenceId)}`)
+          .then(res => res.json())
+          .then(data => {
+            const row = Array.isArray(data) ? data.find(r => String(r.id) === String(evidenceId)) : null;
+            if (row) {
+              setSelectedRow(row);
+            }
+          })
+          .catch(e => console.error('Failed to fetch deep-linked evidence row:', e));
+      }
+    } else {
+      setSelectedRow(null);
+    }
+  }, [evidenceRows.length]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const searchParams = new URLSearchParams(window.location.search);
+      const bTab = searchParams.get('bankingTab');
+      if (bTab === 'matching' || bTab === 'queue') setActiveSubTab('queue');
+      else if (bTab === 'history') setActiveSubTab('history');
+      else if (bTab === 'payments') setActiveSubTab('payments');
+      else setActiveSubTab('wizard');
+
+      const evidenceId = searchParams.get('evidenceId');
+      if (evidenceId) {
+        const match = evidenceRows.find(r => String(r.id) === String(evidenceId));
+        if (match) {
+          setSelectedRow(match);
+        } else {
+          fetch(`/api/payment-evidence/rows?search=${encodeURIComponent(evidenceId)}`)
+            .then(res => res.json())
+            .then(data => {
+              const row = Array.isArray(data) ? data.find(r => String(r.id) === String(evidenceId)) : null;
+              if (row) setSelectedRow(row);
+            });
+        }
+      } else {
+        setSelectedRow(null);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [evidenceRows]);
 
   // Manual Review Decision States
   const [reviewDecisionType, setReviewDecisionType] = useState('');

@@ -105,13 +105,16 @@ function smsFieldLabel(field) {
   return SMS_FIELD_LABELS[field] || field;
 }
 
-export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTrigger, onRefresh }) {
+export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTrigger, onRefresh, onChangeRoute }) {
   const routeTabMap = {
     admin_dashboard: 'dashboard',
     admin_orgs: 'landlords',
-    admin_pricing: 'dashboard',
+    admin_pricing: 'billing',
     admin_errors: 'errors',
-    admin_email: 'email'
+    admin_email: 'email',
+    admin_sms: 'sms',
+    admin_audits: 'audits',
+    admin_compliance: 'compliance'
   };
 
   const [activeTab, setActiveTab] = useState(routeTabMap[activeRoute] || 'dashboard'); // dashboard, landlords, billing, email, errors, audits
@@ -123,6 +126,23 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       setActiveTab(nextTab);
     }
   }, [activeRoute]);
+
+  useEffect(() => {
+    const reverseMap = {
+      dashboard: 'admin_dashboard',
+      landlords: 'admin_orgs',
+      billing: 'admin_pricing',
+      errors: 'admin_errors',
+      email: 'admin_email',
+      sms: 'admin_sms',
+      audits: 'admin_audits',
+      compliance: 'admin_compliance'
+    };
+    const targetRoute = reverseMap[activeTab];
+    if (targetRoute && targetRoute !== activeRoute && typeof onChangeRoute === 'function') {
+      onChangeRoute(targetRoute);
+    }
+  }, [activeTab, activeRoute, onChangeRoute]);
   const [stats, setStats] = useState(DEFAULT_STATS);
 
   const [landlords, setLandlords] = useState([]);
