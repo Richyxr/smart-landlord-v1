@@ -65,6 +65,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
   const [currentPinValue, setCurrentPinValue] = useState('');
   const [newPinValue, setNewPinValue] = useState('');
   const [newConfirmPinValue, setNewConfirmPinValue] = useState('');
+  const [pinResetLoading, setPinResetLoading] = useState(false);
+  const [pinResetStatus, setPinResetStatus] = useState({ type: '', message: '' });
 
   // Profile Form State
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -349,7 +351,10 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.message || 'Failed to change PIN.');
+        const message = data?.error === 'INVALID_PIN'
+          ? 'The current PIN is incorrect. Try again or use Forgot Security PIN.'
+          : (data.message || 'Failed to change PIN.');
+        throw new Error(message);
       }
 
       setInfoMessage('Security PIN changed successfully.');
@@ -370,6 +375,42 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePinResetRequest = async () => {
+    setPinResetLoading(true);
+    setPinResetStatus({ type: '', message: '' });
+    setError('');
+    setInfoMessage('');
+
+    try {
+      const sessionToken = getSessionToken();
+      const res = await fetch('/api/auth/security-pin/reset-request', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {})
+        },
+        body: JSON.stringify({})
+      });
+
+      await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error('Unable to send the reset link right now. Please try again.');
+      }
+
+      setPinResetStatus({
+        type: 'success',
+        message: 'If your account email is valid, a Security PIN reset link has been sent.'
+      });
+    } catch (err) {
+      setPinResetStatus({
+        type: 'error',
+        message: err.message || 'Unable to send the reset link right now. Please try again.'
+      });
+    } finally {
+      setPinResetLoading(false);
     }
   };
 
@@ -1989,6 +2030,46 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                     style={{ letterSpacing: '4px', fontSize: '16px' }}
                     required
                   />
+                  <div style={{ marginTop: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={handlePinResetRequest}
+                      disabled={pinResetLoading}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: pinResetLoading ? 'wait' : 'pointer',
+                        display: 'inline-flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        gap: '2px',
+                        color: 'var(--primary, #2563eb)',
+                        fontSize: '12.5px',
+                        fontWeight: 600,
+                        textDecoration: 'underline',
+                        textUnderlineOffset: '2px'
+                      }}
+                    >
+                      <span>Forgot Security PIN?</span>
+                      <span style={{ fontWeight: 500, color: 'var(--text-secondary)', textDecoration: 'none' }}>
+                        {pinResetLoading ? 'Sending reset link to your account email...' : 'Send reset link to my account email'}
+                      </span>
+                    </button>
+                    {pinResetStatus.message && (
+                      <div
+                        role={pinResetStatus.type === 'error' ? 'alert' : 'status'}
+                        style={{
+                          marginTop: '8px',
+                          fontSize: '12.5px',
+                          lineHeight: 1.5,
+                          color: pinResetStatus.type === 'error' ? 'var(--danger, #ef4444)' : 'var(--success, #10b981)'
+                        }}
+                      >
+                        {pinResetStatus.message}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="form-group" style={{ marginBottom: '12px' }}>
                   <label className="form-label">New PIN</label>
