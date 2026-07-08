@@ -194,7 +194,7 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess, organizat
         </p>
 
         <form onSubmit={handleSubmit}>
-          <div className="form-group" style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', marginBottom: '16px' }}>
             <input
               type="password"
               inputMode="numeric"

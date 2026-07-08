@@ -367,22 +367,47 @@ export async function resetPinWithToken(token, newPin, confirmPin) {
 
 export async function getPinStatus(userId) {
   const db = getDb();
-  const pinRow = await db.findOne('security_pins', { user_id: Number(userId) });
-  if (!pinRow) {
-    return { isSet: false };
+  try {
+    const pinRow = await db.findOne('security_pins', { user_id: Number(userId) });
+    if (!pinRow) {
+      return {
+        pin_set: false,
+        locked: false,
+        locked_until: null,
+        isSet: false,
+        isLocked: false,
+        lockedUntil: null
+      };
+    }
+
+    const isLocked = pinRow.pin_locked_until && new Date(pinRow.pin_locked_until).getTime() > Date.now();
+
+    return {
+      pin_set: true,
+      locked: !!isLocked,
+      locked_until: pinRow.pin_locked_until,
+      isSet: true,
+      isLocked: !!isLocked,
+      lockedUntil: pinRow.pin_locked_until,
+      pinSetAt: pinRow.pin_set_at,
+      pinUpdatedAt: pinRow.pin_updated_at,
+      pinLastVerifiedAt: pinRow.pin_last_verified_at,
+      pinResetRequired: pinRow.pin_reset_required
+    };
+  } catch (err) {
+    if (err.message && (err.message.includes('security_pins') || err.message.includes('relation'))) {
+      return {
+        pin_set: false,
+        locked: false,
+        locked_until: null,
+        isSet: false,
+        isLocked: false,
+        lockedUntil: null,
+        error: 'Migration 029 is missing'
+      };
+    }
+    throw err;
   }
-
-  const isLocked = pinRow.pin_locked_until && new Date(pinRow.pin_locked_until).getTime() > Date.now();
-
-  return {
-    isSet: true,
-    isLocked: !!isLocked,
-    lockedUntil: pinRow.pin_locked_until,
-    pinSetAt: pinRow.pin_set_at,
-    pinUpdatedAt: pinRow.pin_updated_at,
-    pinLastVerifiedAt: pinRow.pin_last_verified_at,
-    pinResetRequired: pinRow.pin_reset_required
-  };
 }
 
 export async function recordPinAttempt(userId, success, context = {}) {

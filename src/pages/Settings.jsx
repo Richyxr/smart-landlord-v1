@@ -1450,13 +1450,19 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                   }}
                 >
                   <span>{getChecklistLabel(key, organization?.type)}</span>
-                  <span className={`badge ${checklist[key] ? 'badge-success' : 'badge-danger'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    {checklist[key] ? (
-                      <><Check size={12} /> Ready</>
-                    ) : (
-                      <><X size={12} /> Pending</>
-                    )}
-                  </span>
+                  {typeof checklist[key] === 'string' ? (
+                    <span className="badge badge-danger" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', backgroundColor: 'var(--danger)', color: '#fff' }}>
+                      <X size={12} /> {checklist[key]}
+                    </span>
+                  ) : (
+                    <span className={`badge ${checklist[key] ? 'badge-success' : 'badge-danger'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      {checklist[key] ? (
+                        <><Check size={12} /> Ready</>
+                      ) : (
+                        <><X size={12} /> Pending</>
+                      )}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>

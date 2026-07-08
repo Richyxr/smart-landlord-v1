@@ -4635,34 +4635,58 @@ app.get('/api/settings/audit-logs', async (req, res) => {
 
 // Settings info & setup readiness
 app.get('/api/settings/readiness', async (req, res) => {
-  const orgId = req.auth?.organizationId;
-  const activeDb = pgDb || db;
-  const org = await activeDb.findOne('organizations', { id: orgId });
+  try {
+    const orgId = req.auth?.organizationId;
+    const activeDb = pgDb || db;
+    if (!orgId) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'A valid session is required.' });
+    }
+    const org = await activeDb.findOne('organizations', { id: orgId });
 
-  if (!org) return res.status(404).json({ error: 'Org not found' });
+    if (!org) return res.status(404).json({ error: 'Org not found' });
 
-  const props = await activeDb.find('properties', { organization_id: orgId, deleted_at: null });
-  const units = await activeDb.find('units', { organization_id: orgId, deleted_at: null });
-  const tenants = await activeDb.find('tenants', { organization_id: orgId, deleted_at: null });
-  const integrations = await activeDb.find('organization_integrations', { organization_id: orgId });
-  const pinRow = await activeDb.findOne('security_pins', { user_id: Number(org.owner_user_id) });
-  const pinSet = !!pinRow;
+    let props = [];
+    let units = [];
+    let tenants = [];
+    let integrations = [];
 
-  const checklist = {
-    profile_complete: (org.name && org.phone_number && org.email && org.country && org.billing_currency) ? true : false,
-    pin_created: pinSet,
-    property_created: props.length > 0,
-    unit_created: units.length > 0,
-    tenant_added: tenants.length > 0,
-    sms_configured: integrations.some(i => i.provider_type === 'sms' && i.status === 'ready'),
-    mpesa_configured: integrations.some(i => i.provider_type === 'mpesa' && i.status === 'ready'),
-    saas_billing_active: org.subscription_status === 'active'
-  };
+    try { props = await activeDb.find('properties', { organization_id: orgId, deleted_at: null }); } catch (_) {}
+    try { units = await activeDb.find('units', { organization_id: orgId, deleted_at: null }); } catch (_) {}
+    try { tenants = await activeDb.find('tenants', { organization_id: orgId, deleted_at: null }); } catch (_) {}
+    try { integrations = await activeDb.find('organization_integrations', { organization_id: orgId }); } catch (_) {}
 
-  res.json({
-    checklist,
-    is_ready: Object.values(checklist).every(v => v === true)
-  });
+    let pinSet = false;
+    let pinError = null;
+    try {
+      const pinRow = await activeDb.findOne('security_pins', { user_id: Number(org.owner_user_id) });
+      pinSet = !!pinRow;
+    } catch (err) {
+      if (err.message && (err.message.includes('security_pins') || err.message.includes('relation'))) {
+        pinError = 'Migration 029 is missing';
+      } else {
+        pinError = err.message || 'Error loading PIN';
+      }
+    }
+
+    const checklist = {
+      profile_complete: (org.name && org.phone_number && org.email && org.country && org.billing_currency) ? true : false,
+      pin_created: pinError ? pinError : pinSet,
+      property_created: props.length > 0,
+      unit_created: units.length > 0,
+      tenant_added: tenants.length > 0,
+      sms_configured: integrations.some(i => i.provider_type === 'sms' && i.status === 'ready'),
+      mpesa_configured: integrations.some(i => i.provider_type === 'mpesa' && i.status === 'ready'),
+      saas_billing_active: org.subscription_status === 'active'
+    };
+
+    res.json({
+      checklist,
+      is_ready: Object.values(checklist).every(v => v === true)
+    });
+  } catch (err) {
+    console.error('Settings readiness endpoint error:', err);
+    res.status(500).json({ error: 'SERVER_ERROR', message: 'Failed to build setup readiness checklist: ' + err.message });
+  }
 });
 
 // Email configuration summary for landlord settings
