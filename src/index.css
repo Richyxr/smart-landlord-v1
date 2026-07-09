@@ -4384,11 +4384,6 @@ html[data-theme="light"] .sl-empty-state-desc {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  width: 100%;
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 18px clamp(16px, 2.5vw, 28px) 28px;
-  box-sizing: border-box;
 }
 
 /* Desktop Horizontal Segmented Switcher / Toolbar */
@@ -4423,6 +4418,8 @@ html[data-theme="light"] .sl-empty-state-desc {
   font-weight: 700;
   cursor: pointer;
   transition: all var(--transition-fast);
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .super-admin-switcher-item:hover {
@@ -4689,26 +4686,16 @@ html[data-theme="light"] .sl-empty-state-desc {
 }
 
 @media (max-width: 768px) {
-  .super-admin-layout {
-    padding: 12px 12px 24px !important;
-    gap: 12px !important;
-  }
-
   .super-admin-desktop-switcher {
     display: flex;
     width: 100%;
-    max-width: none;
+    max-width: 100%;
     overflow-x: auto;
-    white-space: nowrap;
   }
 
   .super-admin-overview-bottom {
     grid-template-columns: 1fr;
     gap: 12px;
-  }
-
-  .super-admin-workspace-header {
-    display: block;
   }
 
   .super-admin-metrics-grid {
@@ -4923,12 +4910,6 @@ html[data-theme="light"] .sl-empty-state-desc {
 @media (max-width: 480px) {
   .super-admin-revenue-num {
     font-size: 22px !important;
-  }
-}
-
-@media (max-width: 768px) {
-  .super-admin-workspace {
-    gap: 12px !important;
   }
 }
 
