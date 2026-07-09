@@ -413,60 +413,70 @@ export default function App() {
 
     if (navigationRestored) return;
 
+    // Check for a saved impersonation session BEFORE any role-based restore.
+    //
+    // Why unconditional: in demo/dev mode, Firebase has no session for the super
+    // admin (DevSwitcher uses /api/auth/login). On refresh, autoLoginDemo() always
+    // resolves to role='landlord', so a guard of `role === 'super_admin'` is never
+    // reached. By checking here — regardless of the current role — we correctly
+    // restore the impersonation even when the surrounding auth context came back
+    // as a plain landlord or super_admin.
+    //
+    // originalAdminUser / originalAdminToken are read from the saved payload (not
+    // from transient React state) so the correct admin identity is always restored.
+    try {
+      const raw = window.localStorage.getItem(IMPERSONATION_NAVIGATION_STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (
+          saved?.impersonating &&
+          saved?.impersonatedAuthToken &&
+          saved?.impersonatedUser &&
+          saved?.impersonatedOrg &&
+          saved?.originalAdminUser &&
+          saved?.originalAdminToken
+        ) {
+          // Restore admin identity from the payload — works in both Firebase and
+          // demo mode because we don't rely on the current `user` state here.
+          setOriginalAdminUser(saved.originalAdminUser);
+          setOriginalAdminToken(saved.originalAdminToken);
+          // Switch session to the impersonated landlord's token.
+          setSessionToken(saved.impersonatedAuthToken);
+          setImpersonationSession({
+            id: saved.impersonationSessionId,
+            orgName: saved.impersonationSessionOrgName,
+            orgId: saved.impersonationSessionOrgId
+          });
+          setUser(saved.impersonatedUser);
+          setRole('landlord');
+          setOrganization(saved.impersonatedOrg);
+          setIsLocked(saved.impersonatedOrg.is_locked || false);
+          // Restore the landlord's last active tab/sub-tabs.
+          if (VALID_TABS_BY_ROLE.landlord.has(saved.activeTab)) {
+            setActiveTab(saved.activeTab);
+            if (VALID_PROPERTY_SUBTABS.has(saved.propertiesSubTab)) {
+              setPropertiesSubTab(saved.propertiesSubTab);
+            }
+            if (VALID_INVOICE_SUBTABS.has(saved.invoicesSubTab)) {
+              setInvoicesSubTab(saved.invoicesSubTab);
+            }
+            if (VALID_SETTINGS_SUBTABS.has(saved.settingsSubTab)) {
+              setSettingsSubTab(saved.settingsSubTab);
+            }
+          }
+          setNavigationRestored(true);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Ignoring invalid saved impersonation state.', e);
+      window.localStorage.removeItem(IMPERSONATION_NAVIGATION_STORAGE_KEY);
+    }
+
+    // Normal (non-impersonation) navigation restore.
     if (role === 'landlord' && organization && !organization.profile_completed) {
       setNavigationRestored(true);
       return;
-    }
-
-    // Restore an active impersonation session on page refresh.
-    // This fires when Firebase resolves the real super_admin user but a saved
-    // impersonation payload exists, meaning the page was refreshed mid-session.
-    if (role === 'super_admin') {
-      try {
-        const raw = window.localStorage.getItem(IMPERSONATION_NAVIGATION_STORAGE_KEY);
-        if (raw) {
-          const saved = JSON.parse(raw);
-          if (
-            saved?.impersonating &&
-            saved?.impersonatedAuthToken &&
-            saved?.impersonatedUser &&
-            saved?.impersonatedOrg
-          ) {
-            // Preserve admin identity so exit-impersonation can restore it.
-            setOriginalAdminUser(user);
-            setOriginalAdminToken(getSessionToken());
-            // Switch session to the impersonated landlord's token.
-            setSessionToken(saved.impersonatedAuthToken);
-            setImpersonationSession({
-              id: saved.impersonationSessionId,
-              orgName: saved.impersonationSessionOrgName,
-              orgId: saved.impersonationSessionOrgId
-            });
-            setUser(saved.impersonatedUser);
-            setRole('landlord');
-            setOrganization(saved.impersonatedOrg);
-            setIsLocked(saved.impersonatedOrg.is_locked || false);
-            // Restore the landlord's last active tab/sub-tabs.
-            if (VALID_TABS_BY_ROLE.landlord.has(saved.activeTab)) {
-              setActiveTab(saved.activeTab);
-              if (VALID_PROPERTY_SUBTABS.has(saved.propertiesSubTab)) {
-                setPropertiesSubTab(saved.propertiesSubTab);
-              }
-              if (VALID_INVOICE_SUBTABS.has(saved.invoicesSubTab)) {
-                setInvoicesSubTab(saved.invoicesSubTab);
-              }
-              if (VALID_SETTINGS_SUBTABS.has(saved.settingsSubTab)) {
-                setSettingsSubTab(saved.settingsSubTab);
-              }
-            }
-            setNavigationRestored(true);
-            return;
-          }
-        }
-      } catch (e) {
-        console.warn('Ignoring invalid saved impersonation state.', e);
-        window.localStorage.removeItem(IMPERSONATION_NAVIGATION_STORAGE_KEY);
-      }
     }
 
     const savedNavigation = readSavedNavigation(role);
@@ -582,8 +592,15 @@ export default function App() {
 
   // Impersonation Controls
   const handleImpersonateStart = (session, targetOrg, targetOwner, authToken) => {
+    // Capture admin identity BEFORE switching the session token.
+    const adminUser = user;
+    const adminToken = getSessionToken();
+
     // Persist the full impersonation session to localStorage so a page refresh
     // can reconstruct it without any server round-trip beyond Firebase auth.
+    // originalAdminUser / originalAdminToken are stored here so the restore
+    // works in BOTH Firebase-auth mode AND demo mode (where autoLoginDemo
+    // overwrites user/role to a plain landlord before the restore effect runs).
     try {
       window.localStorage.setItem(
         IMPERSONATION_NAVIGATION_STORAGE_KEY,
@@ -596,6 +613,8 @@ export default function App() {
           impersonatedAuthToken: authToken,
           impersonatedUser: targetOwner,
           impersonatedOrg: targetOrg,
+          originalAdminUser: adminUser,
+          originalAdminToken: adminToken,
           activeTab: 'landlord_dashboard',
           propertiesSubTab: null,
           invoicesSubTab: null,
@@ -606,8 +625,8 @@ export default function App() {
     } catch (e) {
       console.warn('Unable to persist impersonation session for refresh recovery.', e);
     }
-    setOriginalAdminUser(user);
-    setOriginalAdminToken(getSessionToken());
+    setOriginalAdminUser(adminUser);
+    setOriginalAdminToken(adminToken);
     setSessionToken(authToken);
     setImpersonationSession({
       id: session.id,
