@@ -11,7 +11,6 @@ import {
   CreditCard,
   AlertTriangle,
   FileText,
-  X
 } from 'lucide-react';
 
 const tabIcons = {
@@ -107,7 +106,6 @@ function smsFieldLabel(field) {
 
 export default function SuperAdmin({ activeSection, onImpersonateStart, refreshTrigger, onRefresh, onSectionChange }) {
   const [activeTab, setActiveTab] = useState(activeSection || 'dashboard'); // dashboard, landlords, billing, email, errors, audits
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [stats, setStats] = useState(DEFAULT_STATS);
 
   const [landlords, setLandlords] = useState([]);
@@ -858,26 +856,8 @@ export default function SuperAdmin({ activeSection, onImpersonateStart, refreshT
       )}
 
       <div className="super-admin-layout">
-        {/* Workspace Content */}
+        {/* Platform Admin Workspace */}
         <main className="super-admin-workspace">
-          {/* Mobile manage sections controls */}
-          <div className="super-admin-mobile-nav">
-            <div className="super-admin-mobile-nav-header">
-              <div>
-                <span className="form-label" style={{ marginBottom: '1px', display: 'block', fontSize: '8px', color: 'var(--text-muted)' }}>Workspace</span>
-                <h2 className="super-admin-workspace-title" style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.2 }}>{activeSuperAdminSection.label}</h2>
-              </div>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setIsDrawerOpen(true)}
-                style={{ padding: '4px 8px', fontSize: '11px', fontWeight: 700 }}
-              >
-                Manage sections
-              </button>
-            </div>
-          </div>
-
           {/* Desktop workspace headers */}
           <div className="super-admin-workspace-header">
             <h1 className="super-admin-workspace-title" style={{ fontSize: '24px', fontWeight: 800, margin: 0 }}>{activeSuperAdminSection.label}</h1>
@@ -1667,46 +1647,6 @@ export default function SuperAdmin({ activeSection, onImpersonateStart, refreshT
 
           </div>
         </main>
-
-        {/* Mobile Sheet / Drawer Menu */}
-        {isDrawerOpen && (
-          <div className="drawer-backdrop" onClick={() => setIsDrawerOpen(false)}>
-            <div className="drawer-content" onClick={e => e.stopPropagation()}>
-              <div className="drawer-header">
-                <div className="drawer-handle" />
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800 }}>Manage Sections</h3>
-                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>Switch between control panels</p>
-              </div>
-              <nav className="drawer-nav" style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '12px' }}>
-                {SUPER_ADMIN_TABS.map(tab => {
-                  const Icon = getTabIcon(tab.id);
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      className={`drawer-nav-item ${activeTab === tab.id ? 'active' : ''}`}
-                      onClick={() => {
-                        onSectionChange?.(tab.id);
-                        setIsDrawerOpen(false);
-                      }}
-                    >
-                      <Icon size={18} />
-                      <span>{tab.label}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                style={{ marginTop: '16px', width: '100%', padding: '10px' }}
-                onClick={() => setIsDrawerOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        )}
 
       </div>
     </div>

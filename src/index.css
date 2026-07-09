@@ -4384,6 +4384,11 @@ html[data-theme="light"] .sl-empty-state-desc {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 18px clamp(16px, 2.5vw, 28px) 28px;
+  box-sizing: border-box;
 }
 
 /* Desktop Horizontal Segmented Switcher / Toolbar */
@@ -4396,6 +4401,13 @@ html[data-theme="light"] .sl-empty-state-desc {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   max-width: max-content;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.super-admin-desktop-switcher::-webkit-scrollbar {
+  display: none;
 }
 
 .super-admin-switcher-item {
@@ -4677,8 +4689,17 @@ html[data-theme="light"] .sl-empty-state-desc {
 }
 
 @media (max-width: 768px) {
+  .super-admin-layout {
+    padding: 12px 12px 24px !important;
+    gap: 12px !important;
+  }
+
   .super-admin-desktop-switcher {
-    display: none;
+    display: flex;
+    width: 100%;
+    max-width: none;
+    overflow-x: auto;
+    white-space: nowrap;
   }
 
   .super-admin-overview-bottom {
@@ -4687,23 +4708,7 @@ html[data-theme="light"] .sl-empty-state-desc {
   }
 
   .super-admin-workspace-header {
-    display: none;
-  }
-
-  .super-admin-mobile-nav {
     display: block;
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 12px 16px;
-    box-shadow: var(--shadow-sm);
-  }
-
-  .super-admin-mobile-nav-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
   }
 
   .super-admin-metrics-grid {
@@ -4922,21 +4927,13 @@ html[data-theme="light"] .sl-empty-state-desc {
 }
 
 @media (max-width: 768px) {
-  .super-admin-layout {
-    padding-bottom: calc(96px + env(safe-area-inset-bottom)) !important;
-    gap: 12px !important;
-  }
   .super-admin-workspace {
     gap: 12px !important;
-  }
-  .super-admin-mobile-nav {
-    padding: 6px 12px !important;
   }
 }
 
 /* Light Theme Styling Overrides */
 html[data-theme="light"] .super-admin-desktop-switcher,
-html[data-theme="light"] .super-admin-mobile-nav,
 html[data-theme="light"] .super-admin-mobile-section,
 html[data-theme="light"] .super-admin-sms-usage-card,
 html[data-theme="light"] .sl-metric-card,
@@ -4957,26 +4954,6 @@ html[data-theme="light"] .super-admin-switcher-item:hover {
 }
 
 html[data-theme="light"] .super-admin-switcher-item.active {
-  color: #fff;
-  background: var(--primary);
-}
-
-html[data-theme="light"] .drawer-content {
-  background: #ffffff;
-  border-color: #e2e8f0;
-}
-
-html[data-theme="light"] .drawer-nav-item {
-  background: rgba(241, 245, 249, 0.9);
-  color: #475569;
-}
-
-html[data-theme="light"] .drawer-nav-item:hover {
-  background: rgba(226, 232, 240, 0.9);
-  color: #0f172a;
-}
-
-html[data-theme="light"] .drawer-nav-item.active {
   color: #fff;
   background: var(--primary);
 }
