@@ -41,14 +41,8 @@ const safeParseJson = async (res, defaultErrorMsg) => {
   }
 };
 
-export default function Settings({ organization, refreshTrigger, onRefresh, activeSection, onSectionChange, onNavigate, onUpdateOrganization, role }) {
-  const normalizeTab = (section) => {
-    if (section === 'security-pin') return 'security_pin';
-    if (section === 'caretaker-readings') return 'readings';
-    if (section === 'audit-logs') return 'audits';
-    return section || 'readiness';
-  };
-  const activeTab = normalizeTab(activeSection || 'readiness'); // readiness, integrations, archive, audits, compliance, readings
+export default function Settings({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab, onNavigate, onUpdateOrganization, role }) {
+  const [activeTab, setActiveTab] = useState(initialSubTab || 'readiness'); // readiness, integrations, archive, audits, compliance, readings
   const [checklist, setChecklist] = useState({});
   const [integrations, setIntegrations] = useState([]);
   const [emailSettings, setEmailSettings] = useState({
@@ -190,6 +184,13 @@ export default function Settings({ organization, refreshTrigger, onRefresh, acti
   const [smsProviderVal, setSmsProviderVal] = useState('None');
 
   const headers = {};
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveTab(initialSubTab);
+      clearInitialSubTab?.();
+    }
+  }, [initialSubTab]);
 
   useEffect(() => {
     fetchData();
@@ -428,7 +429,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, acti
         break;
       case 'sms_configured':
       case 'mpesa_configured':
-        onSectionChange?.('integrations');
+        setActiveTab('integrations');
         break;
       case 'saas_billing_active':
         onNavigate?.('landlord_invoices', 'overview');
@@ -437,7 +438,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, acti
         setShowProfileModal(true);
         break;
       case 'pin_created':
-        onSectionChange?.('security-pin');
+        setActiveTab('security_pin');
         break;
       default:
         break;
@@ -522,7 +523,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, acti
       const data = await safeParseJson(res, 'Save integration failed');
       if (!res.ok) throw new Error(data.error || data.message || data.summary || 'Save integration failed.');
       setSelectedInt(null);
-      onSectionChange?.('integrations');
+      setActiveTab('integrations');
       if (selectedInt.provider_type === 'mpesa') {
         setInfoMessage(`M-Pesa ${integrationEnvironment} credentials saved securely. Use Test to validate the Daraja ${integrationEnvironment} token.`);
       } else if (selectedInt.provider_type === 'email') {
@@ -1122,16 +1123,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, acti
               key={tab.id}
               type="button"
               className={`settings-tab ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => {
-                setError('');
-                setInfoMessage('');
-                const nextSection =
-                  tab.id === 'security_pin' ? 'security-pin' :
-                  tab.id === 'readings' ? 'caretaker-readings' :
-                  tab.id === 'audits' ? 'audit-logs' :
-                  tab.id;
-                onSectionChange?.(nextSection);
-              }}
+              onClick={() => { setActiveTab(tab.id); setError(''); setInfoMessage(''); }}
             >
               {tab.label}
             </button>

@@ -1,8 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, MapPin, ClipboardList, Search, FileEdit, Droplets, Zap, User, Check, MessageSquare, Phone, Mail, X } from 'lucide-react';
 
-export default function Caretaker({ user, activeSection, refreshTrigger, onRefresh, onSectionChange }) {
-  const [activeTab, setActiveTab] = useState(activeSection || 'dashboard'); // dashboard, submit, history, messages, profile
+export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh }) {
+  const routeTabMap = {
+    caretaker_dashboard: 'dashboard',
+    caretaker_readings: 'submit',
+    caretaker_messages: 'messages',
+    caretaker_profile: 'profile'
+  };
+
+  const [activeTab, setActiveTab] = useState(routeTabMap[activeRoute] || 'dashboard'); // dashboard, submit, history, messages, profile
+
+  useEffect(() => {
+    const nextTab = routeTabMap[activeRoute];
+    if (nextTab && nextTab !== activeTab) {
+      setActiveTab(nextTab);
+    }
+  }, [activeRoute]);
   const [assignedProperties, setAssignedProperties] = useState([]);
   const [units, setUnits] = useState([]);
   const [readingsHistory, setReadingsHistory] = useState([]);
@@ -226,13 +240,13 @@ export default function Caretaker({ user, activeSection, refreshTrigger, onRefre
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)' }}>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'dashboard' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'dashboard' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '12px', cursor: 'pointer' }}
-          onClick={() => { onSectionChange?.('dashboard'); setActivePartnerId(null); setError(''); setInfoMessage(''); }}
+          onClick={() => { setActiveTab('dashboard'); setActivePartnerId(null); setError(''); setInfoMessage(''); }}
         >
           Dashboard
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'submit' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'submit' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '12px', cursor: 'pointer' }}
-          onClick={() => { onSectionChange?.('readings'); setActivePartnerId(null); setError(''); setInfoMessage(''); }}
+          onClick={() => { setActiveTab('submit'); setActivePartnerId(null); setError(''); setInfoMessage(''); }}
         >
           New Reading
         </button>
@@ -244,13 +258,13 @@ export default function Caretaker({ user, activeSection, refreshTrigger, onRefre
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'messages' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'messages' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '12px', cursor: 'pointer' }}
-          onClick={() => { onSectionChange?.('messages'); setError(''); setInfoMessage(''); }}
+          onClick={() => { setActiveTab('messages'); setError(''); setInfoMessage(''); }}
         >
           Messages
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'profile' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'profile' ? '2px solid var(--primary)' : 'none', fontWeight: '600', fontSize: '12px', cursor: 'pointer' }}
-          onClick={() => { onSectionChange?.('profile'); setActivePartnerId(null); setError(''); setInfoMessage(''); }}
+          onClick={() => { setActiveTab('profile'); setActivePartnerId(null); setError(''); setInfoMessage(''); }}
         >
           Profile
         </button>

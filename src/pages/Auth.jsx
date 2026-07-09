@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Mail, Smartphone, Lock } from 'lucide-react';
 import { setSessionToken, getSessionToken } from '../lib/session.js';
 import { auth } from '../lib/firebase.js';
@@ -35,7 +34,6 @@ function getFriendlyAuthError(error) {
 }
 
 export default function Auth({ onAuthSuccess }) {
-  const navigate = useNavigate();
   const isPinResetPath = typeof window !== 'undefined' && window.location.pathname === '/reset-pin';
   const initialResetToken = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('token') || ''
@@ -242,7 +240,6 @@ export default function Auth({ onAuthSuccess }) {
       setOrgId(data.organization_id);
       setEmailOtp('');
       setScreen('verify_email');
-      navigate('/verify-email', { replace: true });
     } catch (err) {
       setError(getFriendlyAuthError(err));
     } finally {
@@ -336,7 +333,6 @@ export default function Auth({ onAuthSuccess }) {
         setEmail(loginEmail);
         setEmailOtp('');
         setScreen('verify_email');
-        navigate('/verify-email', { replace: true });
         setError('Please verify your email address before continuing.');
         return;
       }
@@ -407,7 +403,9 @@ export default function Auth({ onAuthSuccess }) {
       setResetComplete(true);
       setResetPassword('');
       setResetConfirmPassword('');
-      navigate('/login', { replace: true });
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
     } catch (err) {
       setError(err.message || 'Password reset link is invalid or expired. Please request a new one.');
     } finally {
@@ -449,7 +447,9 @@ export default function Auth({ onAuthSuccess }) {
       setResetComplete(true);
       setPin('');
       setConfirmPin('');
-      navigate('/login', { replace: true });
+      if (typeof window !== 'undefined') {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
     } catch (err) {
       setError(err.message || 'PIN reset link is invalid or expired. Please request a new one.');
     } finally {
@@ -598,10 +598,10 @@ export default function Auth({ onAuthSuccess }) {
 <span className="auth-copy-desktop">Run your rental properties, payments, and bank reconciliation from one secure web app.</span>
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <button className="btn btn-primary" onClick={() => { setScreen('register'); navigate('/register'); }}>
+            <button className="btn btn-primary" onClick={() => setScreen('register')}>
               Create Landlord Account
             </button>
-            <button className="btn btn-secondary" onClick={() => { setScreen('login'); navigate('/login'); }}>
+            <button className="btn btn-secondary" onClick={() => setScreen('login')}>
               Sign In to Account
             </button>
             <button
@@ -742,7 +742,6 @@ export default function Auth({ onAuthSuccess }) {
                       setForgotSent(false);
                       setError('');
                       setScreen('forgot_password');
-                      navigate('/forgot-password');
                     }}
                     style={{ alignSelf: 'flex-end', marginTop: '6px', background: 'none', border: 'none', color: 'var(--primary)', fontSize: '12px', fontWeight: '600', cursor: 'pointer', padding: 0 }}
                   >
@@ -808,7 +807,7 @@ export default function Auth({ onAuthSuccess }) {
             </form>
           )}
 
-          <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => { setScreen('welcome'); navigate('/login'); }}>
+          <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => setScreen('welcome')}>
             Go Back
           </button>
         </div>
@@ -863,7 +862,6 @@ export default function Auth({ onAuthSuccess }) {
                 onClick={() => {
                   setError('');
                   setScreen('login');
-                  navigate('/login', { replace: true });
                 }}
               >
                 Back to Sign In
@@ -899,7 +897,6 @@ export default function Auth({ onAuthSuccess }) {
               setForgotSent(false);
               setError('');
               setScreen('login');
-              navigate('/login', { replace: true });
             }}
           >
             Go Back
@@ -957,7 +954,6 @@ export default function Auth({ onAuthSuccess }) {
                   setResetComplete(false);
                   setError('');
                   setScreen('login');
-                  navigate('/login', { replace: true });
                 }}
               >
                 Back to Sign In
@@ -1005,7 +1001,9 @@ export default function Auth({ onAuthSuccess }) {
               setResetComplete(false);
               setError('');
               setScreen('login');
-              navigate('/login', { replace: true });
+              if (typeof window !== 'undefined') {
+                window.history.replaceState({}, '', window.location.pathname);
+              }
             }}
           >
             Back to Sign In
@@ -1063,7 +1061,6 @@ export default function Auth({ onAuthSuccess }) {
                   setResetComplete(false);
                   setError('');
                   setScreen('login');
-                  navigate('/login', { replace: true });
                 }}
               >
                 Back to Sign In
@@ -1115,7 +1112,9 @@ export default function Auth({ onAuthSuccess }) {
               setResetComplete(false);
               setError('');
               setScreen('login');
-              navigate('/login', { replace: true });
+              if (typeof window !== 'undefined') {
+                window.history.replaceState({}, '', window.location.pathname);
+              }
             }}
           >
             Back to Sign In
@@ -1543,7 +1542,6 @@ export default function Auth({ onAuthSuccess }) {
               setRegisterStep(1);
             } else {
               setScreen('welcome');
-              navigate('/login', { replace: true });
             }
           }}>
             Go Back
