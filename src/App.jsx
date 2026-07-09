@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter } from 'react-router-dom';
 import Auth from './pages/Auth.jsx';
 import CompleteProfile from './pages/CompleteProfile.jsx';
 import LandlordDashboard from './pages/LandlordDashboard.jsx';
@@ -19,6 +20,7 @@ import InstallPrompt from './components/InstallPrompt.jsx';
 import ThemeModeToggle from './components/ThemeModeToggle.jsx';
 import ImpersonationBanner from './components/ImpersonationBanner.jsx';
 import DevSwitcher from './components/DevSwitcher.jsx';
+import AppRouter from './routes/AppRouter.jsx';
 import { clearSessionToken, getSessionToken, setSessionToken } from './lib/session.js';
 import { auth } from './lib/firebase.js';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -208,15 +210,6 @@ export default function App() {
     setRole(authRole);
     setOrganization(authOrg);
     setIsLocked(authOrg?.is_locked || false);
-
-    // Set appropriate start tabs
-    if (authRole === 'super_admin') {
-      setActiveTab('admin_dashboard');
-    } else if (authRole === 'caretaker') {
-      setActiveTab('caretaker_dashboard');
-    } else {
-      setActiveTab('landlord_dashboard');
-    }
   };
 
   const handleLogout = async () => {
@@ -229,7 +222,6 @@ export default function App() {
     setImpersonationSession(null);
     setOriginalAdminUser(null);
     setOriginalAdminToken(null);
-    setActiveTab('landlord_dashboard');
   };
 
   // DevSwitcher role change simulator
@@ -272,7 +264,6 @@ export default function App() {
     setRole('landlord'); // Switch to landlord context
     setOrganization(targetOrg);
     setIsLocked(targetOrg.is_locked);
-    setActiveTab('landlord_dashboard');
   };
 
   const handleExitImpersonation = async () => {
@@ -295,7 +286,6 @@ export default function App() {
       setImpersonationSession(null);
       setOriginalAdminUser(null);
       setOriginalAdminToken(null);
-      setActiveTab('admin_dashboard');
       triggerRefresh();
     } catch (e) {
       console.error('Failed to end impersonation', e);
@@ -317,6 +307,149 @@ export default function App() {
     setIsLocked(false);
     triggerRefresh();
   };
+
+  if (authRestoring) {
+    return (
+      <div className="session-restore-screen">
+        <div className="session-restore-card">
+          <div className="session-restore-orb-container">
+            <div className="session-restore-orb">
+              <img src="/icons/maskable-192.png" alt="Smart Landlord" className="session-restore-logo" />
+            </div>
+          </div>
+          <h2 className="session-restore-title">Securing your workspace</h2>
+          <p className="session-restore-subtitle">Checking your access and preparing Smart Landlord.</p>
+
+          <div className="session-restore-progress-container">
+            <div className="session-restore-progress-bar" />
+          </div>
+
+          <div className="session-restore-status">
+            <span>{statusTexts[loadingStatusIndex]}</span>
+          </div>
+
+          <div className="session-restore-skeleton">
+            <div className="skeleton-line" />
+          </div>
+
+          <div className="session-restore-footer">
+            <span className="session-restore-brand-text">
+              <span className="session-restore-brand-smart">Smart</span>
+              <span className="session-restore-brand-landlord">Landlord</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <BrowserRouter>
+        <AppRouter
+          user={user}
+          role={role}
+          organization={organization}
+          isLocked={isLocked}
+          impersonationSession={impersonationSession}
+          onExitImpersonation={handleExitImpersonation}
+          onLogout={handleLogout}
+          onUnlockLockout={handleMockUnlock}
+          demoMode={demoMode}
+          onChangeRole={handleRoleChange}
+          onTriggerLockout={() => setIsLocked(true)}
+          onRefreshData={triggerRefresh}
+          refreshTrigger={refreshTrigger}
+          onRefresh={triggerRefresh}
+          onImpersonateStart={handleImpersonateStart}
+          onUpdateOrganization={(updatedOrg) => setOrganization(updatedOrg)}
+          onAuthSuccess={handleAuthSuccess}
+        />
+      </BrowserRouter>
+      <Toaster position="top-right" richColors />
+      <InstallPrompt />
+      {confirmState && (
+        <div className="modal-backdrop">
+          <div className="modal-content" style={{ maxWidth: '380px', padding: '20px' }}>
+            <h3 className="card-title" style={{ fontSize: '15px', fontWeight: '800', marginBottom: '8px', borderBottom: 'none', paddingBottom: 0 }}>
+              {confirmState.title}
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+              {confirmState.message}
+            </p>
+            <div className="flex-gap" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+              {!confirmState.hideCancel && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    if (confirmState.onCancel) confirmState.onCancel();
+                    setConfirmState(null);
+                  }}
+                  style={{ minWidth: '70px' }}
+                >
+                  {confirmState.cancelText || 'Cancel'}
+                </button>
+              )}
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  if (confirmState.onConfirm) confirmState.onConfirm();
+                  setConfirmState(null);
+                }}
+                style={{ minWidth: '70px' }}
+              >
+                {confirmState.confirmText || 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {promptState && (
+        <div className="modal-backdrop">
+          <div className="modal-content" style={{ maxWidth: '380px', padding: '20px' }}>
+            <h3 className="card-title" style={{ fontSize: '15px', fontWeight: '800', marginBottom: '8px', borderBottom: 'none', paddingBottom: 0 }}>
+              {promptState.title}
+            </h3>
+            <input
+              className="form-control"
+              style={{ marginBottom: '16px' }}
+              placeholder={promptState.placeholder}
+              defaultValue={promptState.defaultValue}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  promptState.onSubmit?.(e.target.value);
+                  setPromptState(null);
+                }
+              }}
+            />
+            <div className="flex-gap" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  promptState.onCancel?.();
+                  setPromptState(null);
+                }}
+                style={{ minWidth: '70px' }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={(e) => {
+                  const input = e.currentTarget.parentElement.parentElement.querySelector('input');
+                  promptState.onSubmit?.(input?.value || '');
+                  setPromptState(null);
+                }}
+                style={{ minWidth: '70px' }}
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 
   const handleUpdateOrganization = (updatedOrg) => {
     setOrganization(updatedOrg);

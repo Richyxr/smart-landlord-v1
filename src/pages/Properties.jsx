@@ -2,15 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Building2, Home, MapPin, DoorOpen, User, Phone, Mail, CreditCard, Calendar, Wrench, Plus, Check } from 'lucide-react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
 
-export default function Properties({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab }) {
-  const [activeTab, setActiveTab] = useState(initialSubTab || 'properties'); // properties, units, tenants, caretakers
-
-  useEffect(() => {
-    if (initialSubTab) {
-      setActiveTab(initialSubTab);
-      clearInitialSubTab?.();
-    }
-  }, [initialSubTab]);
+export default function Properties({ organization, refreshTrigger, onRefresh, activeSection, onSectionChange }) {
+  const activeTab = activeSection === 'staff' ? 'caretakers' : (activeSection || 'properties'); // properties, units, tenants, caretakers
   const [properties, setProperties] = useState([]);
   const [pinAction, setPinAction] = useState(null); // { type: string, id?: number, name?: string, data?: any }
   const [units, setUnits] = useState([]);
@@ -530,7 +523,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
     }
   };
 
-  const activeSection = sectionMeta[activeTab] || sectionMeta.properties;
+  const activeSectionMeta = sectionMeta[activeTab] || sectionMeta.properties;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '16px' }}>
@@ -545,25 +538,25 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'properties' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'properties' ? '2px solid var(--primary)' : 'none', fontWeight: '600', cursor: 'pointer' }}
-          onClick={() => { setActiveTab('properties'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
+          onClick={() => { onSectionChange?.('properties'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
         >
           Properties
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'units' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'units' ? '2px solid var(--primary)' : 'none', fontWeight: '600', cursor: 'pointer' }}
-          onClick={() => { setActiveTab('units'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
+          onClick={() => { onSectionChange?.('units'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
         >
           Units
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'tenants' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'tenants' ? '2px solid var(--primary)' : 'none', fontWeight: '600', cursor: 'pointer' }}
-          onClick={() => { setActiveTab('tenants'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
+          onClick={() => { onSectionChange?.('tenants'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
         >
           Tenants
         </button>
         <button
           style={{ flex: 1, padding: '12px 0', border: 'none', background: 'none', color: activeTab === 'caretakers' ? 'var(--primary)' : 'var(--text-secondary)', borderBottom: activeTab === 'caretakers' ? '2px solid var(--primary)' : 'none', fontWeight: '600', cursor: 'pointer' }}
-          onClick={() => { setActiveTab('caretakers'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
+          onClick={() => { onSectionChange?.('staff'); setShowAddForm(false); setEditId(null); setResetPinResult(null); }}
         >
           Staff
         </button>
@@ -571,10 +564,10 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
 
       <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
         <div>
-          <span className="kpi-lbl">{activeSection.badge}</span>
-          <h3 className="card-title" style={{ margin: '2px 0 4px 0' }}>{activeSection.title}</h3>
+          <span className="kpi-lbl">{activeSectionMeta.badge}</span>
+          <h3 className="card-title" style={{ margin: '2px 0 4px 0' }}>{activeSectionMeta.title}</h3>
           <p className="text-muted" style={{ fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
-            {activeSection.helper}
+            {activeSectionMeta.helper}
           </p>
         </div>
       </div>
@@ -834,7 +827,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
             setResetPinResult(null);
           }}
         >
-          <Plus size={14} /> {activeSection.actionLabel}
+          <Plus size={14} /> {activeSectionMeta.actionLabel}
         </button>
       )}
 

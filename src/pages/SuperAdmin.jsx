@@ -105,24 +105,9 @@ function smsFieldLabel(field) {
   return SMS_FIELD_LABELS[field] || field;
 }
 
-export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTrigger, onRefresh }) {
-  const routeTabMap = {
-    admin_dashboard: 'dashboard',
-    admin_orgs: 'landlords',
-    admin_pricing: 'dashboard',
-    admin_errors: 'errors',
-    admin_email: 'email'
-  };
-
-  const [activeTab, setActiveTab] = useState(routeTabMap[activeRoute] || 'dashboard'); // dashboard, landlords, billing, email, errors, audits
+export default function SuperAdmin({ activeSection, onImpersonateStart, refreshTrigger, onRefresh, onSectionChange }) {
+  const [activeTab, setActiveTab] = useState(activeSection || 'dashboard'); // dashboard, landlords, billing, email, errors, audits
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-
-  useEffect(() => {
-    const nextTab = routeTabMap[activeRoute];
-    if (nextTab && nextTab !== activeTab) {
-      setActiveTab(nextTab);
-    }
-  }, [activeRoute]);
   const [stats, setStats] = useState(DEFAULT_STATS);
 
   const [landlords, setLandlords] = useState([]);
@@ -908,7 +893,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
                   key={tab.id}
                   type="button"
                   className={`super-admin-switcher-item ${activeTab === tab.id ? 'active' : ''}`}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => onSectionChange?.(tab.id)}
                 >
                   <Icon size={14} />
                   <span>{tab.label}</span>
@@ -1701,7 +1686,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
                       type="button"
                       className={`drawer-nav-item ${activeTab === tab.id ? 'active' : ''}`}
                       onClick={() => {
-                        setActiveTab(tab.id);
+                        onSectionChange?.(tab.id);
                         setIsDrawerOpen(false);
                       }}
                     >

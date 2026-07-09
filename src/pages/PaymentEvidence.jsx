@@ -29,9 +29,21 @@ import BankTransactions from './BankTransactions.jsx';
 import StatementImports from '../components/StatementImports.jsx';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
 
-export default function PaymentEvidence({ organization, refreshTrigger, user, role, onNavigate }) {
+export default function PaymentEvidence({ organization, refreshTrigger, user, role, activeSection, onSectionChange }) {
   const fileInputRef = React.useRef(null);
-  const [activeSubTab, setActiveSubTab] = useState('wizard'); // wizard, queue, history, payments
+  const sectionToTab = (section) => {
+    if (section === 'import') return 'wizard';
+    if (section === 'matching') return 'queue';
+    if (section === 'history') return 'history';
+    if (section === 'payments') return 'payments';
+    return 'wizard';
+  };
+  const tabToSection = (tab) => {
+    if (tab === 'wizard') return 'import';
+    if (tab === 'queue') return 'matching';
+    return tab || 'import';
+  };
+  const [activeSubTab, setActiveSubTab] = useState(sectionToTab(activeSection || 'import')); // wizard, queue, history, payments
   const [paymentsLog, setPaymentsLog] = useState([]);
   const [loadingPayments, setLoadingPayments] = useState(false);
   const [paymentsError, setPaymentsError] = useState('');
@@ -1536,7 +1548,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               fontSize: '11px',
               transition: 'all 0.2s'
             }}
-            onClick={() => setActiveSubTab(tab.id)}
+            onClick={() => onSectionChange?.(tabToSection(tab.id))}
           >
             {tab.label}
           </button>

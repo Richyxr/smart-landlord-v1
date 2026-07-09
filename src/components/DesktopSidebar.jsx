@@ -1,46 +1,30 @@
 import React from 'react';
+import { NavLink } from 'react-router-dom';
 import {
-  AlertTriangle,
   BarChart3,
   Building2,
   Home,
-  MessageCircle,
   ReceiptText,
   Settings,
-  Tags,
-  Zap
 } from 'lucide-react';
 
-export default function DesktopSidebar({ role, activeTab, onChangeTab }) {
-  const getItems = () => {
-    switch (role) {
-      case 'admin':
-      case 'super_admin':
-        return [
-          { id: 'admin_dashboard', label: 'Platform', icon: BarChart3 },
-          { id: 'admin_orgs', label: 'Landlords', icon: Building2 },
-          { id: 'admin_pricing', label: 'Pricing', icon: Tags },
-          { id: 'admin_errors', label: 'Errors', icon: AlertTriangle }
-        ];
-      case 'caretaker':
-        return [
-          { id: 'caretaker_dashboard', label: 'Home', icon: Home },
-          { id: 'caretaker_readings', label: 'Readings', icon: Zap },
-          { id: 'caretaker_messages', label: 'Messages', icon: MessageCircle }
-        ];
-      default:
-        return [
-          { id: 'landlord_dashboard', label: 'Home', icon: Home },
-          { id: 'landlord_properties', label: 'Properties', icon: Building2 },
-          { id: 'landlord_invoices', label: 'Billing', icon: ReceiptText },
-          { id: 'landlord_stats', label: 'Stats', icon: BarChart3 },
-          { id: 'landlord_settings', label: 'Settings', icon: Settings }
-        ];
-    }
-  };
+const iconMap = {
+  home: Home,
+  properties: Building2,
+  billing: ReceiptText,
+  stats: BarChart3,
+  settings: Settings
+};
 
-  const items = getItems();
+const LANDLORD_PRIMARY_NAV = [
+  { id: 'home', label: 'Home', path: '/home' },
+  { id: 'properties', label: 'Properties', path: '/properties' },
+  { id: 'billing', label: 'Billing', path: '/billing' },
+  { id: 'stats', label: 'Stats', path: '/stats' },
+  { id: 'settings', label: 'Settings', path: '/settings' }
+];
 
+export default function DesktopSidebar({ role }) {
   return (
     <aside className="desktop-sidebar">
       {/* Brand Header */}
@@ -61,20 +45,19 @@ export default function DesktopSidebar({ role, activeTab, onChangeTab }) {
 
       {/* Navigation Items */}
       <nav className="sidebar-nav">
-        {items.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.id;
-
+        {LANDLORD_PRIMARY_NAV.map((item) => {
+          const Icon = iconMap[item.id] || Home;
           return (
-            <button
+            <NavLink
               key={item.id}
-              type="button"
-              className={`sidebar-item ${isActive ? 'active' : ''}`}
-              onClick={() => onChangeTab(item.id)}
+              to={item.path}
+              end={item.id === 'home'}
+              data-testid={item.id === 'stats' ? 'landlord_stats' : undefined}
+              className={({ isActive }) => `sidebar-item ${isActive ? 'active' : ''}`}
             >
               <Icon className="sidebar-icon" size={20} strokeWidth={2.3} />
               <span className="sidebar-label">{item.label}</span>
-            </button>
+            </NavLink>
           );
         })}
       </nav>

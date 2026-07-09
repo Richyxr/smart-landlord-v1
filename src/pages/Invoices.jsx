@@ -4,7 +4,7 @@ import PaymentEvidence from './PaymentEvidence.jsx';
 import { EmptyState } from '../components/ui-smart';
 import { CircleDollarSign, AlertTriangle, CheckCircle, Users, Zap, FileText, Printer, Bell, Check, CheckCircle2, Plus, DoorOpen, Droplets, Pencil, Clock, Mail, Phone, MessageSquare, Smartphone, ChevronRight, Send, X } from 'lucide-react';
 
-export default function Invoices({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab, onNavigate, user, role }) {
+export default function Invoices({ organization, refreshTrigger, onRefresh, activeSection, bankingSection, onSectionChange, onBankingSectionChange, user, role }) {
   const [invoices, setInvoices] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [units, setUnits] = useState([]);
@@ -14,7 +14,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
   const [error, setError] = useState('');
   
   // Tab Navigation
-  const [activeSubTab, setActiveSubTab] = useState('overview'); // overview, invoices, payments, banking, utilities
+  const [activeSubTab, setActiveSubTab] = useState(activeSection || 'overview'); // overview, invoices, payments, banking, utilities
   const [searchTerm, setSearchTerm] = useState('');
 
   // View States for Invoice Actions
@@ -71,17 +71,6 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
   const [settingsSaved, setSettingsSaved] = useState(false);
 
   const headers = {};
-
-  useEffect(() => {
-    if (initialSubTab) {
-      let target = initialSubTab;
-      if (initialSubTab === 'readings' || initialSubTab === 'utility_settings') {
-        target = 'utilities';
-      }
-      setActiveSubTab(target);
-      clearInitialSubTab?.();
-    }
-  }, [initialSubTab]);
 
   useEffect(() => {
     fetchBillingData();
@@ -1130,7 +1119,14 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
               fontSize: '11px',
               transition: 'all 0.2s'
             }}
-            onClick={() => { setActiveSubTab(tab.id); setError(''); }}
+            onClick={() => {
+              setError('');
+              if (tab.id === 'banking') {
+                onSectionChange?.('banking');
+              } else {
+                onSectionChange?.(tab.id);
+              }
+            }}
           >
             {tab.label}
           </button>
@@ -1204,8 +1200,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
             <div 
               className="sl-metric-card sl-metric-success sl-clickable"
-              onClick={() => setActiveSubTab('banking')}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveSubTab('banking'); } }}
+              onClick={() => onSectionChange?.('banking')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSectionChange?.('banking'); } }}
               role="button"
               tabIndex={0}
               style={{ cursor: 'pointer', outline: 'none' }}
@@ -1236,8 +1232,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
             <div 
               className="sl-metric-card sl-metric-warning sl-clickable"
-              onClick={() => { setActiveSubTab('utilities'); setError(''); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveSubTab('utilities'); setError(''); } }}
+              onClick={() => onSectionChange?.('utilities')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSectionChange?.('utilities'); } }}
               role="button"
               tabIndex={0}
               style={{ cursor: 'pointer', outline: 'none' }}
@@ -1252,8 +1248,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
             <div 
               className="sl-metric-card sl-clickable"
-              onClick={() => { setActiveSubTab('invoices'); setError(''); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveSubTab('invoices'); setError(''); } }}
+              onClick={() => onSectionChange?.('invoices')}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSectionChange?.('invoices'); } }}
               role="button"
               tabIndex={0}
               style={{ cursor: 'pointer', outline: 'none' }}
@@ -1295,31 +1291,31 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                   title: 'Invoices',
                   description: 'Create, review, and manage tenant invoices.',
                   action: 'Open Invoices',
-                  onClick: () => setActiveSubTab('invoices')
+                  onClick: () => onSectionChange?.('invoices')
                 },
                 {
                   title: 'Payments',
                   description: 'View tenant payments, pending confirmations, and payment history.',
                   action: 'Open Payments',
-                  onClick: () => setActiveSubTab('payments')
+                  onClick: () => onSectionChange?.('payments')
                 },
                 {
                   title: 'Statement Reconciliation',
                   description: 'Upload bank or M-Pesa statements, review matched and unmatched payments, and confirm tenant allocations.',
                   action: 'Open Banking',
-                  onClick: () => setActiveSubTab('banking')
+                  onClick: () => onSectionChange?.('banking')
                 },
                 {
                   title: 'Receipts',
                   description: 'View receipt previews and issued receipts from confirmed payments.',
                   action: 'View Receipts',
-                  onClick: () => setActiveSubTab('banking')
+                  onClick: () => onSectionChange?.('banking')
                 },
                 {
                   title: 'Billing Settings',
                   description: 'Configure utility billing and billing cycle settings.',
                   action: 'Open Billing Settings',
-                  onClick: () => setActiveSubTab('utilities')
+                  onClick: () => onSectionChange?.('utilities')
                 }
               ].map((item) => (
                 <div
@@ -1501,7 +1497,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
         return (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'fit-content', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }} onClick={() => setActiveSubTab('overview')}>
+            <button type="button" className="btn btn-secondary btn-sm" style={{ width: 'fit-content', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }} onClick={() => onSectionChange?.('overview')}>
               ← Back to Overview
             </button>
 
@@ -1789,11 +1785,13 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
       {/* BANKING SUB-TAB (RECONCILIATION) */}
       {activeSubTab === 'banking' && (
         <PaymentEvidence
+          key={bankingSection || 'import'}
           organization={organization}
           refreshTrigger={refreshTrigger}
           user={user}
           role={role}
-          onNavigate={onNavigate}
+          activeSection={bankingSection || 'import'}
+          onSectionChange={onBankingSectionChange}
         />
       )}
 
