@@ -28,6 +28,7 @@ const demoMode =
   (import.meta.env.DEV && import.meta.env.VITE_DEMO_MODE !== 'false');
 
 const NAVIGATION_STORAGE_KEY = 'smart_landlord_last_navigation_v1';
+const IMPERSONATION_NAVIGATION_STORAGE_KEY = 'smart_landlord_impersonation_navigation_v1';
 
 const VALID_TABS_BY_ROLE = {
   landlord: new Set([
@@ -417,6 +418,57 @@ export default function App() {
       return;
     }
 
+    // Restore an active impersonation session on page refresh.
+    // This fires when Firebase resolves the real super_admin user but a saved
+    // impersonation payload exists, meaning the page was refreshed mid-session.
+    if (role === 'super_admin') {
+      try {
+        const raw = window.localStorage.getItem(IMPERSONATION_NAVIGATION_STORAGE_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (
+            saved?.impersonating &&
+            saved?.impersonatedAuthToken &&
+            saved?.impersonatedUser &&
+            saved?.impersonatedOrg
+          ) {
+            // Preserve admin identity so exit-impersonation can restore it.
+            setOriginalAdminUser(user);
+            setOriginalAdminToken(getSessionToken());
+            // Switch session to the impersonated landlord's token.
+            setSessionToken(saved.impersonatedAuthToken);
+            setImpersonationSession({
+              id: saved.impersonationSessionId,
+              orgName: saved.impersonationSessionOrgName,
+              orgId: saved.impersonationSessionOrgId
+            });
+            setUser(saved.impersonatedUser);
+            setRole('landlord');
+            setOrganization(saved.impersonatedOrg);
+            setIsLocked(saved.impersonatedOrg.is_locked || false);
+            // Restore the landlord's last active tab/sub-tabs.
+            if (VALID_TABS_BY_ROLE.landlord.has(saved.activeTab)) {
+              setActiveTab(saved.activeTab);
+              if (VALID_PROPERTY_SUBTABS.has(saved.propertiesSubTab)) {
+                setPropertiesSubTab(saved.propertiesSubTab);
+              }
+              if (VALID_INVOICE_SUBTABS.has(saved.invoicesSubTab)) {
+                setInvoicesSubTab(saved.invoicesSubTab);
+              }
+              if (VALID_SETTINGS_SUBTABS.has(saved.settingsSubTab)) {
+                setSettingsSubTab(saved.settingsSubTab);
+              }
+            }
+            setNavigationRestored(true);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Ignoring invalid saved impersonation state.', e);
+        window.localStorage.removeItem(IMPERSONATION_NAVIGATION_STORAGE_KEY);
+      }
+    }
+
     const savedNavigation = readSavedNavigation(role);
     if (savedNavigation) {
       setActiveTab(savedNavigation.activeTab);
@@ -431,6 +483,31 @@ export default function App() {
   useEffect(() => {
     if (!user || authRestoring || !navigationRestored) return;
     if (role === 'landlord' && organization && !organization.profile_completed) return;
+
+    // During impersonation: write nav state to the impersonation key only.
+    // This prevents overwriting the real Super Admin's saved navigation.
+    if (impersonationSession) {
+      if (role !== 'landlord') return;
+      if (!VALID_TABS_BY_ROLE.landlord.has(activeTab)) return;
+      try {
+        const raw = window.localStorage.getItem(IMPERSONATION_NAVIGATION_STORAGE_KEY);
+        const existing = raw ? JSON.parse(raw) : {};
+        window.localStorage.setItem(
+          IMPERSONATION_NAVIGATION_STORAGE_KEY,
+          JSON.stringify({
+            ...existing,
+            activeTab,
+            propertiesSubTab: VALID_PROPERTY_SUBTABS.has(propertiesSubTab) ? propertiesSubTab : null,
+            invoicesSubTab: VALID_INVOICE_SUBTABS.has(invoicesSubTab) ? invoicesSubTab : null,
+            settingsSubTab: VALID_SETTINGS_SUBTABS.has(settingsSubTab) ? settingsSubTab : null,
+            savedAt: Date.now()
+          })
+        );
+      } catch (e) {
+        console.warn('Unable to save impersonation navigation state.', e);
+      }
+      return; // Never fall through to the normal key while impersonating.
+    }
 
     const allowedTabs = VALID_TABS_BY_ROLE[role];
     if (!allowedTabs?.has(activeTab)) return;
@@ -452,6 +529,7 @@ export default function App() {
   }, [
     activeTab,
     authRestoring,
+    impersonationSession,
     invoicesSubTab,
     navigationRestored,
     organization,
@@ -464,6 +542,7 @@ export default function App() {
   const handleLogout = async () => {
     await signOut(auth);
     clearSessionToken();
+    try { window.localStorage.removeItem(IMPERSONATION_NAVIGATION_STORAGE_KEY); } catch (_) {}
     setUser(null);
     setRole('landlord');
     setOrganization(null);
@@ -503,6 +582,30 @@ export default function App() {
 
   // Impersonation Controls
   const handleImpersonateStart = (session, targetOrg, targetOwner, authToken) => {
+    // Persist the full impersonation session to localStorage so a page refresh
+    // can reconstruct it without any server round-trip beyond Firebase auth.
+    try {
+      window.localStorage.setItem(
+        IMPERSONATION_NAVIGATION_STORAGE_KEY,
+        JSON.stringify({
+          role: 'landlord',
+          impersonating: true,
+          impersonationSessionId: session.id,
+          impersonationSessionOrgName: targetOrg.name,
+          impersonationSessionOrgId: targetOrg.id,
+          impersonatedAuthToken: authToken,
+          impersonatedUser: targetOwner,
+          impersonatedOrg: targetOrg,
+          activeTab: 'landlord_dashboard',
+          propertiesSubTab: null,
+          invoicesSubTab: null,
+          settingsSubTab: null,
+          savedAt: Date.now()
+        })
+      );
+    } catch (e) {
+      console.warn('Unable to persist impersonation session for refresh recovery.', e);
+    }
     setOriginalAdminUser(user);
     setOriginalAdminToken(getSessionToken());
     setSessionToken(authToken);
@@ -530,6 +633,9 @@ export default function App() {
         body: JSON.stringify({ session_id: impersonationSession.id })
       });
 
+      // Clear impersonation persistence before restoring admin state.
+      try { window.localStorage.removeItem(IMPERSONATION_NAVIGATION_STORAGE_KEY); } catch (_) {}
+
       setUser(originalAdminUser);
       setSessionToken(originalAdminToken);
       setRole('super_admin');
@@ -538,7 +644,9 @@ export default function App() {
       setImpersonationSession(null);
       setOriginalAdminUser(null);
       setOriginalAdminToken(null);
-      setActiveTab('admin_dashboard');
+      // Restore the super admin's own last-visited page, falling back to dashboard.
+      const savedAdminNav = readSavedNavigation('super_admin');
+      setActiveTab(savedAdminNav?.activeTab || 'admin_dashboard');
       triggerRefresh();
     } catch (e) {
       console.error('Failed to end impersonation', e);
