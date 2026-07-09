@@ -27,6 +27,84 @@ const demoMode =
   import.meta.env.VITE_DEMO_MODE === 'true' ||
   (import.meta.env.DEV && import.meta.env.VITE_DEMO_MODE !== 'false');
 
+const NAVIGATION_STORAGE_KEY = 'smart_landlord_last_navigation_v1';
+
+const VALID_TABS_BY_ROLE = {
+  landlord: new Set([
+    'landlord_dashboard',
+    'landlord_properties',
+    'landlord_invoices',
+    'landlord_stats',
+    'landlord_settings'
+  ]),
+  super_admin: new Set([
+    'admin_dashboard',
+    'admin_orgs',
+    'admin_pricing',
+    'admin_errors'
+  ]),
+  caretaker: new Set([
+    'caretaker_dashboard',
+    'caretaker_readings',
+    'caretaker_messages',
+    'caretaker_profile'
+  ])
+};
+
+const VALID_PROPERTY_SUBTABS = new Set(['properties', 'units', 'tenants', 'caretakers', 'staff']);
+const VALID_INVOICE_SUBTABS = new Set(['overview', 'due_tenants', 'invoices', 'payments', 'banking', 'utilities']);
+const VALID_SETTINGS_SUBTABS = new Set([
+  'readiness',
+  'integrations',
+  'security_pin',
+  'readings',
+  'archive',
+  'audits',
+  'notifications',
+  'compliance'
+]);
+
+function sanitizeSavedNavigation(saved, currentRole) {
+  if (!saved || saved.role !== currentRole) return null;
+
+  const allowedTabs = VALID_TABS_BY_ROLE[currentRole];
+  if (!allowedTabs || !allowedTabs.has(saved.activeTab)) return null;
+
+  const next = {
+    activeTab: saved.activeTab,
+    propertiesSubTab: null,
+    invoicesSubTab: null,
+    settingsSubTab: null
+  };
+
+  if (currentRole === 'landlord') {
+    if (VALID_PROPERTY_SUBTABS.has(saved.propertiesSubTab)) {
+      next.propertiesSubTab = saved.propertiesSubTab === 'staff' ? 'caretakers' : saved.propertiesSubTab;
+    }
+    if (VALID_INVOICE_SUBTABS.has(saved.invoicesSubTab)) {
+      next.invoicesSubTab = saved.invoicesSubTab;
+    }
+    if (VALID_SETTINGS_SUBTABS.has(saved.settingsSubTab)) {
+      next.settingsSubTab = saved.settingsSubTab;
+    }
+  }
+
+  return next;
+}
+
+function readSavedNavigation(currentRole) {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = window.localStorage.getItem(NAVIGATION_STORAGE_KEY);
+    if (!raw) return null;
+    return sanitizeSavedNavigation(JSON.parse(raw), currentRole);
+  } catch (error) {
+    console.warn('Ignoring invalid saved navigation state.', error);
+    return null;
+  }
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [role, setRole] = useState('landlord'); // landlord, caretaker, super_admin
@@ -39,6 +117,7 @@ export default function App() {
   const [loadingStatusIndex, setLoadingStatusIndex] = useState(0);
   const [confirmState, setConfirmState] = useState(null);
   const [promptState, setPromptState] = useState(null);
+  const [navigationRestored, setNavigationRestored] = useState(false);
 
   const handleNavigate = (page, subTab) => {
     let targetPage = page;
@@ -56,6 +135,63 @@ export default function App() {
     }
     if (targetPage === 'landlord_invoices' && targetSubTab) {
       setInvoicesSubTab(targetSubTab);
+    }
+  };
+
+  const handleNavigationStateCapture = (event) => {
+    if (!user || role !== 'landlord') return;
+
+    const clickable = event.target?.closest?.('button, a, [role="tab"]');
+    if (!clickable) return;
+
+    const label = String(clickable.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!label) return;
+
+    if (activeTab === 'landlord_properties') {
+      const propertyTabMap = {
+        properties: 'properties',
+        units: 'units',
+        tenants: 'tenants',
+        staff: 'caretakers'
+      };
+      if (propertyTabMap[label]) {
+        setPropertiesSubTab(propertyTabMap[label]);
+      }
+      return;
+    }
+
+    if (activeTab === 'landlord_invoices') {
+      const invoiceTabMap = {
+        overview: 'overview',
+        invoices: 'invoices',
+        payments: 'payments',
+        banking: 'banking',
+        utilities: 'utilities'
+      };
+      if (invoiceTabMap[label]) {
+        setInvoicesSubTab(invoiceTabMap[label]);
+      } else if (label.includes('open banking')) {
+        setInvoicesSubTab('banking');
+      } else if (label.includes('back to overview')) {
+        setInvoicesSubTab('overview');
+      }
+      return;
+    }
+
+    if (activeTab === 'landlord_settings') {
+      const settingsTabMap = {
+        'setup checklist': 'readiness',
+        integrations: 'integrations',
+        'security pin': 'security_pin',
+        'caretaker readings': 'readings',
+        archive: 'archive',
+        'audit logs': 'audits',
+        notifications: 'notifications',
+        compliance: 'compliance'
+      };
+      if (settingsTabMap[label]) {
+        setSettingsSubTab(settingsTabMap[label]);
+      }
     }
   };
 
@@ -203,6 +339,7 @@ export default function App() {
   };
 
   const handleAuthSuccess = (authUser, authRole, authOrg, authToken) => {
+    setNavigationRestored(false);
     setSessionToken(authToken);
     setUser(authUser);
     setRole(authRole);
@@ -219,6 +356,55 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (authRestoring) return;
+
+    if (!user) {
+      setNavigationRestored(false);
+      return;
+    }
+
+    const savedNavigation = readSavedNavigation(role);
+    if (savedNavigation) {
+      setActiveTab(savedNavigation.activeTab);
+      setPropertiesSubTab(savedNavigation.propertiesSubTab);
+      setInvoicesSubTab(savedNavigation.invoicesSubTab);
+      setSettingsSubTab(savedNavigation.settingsSubTab);
+    }
+
+    setNavigationRestored(true);
+  }, [authRestoring, user, role]);
+
+  useEffect(() => {
+    if (!user || authRestoring || !navigationRestored) return;
+
+    const allowedTabs = VALID_TABS_BY_ROLE[role];
+    if (!allowedTabs?.has(activeTab)) return;
+
+    const payload = {
+      role,
+      activeTab,
+      propertiesSubTab: VALID_PROPERTY_SUBTABS.has(propertiesSubTab) ? propertiesSubTab : null,
+      invoicesSubTab: VALID_INVOICE_SUBTABS.has(invoicesSubTab) ? invoicesSubTab : null,
+      settingsSubTab: VALID_SETTINGS_SUBTABS.has(settingsSubTab) ? settingsSubTab : null
+    };
+
+    try {
+      window.localStorage.setItem(NAVIGATION_STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+      console.warn('Unable to save navigation state.', error);
+    }
+  }, [
+    activeTab,
+    authRestoring,
+    invoicesSubTab,
+    navigationRestored,
+    propertiesSubTab,
+    role,
+    settingsSubTab,
+    user
+  ]);
+
   const handleLogout = async () => {
     await signOut(auth);
     clearSessionToken();
@@ -230,6 +416,7 @@ export default function App() {
     setOriginalAdminUser(null);
     setOriginalAdminToken(null);
     setActiveTab('landlord_dashboard');
+    setNavigationRestored(false);
   };
 
   // DevSwitcher role change simulator
@@ -382,7 +569,7 @@ export default function App() {
             refreshTrigger={refreshTrigger}
             onRefresh={triggerRefresh}
             initialSubTab={propertiesSubTab}
-            clearInitialSubTab={() => setPropertiesSubTab(null)}
+            clearInitialSubTab={() => {}}
           />
         );
       case 'landlord_invoices':
@@ -392,7 +579,7 @@ export default function App() {
             refreshTrigger={refreshTrigger}
             onRefresh={triggerRefresh}
             initialSubTab={invoicesSubTab}
-            clearInitialSubTab={() => setInvoicesSubTab(null)}
+            clearInitialSubTab={() => {}}
             onNavigate={handleNavigate}
             user={user}
             role={role}
@@ -406,7 +593,7 @@ export default function App() {
             refreshTrigger={refreshTrigger}
             onRefresh={triggerRefresh}
             initialSubTab="banking"
-            clearInitialSubTab={() => setInvoicesSubTab(null)}
+            clearInitialSubTab={() => {}}
             onNavigate={handleNavigate}
             user={user}
             role={role}
@@ -430,7 +617,7 @@ export default function App() {
             refreshTrigger={refreshTrigger}
             onRefresh={triggerRefresh}
             initialSubTab={settingsSubTab}
-            clearInitialSubTab={() => setSettingsSubTab(null)}
+            clearInitialSubTab={() => {}}
             onNavigate={handleNavigate}
             onUpdateOrganization={handleUpdateOrganization}
             role={role}
@@ -457,7 +644,10 @@ export default function App() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, height: '100%' }}>
+    <div
+      onClickCapture={handleNavigationStateCapture}
+      style={{ display: 'flex', flexDirection: 'column', flex: 1, height: '100%' }}
+    >
       {/* Impersonation Warning Header */}
       {impersonationSession && (
         <ImpersonationBanner session={impersonationSession} onExit={handleExitImpersonation} />
