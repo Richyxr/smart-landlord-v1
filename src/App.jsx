@@ -34,6 +34,9 @@ const VALID_TABS_BY_ROLE = {
     'landlord_dashboard',
     'landlord_properties',
     'landlord_invoices',
+    'landlord_reconciliation',
+    'landlord_payment_evidence',
+    'landlord_subscription',
     'landlord_stats',
     'landlord_settings'
   ]),
@@ -41,7 +44,12 @@ const VALID_TABS_BY_ROLE = {
     'admin_dashboard',
     'admin_orgs',
     'admin_pricing',
-    'admin_errors'
+    'admin_billing',
+    'admin_email',
+    'admin_sms',
+    'admin_errors',
+    'admin_audits',
+    'admin_compliance'
   ]),
   caretaker: new Set([
     'caretaker_dashboard',
@@ -63,6 +71,26 @@ const VALID_SETTINGS_SUBTABS = new Set([
   'notifications',
   'compliance'
 ]);
+
+const SUPER_ADMIN_LABEL_TO_TAB = {
+  overview: 'admin_dashboard',
+  landlords: 'admin_orgs',
+  'confirm saas': 'admin_billing',
+  email: 'admin_email',
+  'sms gateway': 'admin_sms',
+  errors: 'admin_errors',
+  'system logs': 'admin_audits',
+  compliance: 'admin_compliance'
+};
+
+const CARETAKER_LABEL_TO_TAB = {
+  home: 'caretaker_dashboard',
+  dashboard: 'caretaker_dashboard',
+  readings: 'caretaker_readings',
+  'new reading': 'caretaker_readings',
+  messages: 'caretaker_messages',
+  profile: 'caretaker_profile'
+};
 
 function sanitizeSavedNavigation(saved, currentRole) {
   if (!saved || saved.role !== currentRole) return null;
@@ -139,13 +167,31 @@ export default function App() {
   };
 
   const handleNavigationStateCapture = (event) => {
-    if (!user || role !== 'landlord') return;
+    if (!user) return;
 
     const clickable = event.target?.closest?.('button, a, [role="tab"]');
     if (!clickable) return;
 
     const label = String(clickable.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
     if (!label) return;
+
+    if (role === 'super_admin') {
+      const nextAdminTab = SUPER_ADMIN_LABEL_TO_TAB[label];
+      if (nextAdminTab) {
+        setActiveTab(nextAdminTab);
+      }
+      return;
+    }
+
+    if (role === 'caretaker') {
+      const nextCaretakerTab = CARETAKER_LABEL_TO_TAB[label];
+      if (nextCaretakerTab) {
+        setActiveTab(nextCaretakerTab);
+      }
+      return;
+    }
+
+    if (role !== 'landlord') return;
 
     if (activeTab === 'landlord_properties') {
       const propertyTabMap = {
@@ -364,6 +410,13 @@ export default function App() {
       return;
     }
 
+    if (navigationRestored) return;
+
+    if (role === 'landlord' && organization && !organization.profile_completed) {
+      setNavigationRestored(true);
+      return;
+    }
+
     const savedNavigation = readSavedNavigation(role);
     if (savedNavigation) {
       setActiveTab(savedNavigation.activeTab);
@@ -373,10 +426,11 @@ export default function App() {
     }
 
     setNavigationRestored(true);
-  }, [authRestoring, user, role]);
+  }, [authRestoring, navigationRestored, organization, user, role]);
 
   useEffect(() => {
     if (!user || authRestoring || !navigationRestored) return;
+    if (role === 'landlord' && organization && !organization.profile_completed) return;
 
     const allowedTabs = VALID_TABS_BY_ROLE[role];
     if (!allowedTabs?.has(activeTab)) return;
@@ -386,7 +440,8 @@ export default function App() {
       activeTab,
       propertiesSubTab: VALID_PROPERTY_SUBTABS.has(propertiesSubTab) ? propertiesSubTab : null,
       invoicesSubTab: VALID_INVOICE_SUBTABS.has(invoicesSubTab) ? invoicesSubTab : null,
-      settingsSubTab: VALID_SETTINGS_SUBTABS.has(settingsSubTab) ? settingsSubTab : null
+      settingsSubTab: VALID_SETTINGS_SUBTABS.has(settingsSubTab) ? settingsSubTab : null,
+      savedAt: Date.now()
     };
 
     try {
@@ -399,6 +454,7 @@ export default function App() {
     authRestoring,
     invoicesSubTab,
     navigationRestored,
+    organization,
     propertiesSubTab,
     role,
     settingsSubTab,
@@ -635,7 +691,12 @@ export default function App() {
       case 'admin_dashboard':
       case 'admin_orgs':
       case 'admin_pricing':
+      case 'admin_billing':
+      case 'admin_email':
+      case 'admin_sms':
       case 'admin_errors':
+      case 'admin_audits':
+      case 'admin_compliance':
         return <SuperAdmin activeRoute={activeTab} onImpersonateStart={handleImpersonateStart} refreshTrigger={refreshTrigger} onRefresh={triggerRefresh} />;
 
       default:

@@ -110,8 +110,12 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
     admin_dashboard: 'dashboard',
     admin_orgs: 'landlords',
     admin_pricing: 'dashboard',
+    admin_billing: 'billing',
+    admin_email: 'email',
+    admin_sms: 'sms',
     admin_errors: 'errors',
-    admin_email: 'email'
+    admin_audits: 'audits',
+    admin_compliance: 'compliance'
   };
 
   const [activeTab, setActiveTab] = useState(routeTabMap[activeRoute] || 'dashboard'); // dashboard, landlords, billing, email, errors, audits
