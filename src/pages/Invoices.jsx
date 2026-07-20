@@ -1106,7 +1106,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
       </div>
 
       {/* RENDER BILLING SUB-TABS */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)', overflowX: 'auto', whiteSpace: 'nowrap', scrollbarWidth: 'none', padding: '0 4px' }}>
         {[
           { id: 'overview', label: 'Overview' },
           { id: 'invoices', label: 'Invoices' },
@@ -1118,17 +1118,17 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
             key={tab.id}
             type="button"
             style={{
-              flex: 1,
-              minWidth: '86px',
-              padding: '12px 4px',
+              flex: '0 0 auto',
+              padding: '12px 14px',
               border: 'none',
               background: 'none',
               color: activeSubTab === tab.id ? 'var(--primary)' : 'var(--text-secondary)',
               borderBottom: activeSubTab === tab.id ? '2px solid var(--primary)' : 'none',
               fontWeight: '600',
               cursor: 'pointer',
-              fontSize: '11px',
-              transition: 'all 0.2s'
+              fontSize: '12px',
+              transition: 'all 0.2s',
+              whiteSpace: 'nowrap'
             }}
             onClick={() => { setActiveSubTab(tab.id); setError(''); }}
           >
@@ -1137,15 +1137,17 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
         ))}
       </div>
 
-      <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
-        <div>
-          <span className="kpi-lbl">{activeBillingSection.badge}</span>
-          <h3 className="card-title" style={{ margin: '2px 0 4px 0' }}>{activeBillingSection.title}</h3>
-          <p className="text-muted" style={{ fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
-            {activeBillingSection.helper}
-          </p>
+      {activeSubTab !== 'banking' && (
+        <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+          <div>
+            <span className="kpi-lbl">{activeBillingSection.badge}</span>
+            <h3 className="card-title" style={{ margin: '2px 0 4px 0' }}>{activeBillingSection.title}</h3>
+            <p className="text-muted" style={{ fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
+              {activeBillingSection.helper}
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', fontWeight: 'bold' }}>{error}</div>}
 

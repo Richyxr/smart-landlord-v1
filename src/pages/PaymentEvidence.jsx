@@ -16,7 +16,12 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  Info
+  Info,
+  Inbox,
+  FileText,
+  ShieldCheck,
+  UploadCloud,
+  Filter
 } from 'lucide-react';
 import {
   STATEMENT_PROVIDER_ADAPTERS,
@@ -1526,21 +1531,31 @@ Please split the file into smaller batches or wait for the upcoming server-side 
   };
 
   return (
-    <div className="payment-evidence-container" style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '20px' }}>
+    <div className="payment-evidence-container" style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: isMobile ? '14px' : '20px', maxWidth: '100%', boxSizing: 'border-box' }}>
 
-      {/* HEADER SECTION */}
-      <div className="flex-row justify-between align-center">
-        <div>
-          <h2 className="page-title" style={{ margin: 0 }}>Statement Reconciliation</h2>
-          <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
-            Upload a payment statement. Smart Landlord will detect the file type, read payment rows, suggest tenant/unit/invoice matches, and let you confirm payments safely.
-          </p>
+      {/* HEADER SECTION & BREADCRUMB */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+          Billing &rsaquo; Banking &rsaquo; Statement Reconciliation
+        </div>
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'flex-start' : 'center', gap: '8px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <h2 className="page-title" style={{ margin: 0 }}>Statement Reconciliation</h2>
+              <span className="badge badge-info" style={{ fontSize: '10px', textTransform: 'none', fontWeight: '600', padding: '2px 8px' }}>
+                Safe Preview
+              </span>
+            </div>
+            <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0', lineHeight: '1.4' }}>
+              Upload a payment statement. Smart Landlord will detect the file type, read payment rows, suggest tenant/unit/invoice matches, and let you confirm payments safely.
+            </p>
+          </div>
         </div>
       </div>
 
       {/* BANKING SUB-TABS (Only shown when reconciliation data exists) */}
       {shouldShowReconciliationTabs && (
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)', overflowX: 'auto', whiteSpace: 'nowrap', scrollbarWidth: 'none' }}>
           {[
             { id: 'wizard', label: 'Import' },
             shouldShowQueue && { id: 'queue', label: 'Review Queue' },
@@ -1551,16 +1566,17 @@ Please split the file into smaller batches or wait for the upcoming server-side 
               key={tab.id}
               type="button"
               style={{
-                flex: 1,
-                padding: '12px 4px',
+                flex: '0 0 auto',
+                padding: '10px 16px',
                 border: 'none',
                 background: 'none',
                 color: activeSubTab === tab.id ? 'var(--primary)' : 'var(--text-secondary)',
                 borderBottom: activeSubTab === tab.id ? '2px solid var(--primary)' : 'none',
                 fontWeight: '600',
                 cursor: 'pointer',
-                fontSize: '11px',
-                transition: 'all 0.2s'
+                fontSize: '12px',
+                transition: 'all 0.2s',
+                whiteSpace: 'nowrap'
               }}
               onClick={() => setActiveSubTab(tab.id)}
             >
@@ -1579,7 +1595,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       )}
 
       {activeSubTab === 'payments' && (
-        <div className="card" style={{ padding: '20px' }}>
+        <div className="card" style={{ padding: isMobile ? '16px' : '20px' }}>
           <h3 className="card-title">Payments & Allocations Log</h3>
           <p className="text-muted" style={{ fontSize: '12px', marginBottom: '16px' }}>
             List of all captured/verified payments and their current allocation status.
@@ -1631,242 +1647,307 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       )}
 
       {activeSubTab === 'wizard' && (
-        <>
-        {/* Page Stepper */}
-        <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          position: 'relative',
-          padding: '0 20px',
-          margin: '10px 0',
-          overflowX: 'auto',
-          gap: '24px',
-          paddingBottom: isMobile ? '12px' : '0',
-          scrollbarWidth: 'none'
-        }}>
-          {/* Stepper connecting line */}
-          {!isMobile && (
-            <>
-              <div style={{ position: 'absolute', top: '15px', left: '40px', right: '40px', height: '2px', backgroundColor: 'var(--border)', zIndex: 1 }} />
-              <div style={{ position: 'absolute', top: '15px', left: '40px', right: '40px', height: '2px', backgroundColor: 'var(--primary)', width: `${((activePageStep - 1) / 5) * 100}%`, transition: 'width 0.3s ease', zIndex: 2 }} />
-            </>
-          )}
-
-          {[
-            { step: 1, label: 'Import Statement' },
-            { step: 2, label: 'Preview Extracted Rows' },
-            { step: 3, label: 'Review Matches' },
-            { step: 4, label: 'Confirm' + ' Payment' },
-            { step: 5, label: 'Receipt Preview' },
-            { step: 6, label: 'Issued Receipt' }
-          ].map((item) => {
-            const isCompleted = item.step < activePageStep;
-            const isActive = item.step === activePageStep;
-            return (
-              <div key={item.step} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 3, position: 'relative', flex: 1, minWidth: isMobile ? '120px' : 'auto' }}>
-                <div style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '50%',
-                  backgroundColor: isCompleted ? 'var(--primary)' : isActive ? 'var(--bg-surface)' : 'var(--bg-surface-elevated)',
-                  border: isActive ? '3px solid var(--primary)' : isCompleted ? 'none' : '2px solid var(--border)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontWeight: '700',
-                  fontSize: '12px',
-                  color: isCompleted ? '#ffffff' : isActive ? 'var(--primary)' : 'var(--text-muted)',
-                  transition: 'all 0.2s ease',
-                  boxShadow: isActive ? '0 0 10px var(--primary-glow)' : 'none'
-                }}>
-                  {isCompleted ? <Check size={14} strokeWidth={3} /> : item.step}
-                </div>
-                <span style={{
-                  fontSize: '11px',
-                  marginTop: '8px',
-                  fontWeight: isActive || isCompleted ? '700' : '500',
-                  color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
-                  textAlign: 'center',
-                  whiteSpace: 'nowrap'
-                }}>
-                  {item.label}
-                </span>
+        <React.Fragment>
+          {/* WORKFLOW PROGRESS CARD */}
+          {isMobile ? (
+            <div className="card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <h4 style={{ margin: 0, fontSize: '13px', fontWeight: '700' }}>Reconciliation Flow</h4>
+                <span className="badge badge-info" style={{ fontSize: '10px' }}>Step {activePageStep} of 6</span>
               </div>
-            );
-          })}
-        </div>
-
-        <div style={{
-          borderTop: '1px solid var(--border)',
-          paddingTop: '12px',
-          fontSize: '11.5px',
-          color: 'var(--text-muted)',
-          display: 'flex',
-          flexDirection: isMobile ? 'column' : 'row',
-          justifyContent: 'space-between',
-          alignItems: isMobile ? 'flex-start' : 'center',
-          gap: '12px'
-        }}>
-          <span>
-            <strong>Safety Note:</strong> Preview does not change invoice balances, tenant balances, receipts, or ledger records. Financial records change only after you confirm a payment.
-          </span>
-          <span style={{ fontSize: '11.5px', padding: '2px 8px', borderRadius: '4px', backgroundColor: 'rgba(33, 150, 243, 0.12)', color: 'var(--info)', border: '1px solid var(--info)', whiteSpace: 'nowrap' }}>
-            Accepted: CSV, PDF, XLSX, XLS, DOCX, DOC, TXT
-          </span>
-        </div>
-      </div>
-
-      {/* MAIN UPLOAD CARD */}
-      <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '100%', overflow: 'hidden' }}>
-        <div>
-          <h3 className="card-title" style={{ margin: 0, fontSize: '14px', fontWeight: '800' }}>Upload Statement</h3>
-          <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
-            Accepted formats: CSV, PDF, XLSX, XLS, DOCX, DOC, TXT
-          </p>
-        </div>
-
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={(e) => {
-            const file = e.target.files[0];
-            if (file) {
-              setUniversalFile(file);
-              setUniversalPreviewError('');
-            }
-          }}
-          accept=".csv,.pdf,.xlsx,.xls,.docx,.doc,.txt"
-          style={{ display: 'none' }}
-        />
-
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', width: '100%' }}>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => fileInputRef.current && fileInputRef.current.click()}
-            style={{ width: isMobile ? '100%' : 'auto', display: 'block' }}
-          >
-            Choose Statement
-          </button>
-
-          {universalFile && (
-            <div style={{
-              fontSize: '12px',
-              color: 'var(--text-primary)',
-              flex: '1 1 auto',
-              border: '1px solid var(--border)',
-              padding: '8px 12px',
-              borderRadius: '6px',
-              backgroundColor: 'var(--bg-surface-elevated)',
-              maxWidth: '100%',
-              wordBreak: 'break-all'
-            }}>
-              <strong>Selected file:</strong> {universalFile.name} ({Math.round(universalFile.size / 1024)} KB)
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {[
+                  { step: 1, label: 'Upload Statement' },
+                  { step: 2, label: 'Preview Extracted Rows' },
+                  { step: 3, label: 'Review Matches' },
+                  { step: 4, label: 'Confirm Payment' },
+                  { step: 5, label: 'Receipt Preview' },
+                  { step: 6, label: 'Issued Receipt' }
+                ].map((item) => {
+                  const isCompleted = item.step < activePageStep;
+                  const isActive = item.step === activePageStep;
+                  return (
+                    <div key={item.step} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '50%',
+                        backgroundColor: isCompleted || isActive ? 'var(--primary)' : 'var(--bg-surface-elevated)',
+                        color: isCompleted || isActive ? '#ffffff' : 'var(--text-muted)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '10px',
+                        fontWeight: '700',
+                        border: isCompleted || isActive ? 'none' : '1px solid var(--border)',
+                        flexShrink: 0
+                      }}>
+                        {isCompleted ? <Check size={12} strokeWidth={3} /> : item.step}
+                      </div>
+                      <span style={{ fontSize: '12px', fontWeight: isActive ? '700' : isCompleted ? '600' : '400', color: isActive ? 'var(--text-primary)' : isCompleted ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                        {item.label}
+                      </span>
+                      {isActive && (
+                        <span className="badge badge-primary" style={{ marginLeft: 'auto', fontSize: '9px', padding: '2px 6px' }}>Current</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>Workflow:</span>
+                {[
+                  { step: 1, label: 'Upload Statement' },
+                  { step: 2, label: 'Preview Extracted Rows' },
+                  { step: 3, label: 'Review Matches' },
+                  { step: 4, label: 'Confirm Payment' },
+                  { step: 5, label: 'Receipt Preview' },
+                  { step: 6, label: 'Issued Receipt' }
+                ].map((item, idx) => {
+                  const isCompleted = item.step < activePageStep;
+                  const isActive = item.step === activePageStep;
+                  return (
+                    <React.Fragment key={item.step}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                        <div style={{
+                          width: '20px',
+                          height: '20px',
+                          borderRadius: '50%',
+                          backgroundColor: isCompleted || isActive ? 'var(--primary)' : 'var(--bg-surface-elevated)',
+                          color: isCompleted || isActive ? '#ffffff' : 'var(--text-muted)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '10px',
+                          fontWeight: '700',
+                          border: isCompleted || isActive ? 'none' : '1px solid var(--border)'
+                        }}>
+                          {isCompleted ? <Check size={12} strokeWidth={3} /> : item.step}
+                        </div>
+                        <span style={{ fontSize: '11px', fontWeight: isActive ? '700' : isCompleted ? '600' : '400', color: isActive ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                          {item.label}
+                        </span>
+                      </div>
+                      {idx < 5 && <span style={{ color: 'var(--border)', fontSize: '11px' }}>→</span>}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
             </div>
           )}
-        </div>
 
-        {universalFile && (
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '12px', width: '100%' }}>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={universalPreviewLoading}
-              onClick={async () => {
-                setUniversalPreviewLoading(true);
-                setUniversalPreviewError('');
-                setUniversalPreviewData(null);
-                setParsedPreviewRows([]);
-                
-                setPdfFile(universalFile);
+          {/* MAIN UPLOAD STATEMENT CARD */}
+          <div className="card" style={{ padding: isMobile ? '16px' : '20px', display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '100%', overflow: 'hidden' }}>
+            <div>
+              <h3 className="card-title" style={{ margin: 0, fontSize: '15px', fontWeight: '800' }}>Upload Statement</h3>
+              <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
+                Accepted formats: CSV, PDF, XLSX, XLS, DOCX, DOC, TXT
+              </p>
+            </div>
 
-                try {
-                  const formData = new FormData();
-                  formData.append('statement', universalFile);
-                  const res = await fetch('/api/statement-reconciliation/preview', {
-                    method: 'POST',
-                    body: formData
-                  });
-                  const data = await res.json();
-                  
-                  if (!res.ok) {
-                    throw new Error(data.message || data.error || 'Failed to generate statement preview.');
-                  }
-
-                  setUniversalPreviewData(data);
-                  
-                  setPdfReadinessData({
-                    preview_rows: data.preview_rows,
-                    parser_result: {
-                      rows_skipped: data.summary?.rows_ignored || 0
-                    }
-                  });
-
-                  const detectedProv = data.detected_provider || 'unknown';
-                  const srcFormat = data.source_format || 'CSV';
-                  setImportProvider(detectedProv.toLowerCase());
-                  setImportSource(srcFormat === 'PDF' ? 'universal_statement' : 'csv');
-
-                  if (data.preview_rows) {
-                    const mappedRows = data.preview_rows.map(r => ({
-                      row_index: r.row_index,
-                      transaction_date: r.transaction_date,
-                      transaction_time: r.transaction_time,
-                      amount: r.amount,
-                      direction: r.direction,
-                      transaction_code: r.transaction_code,
-                      payer_name: r.payer_name,
-                      payer_phone: r.payer_phone,
-                      reference_account: r.reference_account,
-                      narration: r.narration,
-                      warnings: r.warnings || [],
-                      row_status: r.row_status,
-                      parser_confidence: r.parser_confidence || 'unknown',
-                      confidence_score: r.confidence_score || 0,
-                      suggested_matches: r.suggested_matches || [],
-                      collection_channel: r.source_provider || 'Direct Deposit'
-                    }));
-                    setParsedPreviewRows(mappedRows);
-                  }
-                } catch (err) {
-                  console.error(err);
-                  setUniversalPreviewError(err.message || 'Failed to generate statement preview.');
-                } finally {
-                  setUniversalPreviewLoading(false);
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={(e) => {
+                const file = e.target.files[0];
+                if (file) {
+                  setUniversalFile(file);
+                  setUniversalPreviewError('');
                 }
               }}
-              style={{ width: isMobile ? '100%' : 'auto' }}
-            >
-              {universalPreviewLoading ? 'Processing preview...' : 'Preview Statement'}
-            </button>
+              accept=".csv,.pdf,.xlsx,.xls,.docx,.doc,.txt"
+              style={{ display: 'none' }}
+            />
 
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              disabled={universalPreviewLoading}
-              onClick={() => {
-                setUniversalFile(null);
-                setUniversalPreviewData(null);
-                setUniversalPreviewError('');
-                setParsedPreviewRows([]);
-                setPdfFile(null);
-                setPdfReadinessData(null);
+            {/* Dropzone Area */}
+            <div
+              onClick={() => fileInputRef.current && fileInputRef.current.click()}
+              style={{
+                border: '2px dashed var(--border)',
+                borderRadius: '8px',
+                padding: isMobile ? '18px 12px' : '24px 16px',
+                textAlign: 'center',
+                cursor: 'pointer',
+                backgroundColor: 'var(--bg-surface-elevated)',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
               }}
-              style={{ width: isMobile ? '100%' : 'auto' }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                  setUniversalFile(e.dataTransfer.files[0]);
+                  setUniversalPreviewError('');
+                }
+              }}
             >
-              Clear
-            </button>
-          </div>
-        )}
+              <div style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                color: 'var(--primary)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <UploadCloud size={22} />
+              </div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', wordBreak: 'break-word', maxWidth: '100%' }}>
+                {universalFile ? universalFile.name : 'Click or drag statement file here'}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                {universalFile ? `${Math.round(universalFile.size / 1024)} KB` : 'CSV, PDF, Excel (XLSX/XLS), Word (DOCX/DOC), or TXT'}
+              </div>
+            </div>
 
-        {universalPreviewError && (
-          <div className="alert alert-danger" style={{ margin: 0, fontSize: '12px', width: '100%' }}>
-            {universalPreviewError}
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '10px', alignItems: isMobile ? 'stretch' : 'center', width: '100%' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                style={{ width: isMobile ? '100%' : 'auto' }}
+              >
+                Choose Statement
+              </button>
+
+              {universalFile && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={universalPreviewLoading}
+                    onClick={async () => {
+                      setUniversalPreviewLoading(true);
+                      setUniversalPreviewError('');
+                      setUniversalPreviewData(null);
+                      setParsedPreviewRows([]);
+                      
+                      setPdfFile(universalFile);
+
+                      try {
+                        const formData = new FormData();
+                        formData.append('statement', universalFile);
+                        const res = await fetch('/api/statement-reconciliation/preview', {
+                          method: 'POST',
+                          body: formData
+                        });
+                        const data = await res.json();
+                        
+                        if (!res.ok) {
+                          throw new Error(data.message || data.error || 'Failed to generate statement preview.');
+                        }
+
+                        setUniversalPreviewData(data);
+                        
+                        setPdfReadinessData({
+                          preview_rows: data.preview_rows,
+                          parser_result: {
+                            rows_skipped: data.summary?.rows_ignored || 0
+                          }
+                        });
+
+                        const detectedProv = data.detected_provider || 'unknown';
+                        const srcFormat = data.source_format || 'CSV';
+                        setImportProvider(detectedProv.toLowerCase());
+                        setImportSource(srcFormat === 'PDF' ? 'universal_statement' : 'csv');
+
+                        if (data.preview_rows) {
+                          const mappedRows = data.preview_rows.map(r => ({
+                            row_index: r.row_index,
+                            transaction_date: r.transaction_date,
+                            transaction_time: r.transaction_time,
+                            amount: r.amount,
+                            direction: r.direction,
+                            transaction_code: r.transaction_code,
+                            payer_name: r.payer_name,
+                            payer_phone: r.payer_phone,
+                            reference_account: r.reference_account,
+                            narration: r.narration,
+                            warnings: r.warnings || [],
+                            row_status: r.row_status,
+                            parser_confidence: r.parser_confidence || 'unknown',
+                            confidence_score: r.confidence_score || 0,
+                            suggested_matches: r.suggested_matches || [],
+                            collection_channel: r.source_provider || 'Direct Deposit'
+                          }));
+                          setParsedPreviewRows(mappedRows);
+                        }
+                      } catch (err) {
+                        console.error(err);
+                        setUniversalPreviewError(err.message || 'Failed to generate statement preview.');
+                      } finally {
+                        setUniversalPreviewLoading(false);
+                      }
+                    }}
+                    style={{ width: isMobile ? '100%' : 'auto' }}
+                  >
+                    {universalPreviewLoading ? 'Processing preview...' : 'Preview Statement'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={universalPreviewLoading}
+                    onClick={() => {
+                      setUniversalFile(null);
+                      setUniversalPreviewData(null);
+                      setUniversalPreviewError('');
+                      setParsedPreviewRows([]);
+                      setPdfFile(null);
+                      setPdfReadinessData(null);
+                    }}
+                    style={{ width: isMobile ? '100%' : 'auto' }}
+                  >
+                    Clear
+                  </button>
+                </>
+              )}
+            </div>
+
+            {universalPreviewError && (
+              <div className="alert alert-danger" style={{ margin: 0, fontSize: '12px', width: '100%' }}>
+                {universalPreviewError}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+
+          {/* SAFETY NOTICE BANNER */}
+          <div style={{
+            padding: '10px 14px',
+            borderRadius: '8px',
+            backgroundColor: 'rgba(33, 150, 243, 0.08)',
+            border: '1px solid rgba(33, 150, 243, 0.3)',
+            fontSize: '11.5px',
+            color: 'var(--text-primary)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <Info size={15} style={{ color: 'var(--info)', flexShrink: 0 }} />
+            <span>Preview only. No invoice balances, tenant balances, receipts, or ledger records change until you confirm a payment.</span>
+          </div>
+
+          {/* FIRST-USE FRIENDLY EMPTY STATE (Only when no preview result and no data) */}
+          {!hasPreviewResult && !hasAnyReconciliationData && (
+            <div className="card" style={{ padding: '28px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+              <div style={{ width: '44px', height: '44px', borderRadius: '50%', backgroundColor: 'var(--bg-surface-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+                <Inbox size={22} />
+              </div>
+              <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>No statements imported yet</h4>
+              <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-muted)', maxWidth: '400px' }}>
+                Upload a statement above to preview payment rows and start reconciliation.
+              </p>
+            </div>
+          )}
 
       {/* PREVIEW RESULT PANEL */}
       {universalPreviewData && (
@@ -4091,6 +4172,8 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           </div>
         </div>
       )}
+        </React.Fragment>
+      )}
 
       {pinAction && (
         <SecurityPinModal
@@ -4099,8 +4182,6 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           organizationId={organization?.id}
           onSuccess={handlePinSuccess}
         />
-      )}
-      </>
       )}
 
     </div>
