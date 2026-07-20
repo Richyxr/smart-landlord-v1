@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Building2, Home, MapPin, DoorOpen, User, Phone, Mail, CreditCard, Calendar, Wrench, Plus, Check, AlertTriangle } from 'lucide-react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
 import { calculateTenantBillingCycle, formatReadableDate } from '../utils/billingCycle.js';
+import { getCountryDialCodeFromOrganization } from '../utils/organizationPhone.js';
 
 export default function Properties({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab }) {
   const [activeTab, setActiveTab] = useState(initialSubTab || 'properties'); // properties, units, tenants, caretakers
@@ -55,6 +56,8 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
   const [emergencyName, setEmergencyName] = useState('');
   const [emergencyPhone, setEmergencyPhone] = useState('');
   const [tenantNotes, setTenantNotes] = useState('');
+  const tenantDialCode = getCountryDialCodeFromOrganization(organization);
+  const tenantPhoneExample = `${tenantDialCode}712345678`;
 
   // Caretaker Form State
   const [ctEmail, setCtEmail] = useState('');
@@ -246,7 +249,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       return;
     }
     if (!phoneRegex.test(tenantPhone)) {
-      setError('Phone Number must be in E.164 format (e.g. +254712345678).');
+      setError(`Phone Number must be in E.164 format (e.g. ${tenantPhoneExample}).`);
       setLoading(false);
       return;
     }
@@ -267,7 +270,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       return;
     }
     if (emergencyPhone && !phoneRegex.test(emergencyPhone)) {
-      setError('Emergency contact phone must be in E.164 format (e.g. +254712345678).');
+      setError(`Emergency contact phone must be in E.164 format (e.g. ${tenantPhoneExample}).`);
       setLoading(false);
       return;
     }
@@ -751,7 +754,10 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                 <div className="grid-2">
                   <div className="form-group">
                     <label className="form-label">Phone Number</label>
-                    <input type="tel" required className="form-control" placeholder="+254712345678" value={tenantPhone} onChange={e => setTenantPhone(e.target.value)} />
+                    <input type="tel" required className="form-control" placeholder={tenantPhoneExample} value={tenantPhone} onChange={e => setTenantPhone(e.target.value)} />
+                    <span className="text-muted" style={{ fontSize: '11px', display: 'block', marginTop: '4px' }}>
+                      Use international format. Example: {tenantPhoneExample}
+                    </span>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Email Address</label>
@@ -794,7 +800,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                   </div>
                   <div className="form-group">
                     <label className="form-label">Phone No.</label>
-                    <input type="tel" className="form-control" placeholder="+254700..." value={emergencyPhone} onChange={e => setEmergencyPhone(e.target.value)} />
+                    <input type="tel" className="form-control" placeholder={tenantPhoneExample} value={emergencyPhone} onChange={e => setEmergencyPhone(e.target.value)} />
                   </div>
                 </div>
 

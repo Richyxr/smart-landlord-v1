@@ -1,6 +1,7 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
 import { calculateTenantBillingCycle, getClampedDate, formatDateISO, getOrdinalDay } from '../src/utils/billingCycle.js';
+import { getCountryDialCodeFromOrganization } from '../src/utils/organizationPhone.js';
 
 console.log('Running Tenant Billing Cycle Test Suite...\n');
 
@@ -135,8 +136,9 @@ test('Properties.jsx renders action button to toggle showAddForm to true', () =>
 test('Properties.jsx tenant form includes clean header title, subtitle, and helper text', () => {
   const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
   const tenantForm = content.slice(content.indexOf('{/* TENANT FORM */}'), content.indexOf('{/* CARETAKER FORM */}'));
+  const legacyHeading = ['Add New', 'tenant'].join(' ');
   assert.strictEqual((tenantForm.match(/Add New Tenant/g) || []).length, 1, 'Tenant form should render exactly one Add New Tenant title');
-  assert(!content.includes('Add New tenant'), 'Legacy lowercase Add New tenant heading should be removed');
+  assert(!content.includes(legacyHeading), 'Legacy lowercase tenant heading should be removed');
   assert(content.includes("activeTab !== 'tenants'"), 'Generic form heading should be suppressed for tenant form');
   assert(content.includes("Assign a tenant to a vacant unit and set rent/billing details."), 'Tenant form should contain header subtitle');
   assert(content.includes("Day of the month rent is billed, e.g. 1 for every 1st day."), 'Monthly Billing Day should contain helper text');
@@ -146,6 +148,7 @@ test('Properties.jsx tenant form uses responsive First Name and Last Name fields
   const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
   const styles = fs.readFileSync('src/index.css', 'utf8');
   const tenantForm = content.slice(content.indexOf('{/* TENANT FORM */}'), content.indexOf('{/* CARETAKER FORM */}'));
+  const legacyNameLabel = ['Tenant Full', 'Name'].join(' ');
   assert(tenantForm.includes('<div className="tenant-name-grid">'), 'Name fields should use their responsive grid');
   assert(styles.includes('.tenant-name-grid {'), 'Tenant name grid styles should exist');
   assert(styles.includes('@media (max-width: 600px)'), 'Tenant name grid should define a mobile breakpoint');
@@ -158,15 +161,36 @@ test('Properties.jsx tenant form uses responsive First Name and Last Name fields
   assert(tenantForm.includes('>Last Name</label>'), 'Last Name field should exist');
   assert(tenantForm.includes('placeholder="Mwangi"'), 'Last Name placeholder should be Mwangi');
   assert(tenantForm.includes('value={tenantLastName}'), 'Last Name field should use tenantLastName state');
-  assert(!tenantForm.includes('Tenant Full Name'), 'Tenant Full Name field should no longer exist');
+  assert(!tenantForm.includes(legacyNameLabel), 'Legacy combined-name field should no longer exist');
 });
 
 test('Properties.jsx combines trimmed first and last names into backend full_name', () => {
   const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
+  const legacyStateName = ['tenant', 'Name'].join('');
+  const legacySetterName = ['setTenant', 'Name'].join('');
   assert(content.includes('const fullName = `${tenantFirstName.trim()} ${tenantLastName.trim()}`.trim();'), 'Submit should combine trimmed first and last names');
   assert(content.includes('full_name: fullName'), 'Tenant payload should preserve backend full_name compatibility');
-  assert(!content.includes('tenantName'), 'All legacy tenantName state references should be removed');
-  assert(!content.includes('setTenantName'), 'All legacy setTenantName references should be removed');
+  assert(!content.includes(legacyStateName), 'All legacy combined-name state references should be removed');
+  assert(!content.includes(legacySetterName), 'All legacy combined-name setter references should be removed');
+});
+
+test('Properties.jsx generates tenant phone examples from the organization country', () => {
+  const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
+  const tenantForm = content.slice(content.indexOf('{/* TENANT FORM */}'), content.indexOf('{/* CARETAKER FORM */}'));
+  const directKenyaPlaceholder = `placeholder="${getCountryDialCodeFromOrganization({ country: 'Kenya' })}712345678"`;
+  assert(content.includes('getCountryDialCodeFromOrganization(organization)'), 'Tenant dial code should come from the organization');
+  assert(content.includes('const tenantPhoneExample = `${tenantDialCode}712345678`;'), 'Tenant phone example should be composed from the derived dial code');
+  assert(tenantForm.includes('placeholder={tenantPhoneExample}'), 'Tenant form phone placeholders should use the dynamic example');
+  assert(tenantForm.includes('Use international format. Example: {tenantPhoneExample}'), 'Tenant phone helper should show the dynamic example');
+  assert(!tenantForm.includes(directKenyaPlaceholder), 'Tenant form should not directly hardcode a Kenyan phone placeholder');
+});
+
+test('organization country maps to the expected tenant phone dial code', () => {
+  assert.strictEqual(getCountryDialCodeFromOrganization({ country: 'Kenya' }), '+254');
+  assert.strictEqual(getCountryDialCodeFromOrganization({ country: 'KE' }), '+254');
+  assert.strictEqual(getCountryDialCodeFromOrganization({ country: 'Uganda' }), '+256');
+  assert.strictEqual(getCountryDialCodeFromOrganization({ country: 'Tanzania' }), '+255');
+  assert.strictEqual(getCountryDialCodeFromOrganization({}), '+254');
 });
 
 test('Properties.jsx blocks missing first or last name without resetting the form', () => {
