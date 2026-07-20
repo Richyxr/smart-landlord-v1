@@ -134,8 +134,60 @@ test('Properties.jsx renders action button to toggle showAddForm to true', () =>
 
 test('Properties.jsx tenant form includes clean header title, subtitle, and helper text', () => {
   const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
+  const tenantForm = content.slice(content.indexOf('{/* TENANT FORM */}'), content.indexOf('{/* CARETAKER FORM */}'));
+  assert.strictEqual((tenantForm.match(/Add New Tenant/g) || []).length, 1, 'Tenant form should render exactly one Add New Tenant title');
+  assert(!content.includes('Add New tenant'), 'Legacy lowercase Add New tenant heading should be removed');
+  assert(content.includes("activeTab !== 'tenants'"), 'Generic form heading should be suppressed for tenant form');
   assert(content.includes("Assign a tenant to a vacant unit and set rent/billing details."), 'Tenant form should contain header subtitle');
   assert(content.includes("Day of the month rent is billed, e.g. 1 for every 1st day."), 'Monthly Billing Day should contain helper text');
+});
+
+test('Properties.jsx tenant form uses responsive First Name and Last Name fields', () => {
+  const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
+  const styles = fs.readFileSync('src/index.css', 'utf8');
+  const tenantForm = content.slice(content.indexOf('{/* TENANT FORM */}'), content.indexOf('{/* CARETAKER FORM */}'));
+  assert(tenantForm.includes('<div className="tenant-name-grid">'), 'Name fields should use their responsive grid');
+  assert(styles.includes('.tenant-name-grid {'), 'Tenant name grid styles should exist');
+  assert(styles.includes('@media (max-width: 600px)'), 'Tenant name grid should define a mobile breakpoint');
+  assert(styles.includes('grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);'), 'Tenant name fields should be side by side on desktop');
+  const mobileTenantGrid = styles.slice(styles.indexOf('@media (max-width: 600px)'), styles.indexOf('.grid-3,'));
+  assert(mobileTenantGrid.includes('grid-template-columns: 1fr;'), 'Tenant name fields should stack full-width on mobile');
+  assert(tenantForm.includes('>First Name</label>'), 'First Name field should exist');
+  assert(tenantForm.includes('placeholder="John"'), 'First Name placeholder should be John');
+  assert(tenantForm.includes('value={tenantFirstName}'), 'First Name field should use tenantFirstName state');
+  assert(tenantForm.includes('>Last Name</label>'), 'Last Name field should exist');
+  assert(tenantForm.includes('placeholder="Mwangi"'), 'Last Name placeholder should be Mwangi');
+  assert(tenantForm.includes('value={tenantLastName}'), 'Last Name field should use tenantLastName state');
+  assert(!tenantForm.includes('Tenant Full Name'), 'Tenant Full Name field should no longer exist');
+});
+
+test('Properties.jsx combines trimmed first and last names into backend full_name', () => {
+  const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
+  assert(content.includes('const fullName = `${tenantFirstName.trim()} ${tenantLastName.trim()}`.trim();'), 'Submit should combine trimmed first and last names');
+  assert(content.includes('full_name: fullName'), 'Tenant payload should preserve backend full_name compatibility');
+  assert(!content.includes('tenantName'), 'All legacy tenantName state references should be removed');
+  assert(!content.includes('setTenantName'), 'All legacy setTenantName references should be removed');
+});
+
+test('Properties.jsx blocks missing first or last name without resetting the form', () => {
+  const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
+  const handler = content.slice(content.indexOf('const handleTenantSubmit'), content.indexOf('const handlePinSuccess'));
+  const validationSection = handler.slice(0, handler.indexOf('const body ='));
+  assert(validationSection.includes('if (!tenantFirstName.trim())'), 'Submit should explicitly validate first name');
+  assert(validationSection.includes("setError('First name is required.');"), 'Missing first name should show the required error');
+  assert(validationSection.includes('if (!tenantLastName.trim())'), 'Submit should explicitly validate last name');
+  assert(validationSection.includes("setError('Last name is required.');"), 'Missing last name should show the required error');
+  assert(!validationSection.includes('resetTenantForm()'), 'Validation failures should preserve entered form values');
+});
+
+test('Properties.jsx tenant reset and Cancel clear both name fields and close the form', () => {
+  const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
+  const resetHandler = content.slice(content.indexOf('const resetTenantForm'), content.indexOf('// Helpers'));
+  const tenantForm = content.slice(content.indexOf('{/* TENANT FORM */}'), content.indexOf('{/* CARETAKER FORM */}'));
+  assert(resetHandler.includes("setTenantFirstName('');"), 'Tenant reset should clear first name');
+  assert(resetHandler.includes("setTenantLastName('');"), 'Tenant reset should clear last name');
+  assert(tenantForm.includes('setShowAddForm(false);'), 'Tenant Cancel should close the form');
+  assert(tenantForm.includes('resetTenantForm();'), 'Tenant Cancel should reset temporary form state');
 });
 
 test('Properties.jsx tenant form contains Cancel and Add & Occupy Unit action buttons', () => {

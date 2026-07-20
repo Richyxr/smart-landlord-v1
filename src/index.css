@@ -470,6 +470,18 @@ select.form-control {
   gap: 12px;
 }
 
+.tenant-name-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 600px) {
+  .tenant-name-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .grid-3,
 .grid-4 {
   display: grid;

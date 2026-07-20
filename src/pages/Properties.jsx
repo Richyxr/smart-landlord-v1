@@ -44,7 +44,8 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
   // Tenant Form State
   const [tenantPropId, setTenantPropId] = useState('');
   const [tenantUnitId, setTenantUnitId] = useState('');
-  const [tenantName, setTenantName] = useState('');
+  const [tenantFirstName, setTenantFirstName] = useState('');
+  const [tenantLastName, setTenantLastName] = useState('');
   const [tenantPhone, setTenantPhone] = useState('');
   const [tenantEmail, setTenantEmail] = useState('');
   const [tenantIdNum, setTenantIdNum] = useState('');
@@ -229,13 +230,18 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
     const phoneRegex = /^\+[1-9]\d{1,14}$/;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-    if (!tenantPropId || !tenantUnitId) {
-      setError('Please select a property and a unit.');
+    if (!tenantFirstName.trim()) {
+      setError('First name is required.');
       setLoading(false);
       return;
     }
-    if (!tenantName.trim()) {
-      setError('Tenant name is required.');
+    if (!tenantLastName.trim()) {
+      setError('Last name is required.');
+      setLoading(false);
+      return;
+    }
+    if (!tenantPropId || !tenantUnitId) {
+      setError('Please select a property and a unit.');
       setLoading(false);
       return;
     }
@@ -266,10 +272,11 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       return;
     }
 
+    const fullName = `${tenantFirstName.trim()} ${tenantLastName.trim()}`.trim();
     const body = {
       property_id: tenantPropId,
       unit_id: tenantUnitId,
-      full_name: tenantName,
+      full_name: fullName,
       phone_number: tenantPhone,
       email: tenantEmail,
       id_number: tenantIdNum,
@@ -479,7 +486,8 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
   const resetTenantForm = () => {
     setTenantPropId('');
     setTenantUnitId('');
-    setTenantName('');
+    setTenantFirstName('');
+    setTenantLastName('');
     setTenantPhone('');
     setTenantEmail('');
     setTenantIdNum('');
@@ -604,7 +612,9 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       {/* RENDER FORMS */}
       {showAddForm && (
         <div className="card">
-          <h3 className="card-title">{editId ? 'Edit' : 'Add New'} {activeTab.slice(0,-1)}</h3>
+          {activeTab !== 'tenants' && (
+            <h3 className="card-title">{editId ? 'Edit' : 'Add New'} {activeTab.slice(0,-1)}</h3>
+          )}
           
           {/* PROPERTY FORM */}
           {activeTab === 'properties' && (
@@ -727,9 +737,15 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                   </div>
                 )}
 
-                <div className="form-group">
-                  <label className="form-label">Tenant Full Name</label>
-                  <input type="text" required className="form-control" placeholder="John Mwangi" value={tenantName} onChange={e => setTenantName(e.target.value)} />
+                <div className="tenant-name-grid">
+                  <div className="form-group">
+                    <label className="form-label">First Name</label>
+                    <input type="text" required className="form-control" placeholder="John" value={tenantFirstName} onChange={e => setTenantFirstName(e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Last Name</label>
+                    <input type="text" required className="form-control" placeholder="Mwangi" value={tenantLastName} onChange={e => setTenantLastName(e.target.value)} />
+                  </div>
                 </div>
 
                 <div className="grid-2">
