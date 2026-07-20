@@ -23,6 +23,7 @@ export default function BankTransactions({ organization }) {
   const [successMsg, setSuccessMsg] = useState('');
   
   // Filters & Pagination
+  const [showFilters, setShowFilters] = useState(false);
   const [statusFilter, setStatusFilter] = useState('Unmatched');
   const [searchVal, setSearchVal] = useState('');
   const [providerFilter, setProviderFilter] = useState('');
@@ -404,37 +405,50 @@ export default function BankTransactions({ organization }) {
         <div style={{ flex: selectedTx ? '1 1 55%' : '1 1 100%', minWidth: '320px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           
           {/* Search and Filters Bar */}
-          <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-surface)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', alignItems: 'center' }}>
-            <div style={{ position: 'relative', flex: 1 }}>
-              <Search size={14} style={{ position: 'absolute', left: '10px', top: '10px', color: 'var(--text-muted)' }} />
-              <input
-                type="text"
-                placeholder="Search by description or reference..."
-                className="form-control"
-                style={{ paddingLeft: '28px', height: '34px', fontSize: '12px', margin: 0 }}
-                value={searchVal}
-                onChange={e => setSearchVal(e.target.value)}
-              />
-            </div>
-            
-            <select
-              className="form-control"
-              style={{ width: '130px', height: '34px', fontSize: '12px', margin: 0 }}
-              value={providerFilter}
-              onChange={e => setProviderFilter(e.target.value)}
+          <div style={{ display: 'flex', gap: '8px', background: 'var(--bg-surface)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}
+              onClick={() => setShowFilters(!showFilters)}
             >
-              <option value="">All Banks</option>
-              <option value="MPesa">M-Pesa</option>
-              <option value="NCBA">Loop (NCBA)</option>
-              <option value="KCB">KCB</option>
-              <option value="Equity">Equity</option>
-              <option value="Absa">Absa</option>
-              <option value="Coop">Co-op Bank</option>
-              <option value="Family">Family Bank</option>
-              <option value="DTB">DTB</option>
-              <option value="I&M">I&M Bank</option>
-              <option value="Generic">Generic</option>
-            </select>
+              <Filter size={14} /> Filters {showFilters ? '▲' : '▼'}
+            </button>
+
+            {showFilters && (
+              <>
+                <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+                  <Search size={14} style={{ position: 'absolute', left: '10px', top: '10px', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    placeholder="Search by description or reference..."
+                    className="form-control"
+                    style={{ paddingLeft: '28px', height: '34px', fontSize: '12px', margin: 0 }}
+                    value={searchVal}
+                    onChange={e => setSearchVal(e.target.value)}
+                  />
+                </div>
+
+                <select
+                  className="form-control"
+                  style={{ width: '130px', height: '34px', fontSize: '12px', margin: 0 }}
+                  value={providerFilter}
+                  onChange={e => setProviderFilter(e.target.value)}
+                >
+                  <option value="">All Banks</option>
+                  <option value="MPesa">M-Pesa</option>
+                  <option value="NCBA">Loop (NCBA)</option>
+                  <option value="KCB">KCB</option>
+                  <option value="Equity">Equity</option>
+                  <option value="Absa">Absa</option>
+                  <option value="Coop">Co-op Bank</option>
+                  <option value="Family">Family Bank</option>
+                  <option value="DTB">DTB</option>
+                  <option value="I&M">I&M Bank</option>
+                  <option value="Generic">Generic</option>
+                </select>
+              </>
+            )}
           </div>
 
           {/* Transactions List */}

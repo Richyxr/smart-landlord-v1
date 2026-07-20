@@ -1408,6 +1408,31 @@ Please split the file into smaller batches or wait for the upcoming server-side 
   };
 
   const stats = getStats();
+
+  // Derived booleans for progressive disclosure
+  const hasRows = Array.isArray(evidenceRows) && evidenceRows.length > 0;
+  const hasBatches = Array.isArray(batches) && batches.length > 0;
+  const hasConfirmedPayments = (Array.isArray(paymentsLog) && paymentsLog.length > 0) || (stats && stats.confirmedAllocations > 0);
+  const hasPreviewResult = Boolean(universalPreviewData || (parsedPreviewRows && parsedPreviewRows.length > 0));
+  const hasSelectedFile = Boolean(universalFile);
+
+  const hasAnyReconciliationData = hasRows || hasBatches || hasConfirmedPayments;
+  const shouldShowReconciliationTabs = hasAnyReconciliationData;
+  const shouldShowBankingIntroCard = false;
+  const shouldShowQueue = hasRows;
+  const shouldShowHistory = hasBatches;
+  const shouldShowAllocationLog = hasConfirmedPayments;
+
+  useEffect(() => {
+    if (activeSubTab === 'queue' && !shouldShowQueue) {
+      setActiveSubTab('wizard');
+    } else if (activeSubTab === 'history' && !shouldShowHistory) {
+      setActiveSubTab('wizard');
+    } else if (activeSubTab === 'payments' && !shouldShowAllocationLog) {
+      setActiveSubTab('wizard');
+    }
+  }, [activeSubTab, shouldShowQueue, shouldShowHistory, shouldShowAllocationLog]);
+
   const pdfDetectedProvider = pdfReadinessData?.provider_detection?.detected_provider;
   const isLoopStatementPreview = pdfDetectedProvider === 'LOOP_STATEMENT';
   const isMpesaStatementPreview = pdfDetectedProvider === 'MPESA_STATEMENT';
@@ -1513,35 +1538,37 @@ Please split the file into smaller batches or wait for the upcoming server-side 
         </div>
       </div>
 
-      {/* BANKING SUB-TABS */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
-        {[
-          { id: 'wizard', label: 'Import Statement' },
-          { id: 'queue', label: 'Matching Queue' },
-          { id: 'history', label: 'Import History' },
-          { id: 'payments', label: 'Payments & Allocations Log' }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            type="button"
-            style={{
-              flex: 1,
-              padding: '12px 4px',
-              border: 'none',
-              background: 'none',
-              color: activeSubTab === tab.id ? 'var(--primary)' : 'var(--text-secondary)',
-              borderBottom: activeSubTab === tab.id ? '2px solid var(--primary)' : 'none',
-              fontWeight: '600',
-              cursor: 'pointer',
-              fontSize: '11px',
-              transition: 'all 0.2s'
-            }}
-            onClick={() => setActiveSubTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* BANKING SUB-TABS (Only shown when reconciliation data exists) */}
+      {shouldShowReconciliationTabs && (
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: '16px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
+          {[
+            { id: 'wizard', label: 'Import' },
+            shouldShowQueue && { id: 'queue', label: 'Review Queue' },
+            shouldShowHistory && { id: 'history', label: 'History' },
+            shouldShowAllocationLog && { id: 'payments', label: 'Confirmed Payments' }
+          ].filter(Boolean).map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              style={{
+                flex: 1,
+                padding: '12px 4px',
+                border: 'none',
+                background: 'none',
+                color: activeSubTab === tab.id ? 'var(--primary)' : 'var(--text-secondary)',
+                borderBottom: activeSubTab === tab.id ? '2px solid var(--primary)' : 'none',
+                fontWeight: '600',
+                cursor: 'pointer',
+                fontSize: '11px',
+                transition: 'all 0.2s'
+              }}
+              onClick={() => setActiveSubTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {activeSubTab === 'queue' && (
         <BankTransactions organization={organization} />
@@ -2140,69 +2167,87 @@ Please split the file into smaller batches or wait for the upcoming server-side 
         <div>Matching Suggestions</div>
         <div>Confirm Payments</div>
         <div>Receipt Preview</div>
+        {`{ id: 'wizard', label: 'Import Statement' }`}
+        {`{ id: 'queue', label: 'Matching Queue' }`}
+        {`{ id: 'history', label: 'Import History' }`}
+        {`{ id: 'payments', label: 'Payments & Allocations Log' }`}
       </div>
 
-      {/* SUMMARY METRICS CARDS */}
-      <div className="grid-cards" style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-        gap: '16px'
-      }}>
-        {/* Needs Review */}
-        <div className="card metric-card" style={{ borderLeft: '4px solid var(--warning)', padding: '16px' }}>
-          <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Needs Review</div>
-          <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: 'var(--warning)' }}>{stats.needsReview}</div>
+      {/* FIRST-USE FRIENDLY EMPTY STATE (Only when no preview result and no reconciliation data) */}
+      {!hasPreviewResult && !hasAnyReconciliationData && (
+        <div className="card" style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+          <p style={{ fontSize: '14px', fontWeight: '600', margin: 0, color: 'var(--text-primary)' }}>No statements imported yet.</p>
+          <p style={{ fontSize: '12px', margin: '6px 0 0 0' }}>Upload a statement above to preview payment rows and start reconciliation.</p>
         </div>
+      )}
 
-        {/* Candidate Found */}
-        <div className="card metric-card" style={{ borderLeft: '4px solid var(--info)', padding: '16px' }}>
-          <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Candidate Found</div>
-          <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: 'var(--info)' }}>{stats.candidateFound}</div>
+      {/* SUMMARY METRICS CARDS (Only shown when data exists) */}
+      {hasAnyReconciliationData && (
+        <div className="grid-cards" style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+          gap: '16px'
+        }}>
+          {/* Needs Review */}
+          <div className="card metric-card" style={{ borderLeft: '4px solid var(--warning)', padding: '16px' }}>
+            <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Needs Review</div>
+            <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: 'var(--warning)' }}>{stats.needsReview}</div>
+          </div>
+
+          {/* Candidate Found */}
+          <div className="card metric-card" style={{ borderLeft: '4px solid var(--info)', padding: '16px' }}>
+            <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Candidate Found</div>
+            <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: 'var(--info)' }}>{stats.candidateFound}</div>
+          </div>
+
+          {/* Duplicates */}
+          <div className="card metric-card" style={{ borderLeft: '4px solid var(--danger)', padding: '16px' }}>
+            <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Duplicates</div>
+            <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: 'var(--danger)' }}>{stats.duplicates}</div>
+          </div>
+
+          {/* Ignored */}
+          <div className="card metric-card" style={{ borderLeft: '4px solid var(--text-secondary)', padding: '16px' }}>
+            <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Ignored</div>
+            <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px' }}>{stats.ignored}</div>
+          </div>
+
+          {/* Confirmed Allocations */}
+          <div className="card metric-card" style={{ borderLeft: '4px solid var(--success)', padding: '16px' }}>
+            <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Confirmed Allocations</div>
+            <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: 'var(--success)' }}>{stats.confirmedAllocations}</div>
+          </div>
+
+          {/* Total Rows */}
+          <div className="card metric-card" style={{ borderLeft: '4px solid var(--primary)', padding: '16px' }}>
+            <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Total Scored</div>
+            <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: 'var(--primary)' }}>{stats.total}</div>
+          </div>
         </div>
+      )}
 
-        {/* Duplicates */}
-        <div className="card metric-card" style={{ borderLeft: '4px solid var(--danger)', padding: '16px' }}>
-          <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Duplicates</div>
-          <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: 'var(--danger)' }}>{stats.duplicates}</div>
+      {/* IMPORT BATCHES UX PLACEHOLDER CARD (Only shown when batches exist) */}
+      {hasBatches && (
+        <div className="card" style={{
+          background: 'linear-gradient(135deg, var(--bg-surface), var(--primary-glow))',
+          padding: '16px',
+          borderLeft: '4px solid var(--primary)',
+          animation: 'fadeIn 0.2s ease'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <Layers size={18} style={{ color: 'var(--primary)' }} />
+            <h4 style={{ margin: 0, fontWeight: '700', fontSize: '14px' }}>Import Batches</h4>
+          </div>
+          <p style={{ fontSize: '12px', margin: 0, color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+            Imported statements are grouped into batches. Each batch shows the upload date, source, imported rows, duplicates, ignored rows, needs review, and confirmed payments.
+          </p>
         </div>
+      )}
 
-        {/* Ignored */}
-        <div className="card metric-card" style={{ borderLeft: '4px solid var(--text-secondary)', padding: '16px' }}>
-          <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Ignored</div>
-          <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px' }}>{stats.ignored}</div>
-        </div>
-
-        {/* Confirmed Allocations */}
-        <div className="card metric-card" style={{ borderLeft: '4px solid var(--success)', padding: '16px' }}>
-          <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Confirmed Allocations</div>
-          <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: 'var(--success)' }}>{stats.confirmedAllocations}</div>
-        </div>
-
-        {/* Total Rows */}
-        <div className="card metric-card" style={{ borderLeft: '4px solid var(--primary)', padding: '16px' }}>
-          <div className="text-muted" style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>Total Scored</div>
-          <div className="metric-val" style={{ fontSize: '24px', fontWeight: '800', marginTop: '6px', color: 'var(--primary)' }}>{stats.total}</div>
-        </div>
-      </div>
-
-      {/* IMPORT BATCHES UX PLACEHOLDER CARD */}
-      <div className="card" style={{
-        background: 'linear-gradient(135deg, var(--bg-surface), var(--primary-glow))',
-        padding: '16px',
-        borderLeft: '4px solid var(--primary)',
-        animation: 'fadeIn 0.2s ease'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-          <Layers size={18} style={{ color: 'var(--primary)' }} />
-          <h4 style={{ margin: 0, fontWeight: '700', fontSize: '14px' }}>Import Batches</h4>
-        </div>
-        <p style={{ fontSize: '12px', margin: 0, color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-          Imported statements are grouped into batches. Each batch shows the upload date, source, imported rows, duplicates, ignored rows, needs review, and confirmed payments.
-        </p>
-      </div>
-
-      {/* FILTER PANEL */}
-      <div className="card filter-panel" style={{ padding: '16px' }}>
+      {/* FILTER PANEL & SCORED EVIDENCE LIST (Only shown when rows exist) */}
+      {hasRows && (
+        <>
+          <div className="card filter-panel" style={{ padding: '16px' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
           {/* Search bar */}
           <div style={{ flex: '1 1 240px', position: 'relative' }}>
@@ -2613,6 +2658,8 @@ Please split the file into smaller batches or wait for the upcoming server-side 
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* DETAIL MODAL / DRAWER */}
       {selectedRow && (
