@@ -476,6 +476,36 @@ select.form-control {
   gap: 12px;
 }
 
+.tenant-phone-input-group {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+
+.tenant-phone-prefix {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-right: 0;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 700;
+  box-sizing: border-box;
+}
+
+.tenant-phone-input-group .tenant-phone-input {
+  flex: 1;
+  min-width: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
 @media (max-width: 600px) {
   .tenant-name-grid {
     grid-template-columns: 1fr;

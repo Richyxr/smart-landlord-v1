@@ -32,3 +32,20 @@ export function getCountryDialCodeFromOrganization(organization) {
   const country = String(organization?.country || '').trim().toLowerCase();
   return COUNTRY_DIAL_CODES[country] || '+254';
 }
+
+export function normalizePhoneForOrganization(rawValue, organization) {
+  const cleanedValue = String(rawValue ?? '')
+    .trim()
+    .replace(/[\s\-()[\]{}]/g, '');
+
+  if (!cleanedValue) return '';
+  if (cleanedValue.startsWith('+')) return cleanedValue;
+  if (cleanedValue.startsWith('00')) return `+${cleanedValue.slice(2)}`;
+
+  const dialCode = getCountryDialCodeFromOrganization(organization);
+  const dialCodeDigits = dialCode.slice(1);
+
+  if (cleanedValue.startsWith(dialCodeDigits)) return `+${cleanedValue}`;
+  if (cleanedValue.startsWith('0')) return `${dialCode}${cleanedValue.slice(1)}`;
+  return `${dialCode}${cleanedValue}`;
+}

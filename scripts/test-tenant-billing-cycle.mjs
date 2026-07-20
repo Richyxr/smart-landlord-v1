@@ -1,7 +1,7 @@
 import assert from 'node:assert';
 import fs from 'node:fs';
 import { calculateTenantBillingCycle, getClampedDate, formatDateISO, getOrdinalDay } from '../src/utils/billingCycle.js';
-import { getCountryDialCodeFromOrganization } from '../src/utils/organizationPhone.js';
+import { getCountryDialCodeFromOrganization, normalizePhoneForOrganization } from '../src/utils/organizationPhone.js';
 
 console.log('Running Tenant Billing Cycle Test Suite...\n');
 
@@ -174,15 +174,22 @@ test('Properties.jsx combines trimmed first and last names into backend full_nam
   assert(!content.includes(legacySetterName), 'All legacy combined-name setter references should be removed');
 });
 
-test('Properties.jsx generates tenant phone examples from the organization country', () => {
+test('Properties.jsx renders organization dial-code prefixes and local placeholders for both tenant phones', () => {
   const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
   const tenantForm = content.slice(content.indexOf('{/* TENANT FORM */}'), content.indexOf('{/* CARETAKER FORM */}'));
-  const dynamicPlaceholders = tenantForm.match(/placeholder=\{tenantPhoneExample\}/g) || [];
-  const dynamicHelpers = tenantForm.match(/Use international format\. Example: \{tenantPhoneExample\}/g) || [];
+  const styles = fs.readFileSync('src/index.css', 'utf8');
+  const prefixGroups = tenantForm.match(/className="tenant-phone-input-group"/g) || [];
+  const dialCodePrefixes = tenantForm.match(/className="tenant-phone-prefix"/g) || [];
+  const localPlaceholders = tenantForm.match(/placeholder=\{tenantLocalPhoneExample\}/g) || [];
+  const dynamicHelpers = tenantForm.match(/Enter local number\. We will save it as \{tenantPhoneExample\}\./g) || [];
   assert(content.includes('getCountryDialCodeFromOrganization(organization)'), 'Tenant dial code should come from the organization');
+  assert(content.includes("const tenantLocalPhoneExample = '712345678';"), 'Tenant phone placeholder should show a local number');
   assert(content.includes('const tenantPhoneExample = `${tenantDialCode}712345678`;'), 'Tenant phone example should be composed from the derived dial code');
-  assert.strictEqual(dynamicPlaceholders.length, 2, 'Main and emergency phone placeholders should both use the dynamic example');
+  assert.strictEqual(prefixGroups.length, 2, 'Main and emergency phone fields should both render attached prefix groups');
+  assert.strictEqual(dialCodePrefixes.length, 2, 'Main and emergency phone fields should both show the organization dial code');
+  assert.strictEqual(localPlaceholders.length, 2, 'Main and emergency phone placeholders should both show the local example');
   assert.strictEqual(dynamicHelpers.length, 2, 'Main and emergency phone helpers should both use the dynamic example');
+  assert(styles.includes('.tenant-phone-input-group {'), 'Attached phone input group styles should exist');
   assert(!content.includes('+254712345678'), 'Properties.jsx should not contain a hardcoded Kenyan phone example');
 });
 
@@ -192,6 +199,32 @@ test('organization country maps to the expected tenant phone dial code', () => {
   assert.strictEqual(getCountryDialCodeFromOrganization({ country: 'Uganda' }), '+256');
   assert.strictEqual(getCountryDialCodeFromOrganization({ country: 'Tanzania' }), '+255');
   assert.strictEqual(getCountryDialCodeFromOrganization({}), '+254');
+});
+
+test('organization phone normalization accepts local and international formats without duplicate prefixes', () => {
+  const kenya = { country: 'Kenya' };
+  const uganda = { country: 'Uganda' };
+  assert.strictEqual(normalizePhoneForOrganization('712345678', kenya), '+254712345678');
+  assert.strictEqual(normalizePhoneForOrganization('0712345678', kenya), '+254712345678');
+  assert.strictEqual(normalizePhoneForOrganization('+254712345678', kenya), '+254712345678');
+  assert.strictEqual(normalizePhoneForOrganization('254712345678', kenya), '+254712345678');
+  assert.strictEqual(normalizePhoneForOrganization('00254712345678', kenya), '+254712345678');
+  assert.strictEqual(normalizePhoneForOrganization('712345678', uganda), '+256712345678');
+  assert.strictEqual(normalizePhoneForOrganization(' (0712) 345-678 ', kenya), '+254712345678');
+  assert.strictEqual(normalizePhoneForOrganization('', kenya), '');
+});
+
+test('Properties.jsx normalizes tenant phones before validation and submission', () => {
+  const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
+  const handler = content.slice(content.indexOf('const handleTenantSubmit'), content.indexOf('const handlePinSuccess'));
+  assert(handler.includes('normalizePhoneForOrganization(tenantPhone, organization)'), 'Tenant phone should be normalized for the organization');
+  assert(handler.includes('normalizePhoneForOrganization(emergencyPhone, organization)'), 'Emergency phone should be normalized for the organization');
+  assert(handler.includes('const phoneRegex = /^\\+[1-9]\\d{7,14}$/;'), 'Phone validation should reject obviously short or non-numeric normalized values');
+  assert(handler.includes('if (!normalizedTenantPhone)'), 'Required tenant phone validation should reject a blank normalized value');
+  assert(handler.includes('phoneRegex.test(normalizedTenantPhone)'), 'Tenant phone validation should use the normalized value');
+  assert(handler.includes('phoneRegex.test(normalizedEmergencyPhone)'), 'Emergency phone validation should use the normalized value');
+  assert(handler.includes('phone_number: normalizedTenantPhone'), 'Tenant payload should store the normalized international phone');
+  assert(handler.includes('emergency_contact_phone: normalizedEmergencyPhone'), 'Emergency payload should preserve the existing backend field name');
 });
 
 test('Properties.jsx blocks missing first or last name without resetting the form', () => {

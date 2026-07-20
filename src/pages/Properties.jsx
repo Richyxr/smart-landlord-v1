@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Building2, Home, MapPin, DoorOpen, User, Phone, Mail, CreditCard, Calendar, Wrench, Plus, Check, AlertTriangle } from 'lucide-react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
 import { calculateTenantBillingCycle, formatReadableDate } from '../utils/billingCycle.js';
-import { getCountryDialCodeFromOrganization } from '../utils/organizationPhone.js';
+import { getCountryDialCodeFromOrganization, normalizePhoneForOrganization } from '../utils/organizationPhone.js';
 
 export default function Properties({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab }) {
   const [activeTab, setActiveTab] = useState(initialSubTab || 'properties'); // properties, units, tenants, caretakers
@@ -57,6 +57,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
   const [emergencyPhone, setEmergencyPhone] = useState('');
   const [tenantNotes, setTenantNotes] = useState('');
   const tenantDialCode = getCountryDialCodeFromOrganization(organization);
+  const tenantLocalPhoneExample = '712345678';
   const tenantPhoneExample = `${tenantDialCode}712345678`;
 
   // Caretaker Form State
@@ -230,8 +231,10 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
     setLoading(true);
     setError('');
 
-    const phoneRegex = /^\+[1-9]\d{1,14}$/;
+    const phoneRegex = /^\+[1-9]\d{7,14}$/;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const normalizedTenantPhone = normalizePhoneForOrganization(tenantPhone, organization);
+    const normalizedEmergencyPhone = normalizePhoneForOrganization(emergencyPhone, organization);
 
     if (!tenantFirstName.trim()) {
       setError('First name is required.');
@@ -248,8 +251,13 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       setLoading(false);
       return;
     }
-    if (!phoneRegex.test(tenantPhone)) {
-      setError(`Phone Number must be in E.164 format (e.g. ${tenantPhoneExample}).`);
+    if (!normalizedTenantPhone) {
+      setError('Phone Number is required.');
+      setLoading(false);
+      return;
+    }
+    if (!phoneRegex.test(normalizedTenantPhone)) {
+      setError(`Phone Number must be a valid phone number (e.g. ${tenantLocalPhoneExample}).`);
       setLoading(false);
       return;
     }
@@ -269,8 +277,8 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       setLoading(false);
       return;
     }
-    if (emergencyPhone && !phoneRegex.test(emergencyPhone)) {
-      setError(`Emergency contact phone must be in E.164 format (e.g. ${tenantPhoneExample}).`);
+    if (normalizedEmergencyPhone && !phoneRegex.test(normalizedEmergencyPhone)) {
+      setError(`Emergency contact phone must be a valid phone number (e.g. ${tenantLocalPhoneExample}).`);
       setLoading(false);
       return;
     }
@@ -280,14 +288,14 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       property_id: tenantPropId,
       unit_id: tenantUnitId,
       full_name: fullName,
-      phone_number: tenantPhone,
+      phone_number: normalizedTenantPhone,
       email: tenantEmail,
       id_number: tenantIdNum,
       move_in_date: moveInDate,
       rent_amount: tenantRent,
       billing_day: billingDay,
       emergency_contact_name: emergencyName,
-      emergency_contact_phone: emergencyPhone,
+      emergency_contact_phone: normalizedEmergencyPhone,
       notes: tenantNotes
     };
 
@@ -754,9 +762,12 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                 <div className="grid-2">
                   <div className="form-group">
                     <label className="form-label">Phone Number</label>
-                    <input type="tel" required className="form-control" placeholder={tenantPhoneExample} value={tenantPhone} onChange={e => setTenantPhone(e.target.value)} />
+                    <div className="tenant-phone-input-group">
+                      <span className="tenant-phone-prefix" aria-hidden="true">{tenantDialCode}</span>
+                      <input type="tel" required className="form-control tenant-phone-input" placeholder={tenantLocalPhoneExample} value={tenantPhone} onChange={e => setTenantPhone(e.target.value)} />
+                    </div>
                     <span className="text-muted" style={{ fontSize: '11px', display: 'block', marginTop: '4px' }}>
-                      Use international format. Example: {tenantPhoneExample}
+                      Enter local number. We will save it as {tenantPhoneExample}.
                     </span>
                   </div>
                   <div className="form-group">
@@ -800,9 +811,12 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                   </div>
                   <div className="form-group">
                     <label className="form-label">Phone No.</label>
-                    <input type="tel" className="form-control" placeholder={tenantPhoneExample} value={emergencyPhone} onChange={e => setEmergencyPhone(e.target.value)} />
+                    <div className="tenant-phone-input-group">
+                      <span className="tenant-phone-prefix" aria-hidden="true">{tenantDialCode}</span>
+                      <input type="tel" className="form-control tenant-phone-input" placeholder={tenantLocalPhoneExample} value={emergencyPhone} onChange={e => setEmergencyPhone(e.target.value)} />
+                    </div>
                     <span className="text-muted" style={{ fontSize: '11px', display: 'block', marginTop: '4px' }}>
-                      Use international format. Example: {tenantPhoneExample}
+                      Enter local number. We will save it as {tenantPhoneExample}.
                     </span>
                   </div>
                 </div>
