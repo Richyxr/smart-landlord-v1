@@ -120,6 +120,30 @@ test('Properties.jsx displays Billing Day, Next Bill, and Current Period', () =>
   assert(content.includes('Current Period:'), 'Properties.jsx should display Current Period label');
 });
 
+test('Properties.jsx hides Add Tenant form by default (showAddForm state starts false)', () => {
+  const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
+  assert(content.includes('const [showAddForm, setShowAddForm] = useState(false);'), 'showAddForm should default to false');
+  assert(content.includes('{showAddForm && ('), 'form should be conditionally rendered behind showAddForm');
+});
+
+test('Properties.jsx renders action button to toggle showAddForm to true', () => {
+  const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
+  assert(content.includes('!showAddForm && ('), 'Action button should render when form is hidden');
+  assert(content.includes('setShowAddForm(true);'), 'Action button should open form on click');
+});
+
+test('Properties.jsx tenant form includes clean header title, subtitle, and helper text', () => {
+  const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
+  assert(content.includes("Assign a tenant to a vacant unit and set rent/billing details."), 'Tenant form should contain header subtitle');
+  assert(content.includes("Day of the month rent is billed, e.g. 1 for every 1st day."), 'Monthly Billing Day should contain helper text');
+});
+
+test('Properties.jsx tenant form contains Cancel and Add & Occupy Unit action buttons', () => {
+  const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
+  assert(content.includes('>Cancel</button>'), 'Form should have Cancel button');
+  assert(content.includes('Add & Occupy Unit'), 'Form should have Add & Occupy Unit submit button');
+});
+
 test('server.js GET /api/tenants returns last_rent_invoice_date and last_rent_invoice_number', () => {
   const content = fs.readFileSync('server/server.js', 'utf8');
   assert(content.includes('last_rent_invoice_date:'), 'server.js should map last_rent_invoice_date');

@@ -575,7 +575,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
         </button>
       </div>
 
-      <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+      <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
         <div>
           <span className="kpi-lbl">{activeSection.badge}</span>
           <h3 className="card-title" style={{ margin: '2px 0 4px 0' }}>{activeSection.title}</h3>
@@ -583,6 +583,20 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
             {activeSection.helper}
           </p>
         </div>
+        {!showAddForm && (
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setShowAddForm(true);
+              setError('');
+            }}
+            style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+          >
+            <Plus size={14} />
+            <span>{activeSection.actionLabel}</span>
+          </button>
+        )}
       </div>
 
       {error && <div role="alert" style={{ color: 'var(--danger)', fontSize: '13px', fontWeight: 'bold' }}>{error}</div>}
@@ -681,88 +695,111 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
 
           {/* TENANT FORM */}
           {activeTab === 'tenants' && (
-            <form onSubmit={handleTenantSubmit}>
-              <div className="form-group">
-                <label className="form-label">Select Property</label>
-                <select required className="form-control" value={tenantPropId} onChange={e => { setTenantPropId(e.target.value); setTenantUnitId(''); }}>
-                  <option value="">-- Select Property --</option>
-                  {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+            <div>
+              <div style={{ marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
+                <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '700' }}>{editId ? 'Edit Tenant' : 'Add New Tenant'}</h4>
+                <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
+                  Assign a tenant to a vacant unit and set rent/billing details.
+                </p>
               </div>
-              
-              {tenantPropId && (
+              <form onSubmit={handleTenantSubmit}>
                 <div className="form-group">
-                  <label className="form-label">Select Vacant Unit</label>
-                  <select required className="form-control" value={tenantUnitId} onChange={e => {
-                    setTenantUnitId(e.target.value);
-                    const unit = units.find(u => String(u.id ?? '') === String(e.target.value));
-                    if (unit) setTenantRent(unit.rent_amount);
-                  }}>
-                    <option value="">-- Select Unit --</option>
-                    {getVacantUnitsForProp(tenantPropId).map(u => (
-                      <option key={u.id} value={u.id}>{u.unit_code} ({u.unit_type} - KES {u.rent_amount})</option>
-                    ))}
+                  <label className="form-label">Select Property</label>
+                  <select required className="form-control" value={tenantPropId} onChange={e => { setTenantPropId(e.target.value); setTenantUnitId(''); }}>
+                    <option value="">-- Select Property --</option>
+                    {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
-              )}
+                
+                {tenantPropId && (
+                  <div className="form-group">
+                    <label className="form-label">Select Vacant Unit</label>
+                    <select required className="form-control" value={tenantUnitId} onChange={e => {
+                      setTenantUnitId(e.target.value);
+                      const unit = units.find(u => String(u.id ?? '') === String(e.target.value));
+                      if (unit) setTenantRent(unit.rent_amount);
+                    }}>
+                      <option value="">-- Select Unit --</option>
+                      {getVacantUnitsForProp(tenantPropId).map(u => (
+                        <option key={u.id} value={u.id}>{u.unit_code} ({u.unit_type} - KES {u.rent_amount})</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
-              <div className="form-group">
-                <label className="form-label">Tenant Full Name</label>
-                <input type="text" required className="form-control" placeholder="John Mwangi" value={tenantName} onChange={e => setTenantName(e.target.value)} />
-              </div>
+                <div className="form-group">
+                  <label className="form-label">Tenant Full Name</label>
+                  <input type="text" required className="form-control" placeholder="John Mwangi" value={tenantName} onChange={e => setTenantName(e.target.value)} />
+                </div>
 
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Phone Number</label>
-                  <input type="tel" required className="form-control" placeholder="+254712345678" value={tenantPhone} onChange={e => setTenantPhone(e.target.value)} />
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Phone Number</label>
+                    <input type="tel" required className="form-control" placeholder="+254712345678" value={tenantPhone} onChange={e => setTenantPhone(e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Email Address</label>
+                    <input type="email" required className="form-control" placeholder="mwangi@demo.com" value={tenantEmail} onChange={e => setTenantEmail(e.target.value)} />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Email Address</label>
-                  <input type="email" required className="form-control" placeholder="mwangi@demo.com" value={tenantEmail} onChange={e => setTenantEmail(e.target.value)} />
-                </div>
-              </div>
 
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">National ID / Passport</label>
-                  <input type="text" className="form-control" placeholder="3248910" value={tenantIdNum} onChange={e => setTenantIdNum(e.target.value)} />
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">National ID / Passport</label>
+                    <input type="text" className="form-control" placeholder="3248910" value={tenantIdNum} onChange={e => setTenantIdNum(e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Move-in Date</label>
+                    <input type="date" required className="form-control" value={moveInDate} onChange={e => setMoveInDate(e.target.value)} />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Move-in Date</label>
-                  <input type="date" required className="form-control" value={moveInDate} onChange={e => setMoveInDate(e.target.value)} />
-                </div>
-              </div>
 
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Assigned Rent Amount</label>
-                  <input type="number" required className="form-control" placeholder="30000" value={tenantRent} onChange={e => setTenantRent(e.target.value)} />
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Assigned Rent Amount</label>
+                    <input type="number" required className="form-control" placeholder="30000" value={tenantRent} onChange={e => setTenantRent(e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Monthly Billing Day</label>
+                    <input type="number" required className="form-control" min="1" max="28" value={billingDay} onChange={e => setBillingDay(e.target.value)} />
+                    <span className="text-muted" style={{ fontSize: '11px', display: 'block', marginTop: '4px' }}>
+                      Day of the month rent is billed, e.g. 1 for every 1st day.
+                    </span>
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Monthly Billing Day</label>
-                  <input type="number" required className="form-control" min="1" max="28" value={billingDay} onChange={e => setBillingDay(e.target.value)} />
-                </div>
-              </div>
 
-              <div style={{ borderTop: '1px solid var(--border)', margin: '12px 0' }} />
-              <p className="form-label" style={{ marginBottom: '8px' }}>Emergency Contact</p>
-              
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Full Name</label>
-                  <input type="text" className="form-control" placeholder="Parent / Spouse" value={emergencyName} onChange={e => setEmergencyName(e.target.value)} />
+                <div style={{ borderTop: '1px solid var(--border)', margin: '12px 0' }} />
+                <p className="form-label" style={{ marginBottom: '8px' }}>Emergency Contact</p>
+                
+                <div className="grid-2">
+                  <div className="form-group">
+                    <label className="form-label">Full Name</label>
+                    <input type="text" className="form-control" placeholder="Parent / Spouse" value={emergencyName} onChange={e => setEmergencyName(e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Phone No.</label>
+                    <input type="tel" className="form-control" placeholder="+254700..." value={emergencyPhone} onChange={e => setEmergencyPhone(e.target.value)} />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Phone No.</label>
-                  <input type="tel" className="form-control" placeholder="+254700..." value={emergencyPhone} onChange={e => setEmergencyPhone(e.target.value)} />
-                </div>
-              </div>
 
-              <div className="flex-gap" style={{ marginTop: '12px' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowAddForm(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? 'Saving...' : 'Add & Occupy Unit'}</button>
-              </div>
-            </form>
+                <div className="flex-gap" style={{ marginTop: '16px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setShowAddForm(false);
+                      resetTenantForm();
+                      setError('');
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary" disabled={loading}>
+                    {loading ? 'Saving...' : 'Add & Occupy Unit'}
+                  </button>
+                </div>
+              </form>
+            </div>
           )}
 
           {/* CARETAKER FORM */}
