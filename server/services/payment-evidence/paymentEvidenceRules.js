@@ -56,13 +56,39 @@ export const EVIDENCE_STRENGTHS = {
 };
 
 export const IGNORE_KEYWORDS = [
-  'charge',
   'fee',
+  'charge',
+  'bank charge',
+  'bank charges',
+  'transaction fee',
+  'excise duty',
   'excise',
+  'charges',
+  'commission',
+  'reversal',
+  'refund',
+  'opening balance',
+  'closing balance',
+  'balance brought forward',
+  'balance carried forward',
+  'balance b/f',
+  'balance c/f',
+  'opening bal',
+  'closing bal',
+  'internal transfer',
+  'failed transaction',
+  'declined transaction',
+  'cancelled transaction',
+  'loan deduction',
   'loan',
   'interest',
   'airtime',
-  'subscription'
+  'subscription',
+  'subtotal',
+  'total credit',
+  'total debit',
+  'brought forward',
+  'carried forward'
 ];
 
 // Per-matcher date windows in days

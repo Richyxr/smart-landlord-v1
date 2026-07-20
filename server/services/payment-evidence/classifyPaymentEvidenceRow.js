@@ -12,7 +12,7 @@ export function classifyPaymentEvidenceRow(row) {
 
   // 1. Classify Direction (Credit vs Debit) if not explicitly set
   if (!result.direction || result.direction === DIRECTIONS.UNKNOWN) {
-    const textToCheck = `${result.description || ''} ${result.raw_text || ''}`.toLowerCase();
+    const textToCheck = `${result.narration || ''} ${result.description || ''} ${result.raw_text || ''}`.toLowerCase();
 
     // Signed amount check
     if (result.amount < 0) {
@@ -83,7 +83,7 @@ export function classifyPaymentEvidenceRow(row) {
   }
 
   // 3. Check for Ignore Keywords
-  const textToScan = `${result.description || ''} ${result.raw_text || ''} ${result.payer_name || ''}`.toLowerCase();
+  const textToScan = `${result.narration || ''} ${result.description || ''} ${result.raw_text || ''} ${result.payer_name || ''}`.toLowerCase();
   const matchedKeyword = IGNORE_KEYWORDS.find(keyword => textToScan.includes(keyword));
 
   if (matchedKeyword) {
