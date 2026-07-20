@@ -600,7 +600,9 @@ export function createPropertyRoutes(pgDb) {
           u.unit_code,
           COALESCE(SUM(i.balance) FILTER (WHERE i.status NOT IN ('paid', 'void')), 0)::numeric AS balance,
           lp.amount AS last_payment_amount,
-          lp.transaction_date AS last_payment_date
+          lp.transaction_date AS last_payment_date,
+          li.issue_date AS last_rent_invoice_date,
+          li.invoice_number AS last_rent_invoice_number
         FROM tenants t
         LEFT JOIN properties p
           ON p.id = t.property_id
@@ -621,9 +623,19 @@ export function createPropertyRoutes(pgDb) {
           ORDER BY tx.transaction_date DESC
           LIMIT 1
         ) lp ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT issue_date, invoice_number
+          FROM invoices rent_invoice
+          WHERE rent_invoice.organization_id = t.organization_id
+            AND rent_invoice.tenant_id = t.id
+            AND rent_invoice.invoice_type = 'rent'
+            AND rent_invoice.status <> 'void'
+          ORDER BY rent_invoice.issue_date DESC, rent_invoice.id DESC
+          LIMIT 1
+        ) li ON TRUE
         WHERE t.organization_id = $1
           AND t.id = ANY($2::bigint[])
-        GROUP BY t.id, p.name, u.unit_code, lp.amount, lp.transaction_date
+        GROUP BY t.id, p.name, u.unit_code, lp.amount, lp.transaction_date, li.issue_date, li.invoice_number
       `,
       [orgId, tenantIds]
     );
@@ -635,7 +647,9 @@ export function createPropertyRoutes(pgDb) {
       unit_code: detailByTenantId.get(tenant.id)?.unit_code || 'Unknown Unit',
       balance: Number(detailByTenantId.get(tenant.id)?.balance || 0),
       last_payment_amount: detailByTenantId.get(tenant.id)?.last_payment_amount || null,
-      last_payment_date: detailByTenantId.get(tenant.id)?.last_payment_date || null
+      last_payment_date: detailByTenantId.get(tenant.id)?.last_payment_date || null,
+      last_rent_invoice_date: detailByTenantId.get(tenant.id)?.last_rent_invoice_date || null,
+      last_rent_invoice_number: detailByTenantId.get(tenant.id)?.last_rent_invoice_number || null
     })));
   }));
 
@@ -720,4 +734,3 @@ export function createPropertyRoutes(pgDb) {
 
   return router;
 }
-

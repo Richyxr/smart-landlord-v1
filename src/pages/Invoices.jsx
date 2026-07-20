@@ -27,6 +27,18 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [paymentReceipt, setPaymentReceipt] = useState(null);
 
+  // Landlord-confirmed monthly rent invoice generation
+  const [showRentGeneration, setShowRentGeneration] = useState(false);
+  const [rentGenerationPeriod, setRentGenerationPeriod] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [rentGenerationPreview, setRentGenerationPreview] = useState(null);
+  const [rentGenerationConfirmation, setRentGenerationConfirmation] = useState('');
+  const [rentGenerationResult, setRentGenerationResult] = useState(null);
+  const [rentGenerationError, setRentGenerationError] = useState('');
+  const [rentGenerationLoading, setRentGenerationLoading] = useState(false);
+
   // PIN modal triggers
   const [pinTargetId, setPinTargetId] = useState(null);
 
@@ -346,6 +358,75 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
       setError('Failed to fetch invoice details.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadRentGenerationPreview = async (period = rentGenerationPeriod) => {
+    setRentGenerationLoading(true);
+    setRentGenerationError('');
+    setRentGenerationResult(null);
+    try {
+      const res = await fetch('/api/invoices/rent-generation-preview', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period_month: period })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || 'Failed to preview rent invoices.');
+      setRentGenerationPreview(data);
+    } catch (err) {
+      setRentGenerationPreview(null);
+      setRentGenerationError(err.message);
+    } finally {
+      setRentGenerationLoading(false);
+    }
+  };
+
+  const openRentGeneration = () => {
+    setShowRentGeneration(true);
+    setRentGenerationConfirmation('');
+    setRentGenerationResult(null);
+    setRentGenerationError('');
+    loadRentGenerationPreview(rentGenerationPeriod);
+  };
+
+  const closeRentGeneration = () => {
+    setShowRentGeneration(false);
+    setRentGenerationConfirmation('');
+    setRentGenerationResult(null);
+    setRentGenerationError('');
+  };
+
+  const confirmRentInvoiceGeneration = async () => {
+    if (rentGenerationConfirmation !== 'GENERATE RENT INVOICES') return;
+    setRentGenerationLoading(true);
+    setRentGenerationError('');
+    try {
+      const res = await fetch('/api/invoices/generate-rent-invoices', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          period_month: rentGenerationPeriod,
+          confirmation_text: rentGenerationConfirmation
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || 'Failed to generate rent invoices.');
+      setRentGenerationResult(data);
+      setRentGenerationConfirmation('');
+      await fetchBillingData();
+      onRefresh?.();
+
+      const previewRes = await fetch('/api/invoices/rent-generation-preview', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period_month: rentGenerationPeriod })
+      });
+      if (previewRes.ok) setRentGenerationPreview(await previewRes.json());
+    } catch (err) {
+      setRentGenerationError(err.message);
+    } finally {
+      setRentGenerationLoading(false);
     }
   };
 
@@ -720,6 +801,152 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: '18px' }}>
+      {/* SAFE MONTHLY RENT INVOICE GENERATION MODAL */}
+      {showRentGeneration && (
+        <div className="modal-backdrop">
+          <div className="modal-content" style={{ width: 'min(940px, calc(100vw - 24px))', maxWidth: '940px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+              <div>
+                <h3 style={{ fontWeight: '700', fontSize: '18px', margin: 0 }}>Generate Rent Invoices</h3>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0' }}>
+                  Preview missing monthly rent invoices before creating anything.
+                </p>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={closeRentGeneration} aria-label="Close rent invoice generation">
+                <X size={14} />
+              </button>
+            </div>
+
+            <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border)', fontSize: '12px' }}>
+              This preview does not create invoices. Invoices are created only after confirmation.
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', flexWrap: 'wrap' }}>
+              <div className="form-group" style={{ margin: 0, minWidth: '180px' }}>
+                <label className="form-label" htmlFor="rent-generation-period">Billing period month</label>
+                <input
+                  id="rent-generation-period"
+                  type="month"
+                  className="form-control"
+                  value={rentGenerationPeriod}
+                  onChange={event => setRentGenerationPeriod(event.target.value)}
+                  disabled={rentGenerationLoading}
+                />
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => loadRentGenerationPreview(rentGenerationPeriod)}
+                disabled={rentGenerationLoading || !rentGenerationPeriod}
+              >
+                {rentGenerationLoading ? 'Loading...' : 'Refresh Preview'}
+              </button>
+            </div>
+
+            {rentGenerationError && (
+              <div role="alert" style={{ color: 'var(--danger)', fontSize: '12px' }}>{rentGenerationError}</div>
+            )}
+
+            {rentGenerationResult && (
+              <div role="status" style={{ padding: '12px', borderRadius: '10px', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.35)', fontSize: '13px' }}>
+                Created <strong>{rentGenerationResult.summary.created}</strong> invoice{rentGenerationResult.summary.created === 1 ? '' : 's'}; skipped <strong>{rentGenerationResult.summary.skipped}</strong> tenant{rentGenerationResult.summary.skipped === 1 ? '' : 's'}.
+              </div>
+            )}
+
+            {rentGenerationPreview && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(125px, 1fr))', gap: '8px' }}>
+                  {[
+                    ['Active tenants', rentGenerationPreview.summary.active_tenants],
+                    ['Ready to create', rentGenerationPreview.summary.ready_to_create],
+                    ['Already invoiced', rentGenerationPreview.summary.already_invoiced],
+                    ['Skipped', rentGenerationPreview.summary.skipped],
+                    ['Total amount', formatCurrency(rentGenerationPreview.summary.total_amount_to_create)]
+                  ].map(([label, value]) => (
+                    <div key={label} style={{ padding: '10px', border: '1px solid var(--border)', borderRadius: '10px', background: 'var(--bg-surface-elevated)' }}>
+                      <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>{label}</div>
+                      <div style={{ fontSize: '15px', fontWeight: '800', marginTop: '3px' }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '10px' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '820px', fontSize: '11px' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg-surface-elevated)', textAlign: 'left' }}>
+                        <th style={{ padding: '9px' }}>Tenant</th>
+                        <th style={{ padding: '9px' }}>Unit</th>
+                        <th style={{ padding: '9px' }}>Period</th>
+                        <th style={{ padding: '9px' }}>Invoice date</th>
+                        <th style={{ padding: '9px' }}>Due date</th>
+                        <th style={{ padding: '9px', textAlign: 'right' }}>Rent amount</th>
+                        <th style={{ padding: '9px' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rentGenerationPreview.rows.map(row => (
+                        <tr key={row.tenant_id} style={{ borderTop: '1px solid var(--border)' }}>
+                          <td style={{ padding: '9px', fontWeight: '700' }}>{row.tenant_name}</td>
+                          <td style={{ padding: '9px' }}>{row.property_name || '—'} / {row.unit_label || '—'}</td>
+                          <td style={{ padding: '9px' }}>{row.billing_period_start} – {row.billing_period_end}</td>
+                          <td style={{ padding: '9px' }}>{row.invoice_date}</td>
+                          <td style={{ padding: '9px' }}>{row.due_date}</td>
+                          <td style={{ padding: '9px', textAlign: 'right', fontWeight: '700' }}>{formatCurrency(row.rent_amount)}</td>
+                          <td style={{ padding: '9px' }}>
+                            <span className={`badge ${row.status === 'ready_to_create' ? 'badge-success' : row.status === 'already_invoiced' ? 'badge-info' : 'badge-warning'}`}>
+                              {row.status.replace(/_/g, ' ')}
+                            </span>
+                            {row.warnings?.length > 0 && (
+                              <div style={{ marginTop: '4px', color: 'var(--text-muted)', maxWidth: '220px' }}>{row.warnings.join(' ')}</div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                  <p style={{ margin: '0 0 10px', fontSize: '12px' }}>
+                    You are about to create rent invoices for tenants that do not already have an invoice for this period.
+                  </p>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" htmlFor="rent-generation-confirmation">
+                      Type <strong>GENERATE RENT INVOICES</strong> to confirm
+                    </label>
+                    <input
+                      id="rent-generation-confirmation"
+                      type="text"
+                      className="form-control"
+                      value={rentGenerationConfirmation}
+                      onChange={event => setRentGenerationConfirmation(event.target.value)}
+                      autoComplete="off"
+                      disabled={rentGenerationLoading || rentGenerationPreview.summary.ready_to_create === 0}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-secondary" onClick={closeRentGeneration}>Cancel</button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={confirmRentInvoiceGeneration}
+                disabled={
+                  rentGenerationLoading ||
+                  rentGenerationConfirmation !== 'GENERATE RENT INVOICES' ||
+                  !rentGenerationPreview ||
+                  rentGenerationPreview.summary.ready_to_create === 0
+                }
+              >
+                {rentGenerationLoading ? 'Generating...' : 'Generate Invoices'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* SECURITY PIN MODAL */}
       {pinTargetId && (
@@ -1703,6 +1930,9 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => { setShowPaymentForm(true); setError(''); }}>
                 <CircleDollarSign size={14} /> Record Payment
+              </button>
+              <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={openRentGeneration}>
+                <FileText size={14} /> Generate Rent Invoices
               </button>
               <button className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => { setShowAddForm(true); resetForm(); }}>
                 <Plus size={14} /> Create New Invoice

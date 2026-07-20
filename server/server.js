@@ -17,6 +17,11 @@ import { createPaymentEvidenceRoutes } from './routes/paymentEvidenceRoutes.js';
 import { NotificationService } from './notificationService.js';
 import { PaymentDomainService } from './services/payment/PaymentDomainService.js';
 import {
+  buildRentInvoiceGenerationPreview,
+  executeRentInvoiceGeneration,
+  resolvePeriodMonth
+} from './services/rentInvoiceGeneration.js';
+import {
   setSecurityPinDb,
   setupPin,
   verifyPin,
@@ -2182,7 +2187,13 @@ app.post('/api/auth/caretaker/login', async (req, res) => {
 app.use('/api/properties', requireAuthenticated, requireAnyRole('landlord', 'caretaker'));
 app.use('/api/units', requireAuthenticated, requireAnyRole('landlord', 'caretaker'));
 app.use('/api/tenants', requireAuthenticated, requireAnyRole('landlord'));
-app.use('/api/invoices', requireAuthenticated, requireAnyRole('landlord'));
+app.use('/api/invoices', requireAuthenticated, (req, res, next) => {
+  const isRentGenerationRoute = req.method === 'POST' && (
+    req.path === '/rent-generation-preview' || req.path === '/generate-rent-invoices'
+  );
+  const allowedRoles = isRentGenerationRoute ? ['landlord', 'super_admin'] : ['landlord'];
+  return requireAnyRole(...allowedRoles)(req, res, next);
+});
 app.use('/api/payments', requireAuthenticated, requireAnyRole('landlord'));
 app.use('/api/reconciliation', requireAuthenticated, requireAnyRole('landlord'));
 app.use('/api/meter-readings', requireAuthenticated, requireAnyRole('landlord', 'caretaker'));
@@ -2194,6 +2205,239 @@ app.use('/api/compliance', requireAuthenticated, requireAnyRole('landlord'));
 app.use('/api/maintenance', requireAuthenticated, requireAnyRole('landlord', 'caretaker'));
 
 app.use('/api/admin', requireAuthenticated, requireAnyRole('super_admin'));
+
+function resolveRentGenerationOrganizationId(req) {
+  if (req.auth?.role === 'landlord') {
+    return Number(req.auth.organizationId) || null;
+  }
+  if (req.auth?.role === 'super_admin') {
+    return Number.parseInt(req.body?.organization_id, 10) || null;
+  }
+  return null;
+}
+
+async function loadPostgresRentGenerationData(queryable, organizationId) {
+  const [tenantsResult, unitsResult, propertiesResult, invoicesResult] = await Promise.all([
+    queryable.query('SELECT * FROM tenants WHERE organization_id = $1 ORDER BY id', [organizationId]),
+    queryable.query('SELECT * FROM units WHERE organization_id = $1 ORDER BY id', [organizationId]),
+    queryable.query('SELECT * FROM properties WHERE organization_id = $1 ORDER BY id', [organizationId]),
+    queryable.query('SELECT * FROM invoices WHERE organization_id = $1 ORDER BY id', [organizationId])
+  ]);
+  return {
+    tenants: tenantsResult.rows,
+    units: unitsResult.rows,
+    properties: propertiesResult.rows,
+    invoices: invoicesResult.rows
+  };
+}
+
+function loadJsonRentGenerationData(organizationId) {
+  const isInOrganization = row => Number(row.organization_id) === Number(organizationId);
+  return {
+    tenants: db.get('tenants').filter(isInOrganization),
+    units: db.get('units').filter(isInOrganization),
+    properties: db.get('properties').filter(isInOrganization),
+    invoices: db.get('invoices').filter(isInOrganization)
+  };
+}
+
+async function validateRentGenerationOrganization(req, res) {
+  const organizationId = resolveRentGenerationOrganizationId(req);
+  if (!organizationId) {
+    res.status(400).json({
+      error: 'ORGANIZATION_SCOPE_REQUIRED',
+      message: req.auth?.role === 'super_admin'
+        ? 'Super admin requests must include organization_id.'
+        : 'An organization-scoped landlord session is required.'
+    });
+    return null;
+  }
+
+  const organization = pgDb
+    ? await pgDb.findOne('organizations', { id: organizationId })
+    : db.findOne('organizations', { id: organizationId });
+  if (!organization) {
+    res.status(404).json({ error: 'Organization not found.' });
+    return null;
+  }
+  return organizationId;
+}
+
+app.post('/api/invoices/rent-generation-preview', async (req, res, next) => {
+  try {
+    const organizationId = await validateRentGenerationOrganization(req, res);
+    if (!organizationId) return;
+    const source = pgDb
+      ? await loadPostgresRentGenerationData(pgDb, organizationId)
+      : loadJsonRentGenerationData(organizationId);
+    res.json(buildRentInvoiceGenerationPreview({
+      organizationId,
+      periodMonth: req.body?.period_month,
+      ...source
+    }));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/invoices/generate-rent-invoices', async (req, res, next) => {
+  let client;
+  try {
+    const organizationId = await validateRentGenerationOrganization(req, res);
+    if (!organizationId) return;
+    const userId = req.auth?.userId;
+    const role = req.auth?.role;
+    const periodMonth = resolvePeriodMonth(req.body?.period_month);
+
+    if (pgDb) {
+      client = await pgDb.pool.connect();
+      await client.query('BEGIN');
+      await client.query(
+        'SELECT pg_advisory_xact_lock(hashtext($1))',
+        [`rent-invoice-generation:${organizationId}:${periodMonth}`]
+      );
+      const source = await loadPostgresRentGenerationData(client, organizationId);
+      const result = await executeRentInvoiceGeneration({
+        confirmationText: req.body?.confirmation_text,
+        organizationId,
+        periodMonth,
+        ...source,
+        createInvoice: async (row, invoiceNumber) => {
+          const invoiceResult = await client.query(
+            `
+              INSERT INTO invoices (
+                organization_id, property_id, unit_id, tenant_id, invoice_number,
+                invoice_type, status, issue_date, due_date, currency, subtotal,
+                total, amount_paid, balance, notes, created_by, issued_at
+              )
+              VALUES ($1, $2, $3, $4, $5, 'rent', 'issued', $6, $7, $8, $9, $9, 0, $9, $10, $11, now())
+              RETURNING *
+            `,
+            [
+              organizationId,
+              row.property_id,
+              row.unit_id,
+              row.tenant_id,
+              invoiceNumber,
+              row.invoice_date,
+              row.due_date,
+              row.currency,
+              row.rent_amount,
+              row.description,
+              userId
+            ]
+          );
+          const invoice = invoiceResult.rows[0];
+          await client.query(
+            `
+              INSERT INTO invoice_items (
+                organization_id, invoice_id, description, item_type, quantity, unit_price, total
+              )
+              VALUES ($1, $2, $3, 'rent', 1, $4, $4)
+            `,
+            [organizationId, invoice.id, row.description, row.rent_amount]
+          );
+          return invoice;
+        }
+      });
+
+      await client.query(
+        `
+          INSERT INTO audit_logs (
+            organization_id, actor_user_id, actor_role, action_type, target_type,
+            target_id, new_values, reason, metadata
+          )
+          VALUES ($1, $2, $3, 'rent_invoice_batch_generated', 'rent_invoice_batch', $4, $5::jsonb, $6, $7::jsonb)
+        `,
+        [
+          organizationId,
+          userId,
+          role,
+          result.created[0]?.id || null,
+          JSON.stringify({
+            period_month: result.period_month,
+            created_invoice_ids: result.created.map(invoice => invoice.id),
+            created_count: result.summary.created,
+            skipped_count: result.summary.skipped
+          }),
+          `Confirmed monthly rent invoice generation for ${result.period_month}.`,
+          JSON.stringify({ source: 'manual_batch', financial_mutation: result.financial_mutation })
+        ]
+      );
+      await client.query('COMMIT');
+      client.release();
+      client = null;
+      return res.json(result);
+    }
+
+    const source = loadJsonRentGenerationData(organizationId);
+    const result = await executeRentInvoiceGeneration({
+      confirmationText: req.body?.confirmation_text,
+      organizationId,
+      periodMonth,
+      ...source,
+      createInvoice: async (row, invoiceNumber) => {
+        const invoice = db.insert('invoices', {
+          organization_id: organizationId,
+          property_id: row.property_id,
+          unit_id: row.unit_id,
+          tenant_id: row.tenant_id,
+          invoice_number: invoiceNumber,
+          invoice_type: 'rent',
+          status: 'issued',
+          issue_date: row.invoice_date,
+          due_date: row.due_date,
+          currency: row.currency,
+          subtotal: row.rent_amount,
+          total: row.rent_amount,
+          amount_paid: 0,
+          balance: row.rent_amount,
+          notes: row.description,
+          created_by: userId,
+          issued_at: new Date().toISOString(),
+          voided_at: null,
+          voided_by: null
+        });
+        db.insert('invoice_items', {
+          organization_id: organizationId,
+          invoice_id: invoice.id,
+          description: row.description,
+          item_type: 'rent',
+          quantity: 1,
+          unit_price: row.rent_amount,
+          total: row.rent_amount
+        });
+        return invoice;
+      }
+    });
+    db.logAudit(
+      organizationId,
+      userId,
+      role,
+      'rent_invoice_batch_generated',
+      'rent_invoice_batch',
+      result.created[0]?.id || null,
+      null,
+      {
+        period_month: result.period_month,
+        created_invoice_ids: result.created.map(invoice => invoice.id),
+        created_count: result.summary.created,
+        skipped_count: result.summary.skipped
+      },
+      `Confirmed monthly rent invoice generation for ${result.period_month}.`
+    );
+    return res.json(result);
+  } catch (error) {
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+      } finally {
+        client.release();
+      }
+    }
+    next(error);
+  }
+});
 
 if (pgDb) {
   app.use('/api', createWebhookRoutes(pgDb, { demoMode: DEMO_MODE }));
