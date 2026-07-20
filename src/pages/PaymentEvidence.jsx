@@ -1537,6 +1537,25 @@ Please split the file into smaller batches or wait for the upcoming server-side 
   return (
     <div className="payment-evidence-container" style={{ display: 'flex', flexDirection: 'column', flex: 1, gap: isMobile ? '14px' : '20px', maxWidth: '100%', boxSizing: 'border-box' }}>
 
+      <style>{`
+        @media (max-width: 768px) {
+          .reconciliation-desktop-stepper {
+            display: none !important;
+          }
+          .reconciliation-mobile-flow {
+            display: flex !important;
+          }
+        }
+        @media (min-width: 769px) {
+          .reconciliation-desktop-stepper {
+            display: flex !important;
+          }
+          .reconciliation-mobile-flow {
+            display: none !important;
+          }
+        }
+      `}</style>
+
       {/* HEADER SECTION & BREADCRUMB */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -1652,6 +1671,49 @@ Please split the file into smaller batches or wait for the upcoming server-side 
 
       {activeSubTab === 'wizard' && (
         <React.Fragment>
+          {/* DESKTOP WORKFLOW STEPPER (Visible only on desktop >=769px via CSS) */}
+          <div className="card reconciliation-desktop-stepper" style={{ padding: '12px 16px', flexDirection: 'column', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>Workflow:</span>
+              {[
+                { step: 1, label: 'Upload Statement' },
+                { step: 2, label: 'Preview Extracted Rows' },
+                { step: 3, label: 'Review Matches' },
+                { step: 4, label: 'Confirm Payment' },
+                { step: 5, label: 'Receipt Preview' },
+                { step: 6, label: 'Issued Receipt' }
+              ].map((item, idx) => {
+                const isCompleted = item.step < activePageStep;
+                const isActive = item.step === activePageStep;
+                return (
+                  <React.Fragment key={item.step}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+                      <div style={{
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '50%',
+                        backgroundColor: isCompleted || isActive ? 'var(--primary)' : 'var(--bg-surface-elevated)',
+                        color: isCompleted || isActive ? '#ffffff' : 'var(--text-muted)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '10px',
+                        fontWeight: '700',
+                        border: isCompleted || isActive ? 'none' : '1px solid var(--border)'
+                      }}>
+                        {isCompleted ? <Check size={12} strokeWidth={3} /> : item.step}
+                      </div>
+                      <span style={{ fontSize: '11px', fontWeight: isActive ? '700' : isCompleted ? '600' : '400', color: isActive ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                        {item.label}
+                      </span>
+                    </div>
+                    {idx < 5 && <span style={{ color: 'var(--border)', fontSize: '11px' }}>→</span>}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </div>
+
           {/* 1. MAIN UPLOAD STATEMENT CARD (First visible action area) */}
           <div className="card" style={{ padding: isMobile ? '16px' : '20px', display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '100%', overflow: 'hidden', boxSizing: 'border-box' }}>
             <div>
@@ -1849,111 +1911,67 @@ Please split the file into smaller batches or wait for the upcoming server-side 
             <span>Preview only. No invoice balances, tenant balances, receipts, or ledger records change until you confirm a payment.</span>
           </div>
 
-          {/* 3. WORKFLOW PROGRESS CARD */}
-          {isMobile ? (
-            <div className="card" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <h4 style={{ margin: 0, fontSize: '13px', fontWeight: '700' }}>Reconciliation Flow</h4>
-                <span className="badge badge-info" style={{ fontSize: '10px' }}>Step {activePageStep} of 6</span>
-              </div>
+          {/* 3. MOBILE RECONCILIATION FLOW CARD (Visible only on mobile <=768px via CSS) */}
+          <div className="card reconciliation-mobile-flow" style={{ padding: '14px 16px', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <h4 style={{ margin: 0, fontSize: '13px', fontWeight: '700' }}>Reconciliation Flow</h4>
+              <span className="badge badge-info" style={{ fontSize: '10px' }}>Step {activePageStep} of 6</span>
+            </div>
 
-              <div style={{
-                padding: '10px 12px',
-                borderRadius: '6px',
-                backgroundColor: 'var(--bg-surface-elevated)',
-                border: '1px solid var(--border)',
-                fontSize: '12px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '4px'
-              }}>
-                <div><strong>Current step:</strong> Upload Statement</div>
-                <div style={{ color: 'var(--text-muted)' }}><strong>Next:</strong> Preview Extracted Rows</div>
-              </div>
+            <div style={{
+              padding: '10px 12px',
+              borderRadius: '6px',
+              backgroundColor: 'var(--bg-surface-elevated)',
+              border: '1px solid var(--border)',
+              fontSize: '12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px'
+            }}>
+              <div><strong>Current step:</strong> Upload Statement</div>
+              <div style={{ color: 'var(--text-muted)' }}><strong>Next:</strong> Preview Extracted Rows</div>
+            </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '2px' }}>
-                {[
-                  { step: 1, label: 'Upload Statement' },
-                  { step: 2, label: 'Preview Extracted Rows' },
-                  { step: 3, label: 'Review Matches' },
-                  { step: 4, label: 'Confirm Payment' },
-                  { step: 5, label: 'Receipt Preview' },
-                  { step: 6, label: 'Issued Receipt' }
-                ].map((item) => {
-                  const isCompleted = item.step < activePageStep;
-                  const isActive = item.step === activePageStep;
-                  return (
-                    <div key={item.step} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{
-                        width: '20px',
-                        height: '20px',
-                        borderRadius: '50%',
-                        backgroundColor: isCompleted || isActive ? 'var(--primary)' : 'var(--bg-surface-elevated)',
-                        color: isCompleted || isActive ? '#ffffff' : 'var(--text-muted)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '10px',
-                        fontWeight: '700',
-                        border: isCompleted || isActive ? 'none' : '1px solid var(--border)',
-                        flexShrink: 0
-                      }}>
-                        {isCompleted ? <Check size={12} strokeWidth={3} /> : item.step}
-                      </div>
-                      <span style={{ fontSize: '12px', fontWeight: isActive ? '700' : isCompleted ? '600' : '400', color: isActive ? 'var(--text-primary)' : isCompleted ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                        {item.label}
-                      </span>
-                      {isActive && (
-                        <span className="badge badge-primary" style={{ marginLeft: 'auto', fontSize: '9px', padding: '2px 6px' }}>Current</span>
-                      )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '2px' }}>
+              {[
+                { step: 1, label: 'Upload Statement' },
+                { step: 2, label: 'Preview Extracted Rows' },
+                { step: 3, label: 'Review Matches' },
+                { step: 4, label: 'Confirm Payment' },
+                { step: 5, label: 'Receipt Preview' },
+                { step: 6, label: 'Issued Receipt' }
+              ].map((item) => {
+                const isCompleted = item.step < activePageStep;
+                const isActive = item.step === activePageStep;
+                return (
+                  <div key={item.step} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '50%',
+                      backgroundColor: isCompleted || isActive ? 'var(--primary)' : 'var(--bg-surface-elevated)',
+                      color: isCompleted || isActive ? '#ffffff' : 'var(--text-muted)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      border: isCompleted || isActive ? 'none' : '1px solid var(--border)',
+                      flexShrink: 0
+                    }}>
+                      {isCompleted ? <Check size={12} strokeWidth={3} /> : item.step}
                     </div>
-                  );
-                })}
-              </div>
+                    <span style={{ fontSize: '12px', fontWeight: isActive ? '700' : isCompleted ? '600' : '400', color: isActive ? 'var(--text-primary)' : isCompleted ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                      {item.label}
+                    </span>
+                    {isActive && (
+                      <span className="badge badge-primary" style={{ marginLeft: 'auto', fontSize: '9px', padding: '2px 6px' }}>Current</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          ) : (
-            <div className="card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>Workflow:</span>
-                {[
-                  { step: 1, label: 'Upload Statement' },
-                  { step: 2, label: 'Preview Extracted Rows' },
-                  { step: 3, label: 'Review Matches' },
-                  { step: 4, label: 'Confirm Payment' },
-                  { step: 5, label: 'Receipt Preview' },
-                  { step: 6, label: 'Issued Receipt' }
-                ].map((item, idx) => {
-                  const isCompleted = item.step < activePageStep;
-                  const isActive = item.step === activePageStep;
-                  return (
-                    <React.Fragment key={item.step}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
-                        <div style={{
-                          width: '20px',
-                          height: '20px',
-                          borderRadius: '50%',
-                          backgroundColor: isCompleted || isActive ? 'var(--primary)' : 'var(--bg-surface-elevated)',
-                          color: isCompleted || isActive ? '#ffffff' : 'var(--text-muted)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '10px',
-                          fontWeight: '700',
-                          border: isCompleted || isActive ? 'none' : '1px solid var(--border)'
-                        }}>
-                          {isCompleted ? <Check size={12} strokeWidth={3} /> : item.step}
-                        </div>
-                        <span style={{ fontSize: '11px', fontWeight: isActive ? '700' : isCompleted ? '600' : '400', color: isActive ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                          {item.label}
-                        </span>
-                      </div>
-                      {idx < 5 && <span style={{ color: 'var(--border)', fontSize: '11px' }}>→</span>}
-                    </React.Fragment>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          </div>
 
           {/* 4. FIRST-USE FRIENDLY EMPTY STATE (Only when no preview result and no data) */}
           {!hasPreviewResult && !hasAnyReconciliationData && (
