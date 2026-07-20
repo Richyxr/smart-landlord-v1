@@ -801,6 +801,9 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                   <div className="form-group">
                     <label className="form-label">Phone No.</label>
                     <input type="tel" className="form-control" placeholder={tenantPhoneExample} value={emergencyPhone} onChange={e => setEmergencyPhone(e.target.value)} />
+                    <span className="text-muted" style={{ fontSize: '11px', display: 'block', marginTop: '4px' }}>
+                      Use international format. Example: {tenantPhoneExample}
+                    </span>
                   </div>
                 </div>
 

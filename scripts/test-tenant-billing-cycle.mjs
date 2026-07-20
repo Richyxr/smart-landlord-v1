@@ -177,12 +177,13 @@ test('Properties.jsx combines trimmed first and last names into backend full_nam
 test('Properties.jsx generates tenant phone examples from the organization country', () => {
   const content = fs.readFileSync('src/pages/Properties.jsx', 'utf8');
   const tenantForm = content.slice(content.indexOf('{/* TENANT FORM */}'), content.indexOf('{/* CARETAKER FORM */}'));
-  const directKenyaPlaceholder = `placeholder="${getCountryDialCodeFromOrganization({ country: 'Kenya' })}712345678"`;
+  const dynamicPlaceholders = tenantForm.match(/placeholder=\{tenantPhoneExample\}/g) || [];
+  const dynamicHelpers = tenantForm.match(/Use international format\. Example: \{tenantPhoneExample\}/g) || [];
   assert(content.includes('getCountryDialCodeFromOrganization(organization)'), 'Tenant dial code should come from the organization');
   assert(content.includes('const tenantPhoneExample = `${tenantDialCode}712345678`;'), 'Tenant phone example should be composed from the derived dial code');
-  assert(tenantForm.includes('placeholder={tenantPhoneExample}'), 'Tenant form phone placeholders should use the dynamic example');
-  assert(tenantForm.includes('Use international format. Example: {tenantPhoneExample}'), 'Tenant phone helper should show the dynamic example');
-  assert(!tenantForm.includes(directKenyaPlaceholder), 'Tenant form should not directly hardcode a Kenyan phone placeholder');
+  assert.strictEqual(dynamicPlaceholders.length, 2, 'Main and emergency phone placeholders should both use the dynamic example');
+  assert.strictEqual(dynamicHelpers.length, 2, 'Main and emergency phone helpers should both use the dynamic example');
+  assert(!content.includes('+254712345678'), 'Properties.jsx should not contain a hardcoded Kenyan phone example');
 });
 
 test('organization country maps to the expected tenant phone dial code', () => {
