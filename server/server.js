@@ -2765,13 +2765,27 @@ app.get('/api/tenants', (req, res) => {
       return latest;
     }, null);
 
+    // Rent invoice summary for billing cycle calculations
+    const tenantRentInvoices = invoices.filter(inv => inv.tenant_id === t.id && inv.invoice_type === 'rent' && inv.status !== 'void');
+    const lastRentInvoice = tenantRentInvoices.reduce((latest, current) => {
+      const currentDate = current.issue_date || current.created_at;
+      const latestDate = latest ? (latest.issue_date || latest.created_at) : null;
+      if (!latestDate || new Date(currentDate) > new Date(latestDate)) {
+        return current;
+      }
+      return latest;
+    }, null);
+
     return {
       ...t,
+      billing_day: t.billing_day ? parseInt(t.billing_day) : 1,
       property_name: prop ? prop.name : 'Unknown Property',
       unit_code: unit ? unit.unit_code : 'Unknown Unit',
       balance: totalArrears,
       last_payment_amount: lastPayment ? lastPayment.amount : null,
-      last_payment_date: lastPayment ? lastPayment.transaction_date : null
+      last_payment_date: lastPayment ? lastPayment.transaction_date : null,
+      last_rent_invoice_date: lastRentInvoice ? (lastRentInvoice.issue_date || (lastRentInvoice.created_at ? String(lastRentInvoice.created_at).substring(0, 10) : null)) : null,
+      last_rent_invoice_number: lastRentInvoice ? lastRentInvoice.invoice_number : null
     };
   });
 

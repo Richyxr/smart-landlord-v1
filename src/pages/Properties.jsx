@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, Home, MapPin, DoorOpen, User, Phone, Mail, CreditCard, Calendar, Wrench, Plus, Check } from 'lucide-react';
+import { Building2, Home, MapPin, DoorOpen, User, Phone, Mail, CreditCard, Calendar, Wrench, Plus, Check, AlertTriangle } from 'lucide-react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
+import { calculateTenantBillingCycle, formatReadableDate } from '../utils/billingCycle.js';
 
 export default function Properties({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab }) {
   const [activeTab, setActiveTab] = useState(initialSubTab || 'properties'); // properties, units, tenants, caretakers
@@ -15,6 +16,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
   const [pinAction, setPinAction] = useState(null); // { type: string, id?: number, name?: string, data?: any }
   const [units, setUnits] = useState([]);
   const [tenants, setTenants] = useState([]);
+  const [invoices, setInvoices] = useState([]);
   const [caretakers, setCaretakers] = useState([]);
   
   // Form Toggles & State
@@ -96,15 +98,19 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
         setUnits(dataUnits);
         setProperties(dataProps);
       } else if (activeTab === 'tenants') {
-        const [resTenants, resProps, resUnits] = await Promise.all([
+        const [resTenants, resProps, resUnits, resInvoices] = await Promise.all([
           fetch('/api/tenants', { headers }),
           fetch('/api/properties', { headers }),
-          fetch('/api/units', { headers })
+          fetch('/api/units', { headers }),
+          fetch('/api/invoices', { headers })
         ]);
         const dataTenants = await resTenants.json();
         setTenants(dataTenants);
         setProperties(await resProps.json());
         setUnits(await resUnits.json());
+        if (resInvoices && resInvoices.ok) {
+          setInvoices(await resInvoices.json());
+        }
       } else if (activeTab === 'caretakers') {
         const [resProps, resCt] = await Promise.all([
           fetch('/api/properties', { headers }),
@@ -961,39 +967,75 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                 No active tenants registered. Click the button above to occupy a vacant unit and add a tenant.
               </div>
             ) : (
-              tenants.map(t => (
-                <div key={t.id} className="card">
-                  <div className="flex-row">
-                    <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <User size={18} style={{ color: 'var(--primary)' }} />
-                      <span>{t.full_name}</span>
-                    </h3>
-                    <span className={`badge ${t.status === 'active' ? 'badge-success' : 'badge-danger'}`}>{t.status}</span>
-                  </div>
-                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Unit: <strong>{t.unit_code}</strong> ({t.property_name})
-                  </p>
-                  <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
-                  
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Phone size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Phone: <strong>{t.phone_number}</strong></span></div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Mail size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Email: <strong>{t.email}</strong></span></div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><CreditCard size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Account: <strong style={{ color: 'var(--primary)', letterSpacing: '0.5px' }}>{t.tenant_account_number}</strong></span></div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Moved In: {t.move_in_date}</span></div>
-                  </div>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px', background: 'var(--bg-surface-elevated)', padding: '8px', borderRadius: '6px' }}>
-                    <span style={{ fontSize: '12px' }}>Monthly Rent: <strong>{formatCurrency(t.rent_amount)}</strong></span>
-                    <span style={{ fontSize: '12px' }}>Owes: <strong style={{ color: t.balance > 0 ? 'var(--danger)' : 'var(--success)' }}>{formatCurrency(t.balance)}</strong></span>
-                  </div>
-
-                  {t.status === 'active' && (
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px', justifyContent: 'flex-end' }}>
-                      <button className="btn btn-danger btn-sm" onClick={() => handleVacateTenant(t.id)}>Vacate Tenant</button>
+              tenants.map(t => {
+                const billingInfo = calculateTenantBillingCycle(t, invoices);
+                return (
+                  <div key={t.id} className="card">
+                    <div className="flex-row">
+                      <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <User size={18} style={{ color: 'var(--primary)' }} />
+                        <span>{t.full_name}</span>
+                      </h3>
+                      <span className={`badge ${t.status === 'active' ? 'badge-success' : 'badge-danger'}`}>{t.status}</span>
                     </div>
-                  )}
-                </div>
-              ))
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      Unit: <strong>{t.unit_code}</strong> ({t.property_name})
+                    </p>
+                    <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Phone size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Phone: <strong>{t.phone_number}</strong></span></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Mail size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Email: <strong>{t.email}</strong></span></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><CreditCard size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Account: <strong style={{ color: 'var(--primary)', letterSpacing: '0.5px' }}>{t.tenant_account_number}</strong></span></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Moved In: {t.move_in_date}</span></div>
+                    </div>
+
+                    {/* BILLING CYCLE SUMMARY PANEL */}
+                    <div style={{ marginTop: '10px', background: 'var(--bg-surface-elevated)', padding: '10px 12px', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                        <span>Billing Day: <strong style={{ color: 'var(--primary)' }}>{billingInfo.billingDayLabel}</strong></span>
+                        <span>Next Bill: <strong>{billingInfo.nextBillDisplay}</strong></span>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px', color: 'var(--text-secondary)' }}>
+                        <span>Current Period: <strong>{billingInfo.currentPeriodLabel}</strong></span>
+                        <span>Last Rent Invoice: <strong>{t.last_rent_invoice_date ? formatReadableDate(t.last_rent_invoice_date) : 'Not found'}</strong></span>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid var(--border)', margin: '2px 0' }} />
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                        <span>Monthly Rent: <strong>{formatCurrency(t.rent_amount)}</strong></span>
+                        <span>Outstanding Invoices: <strong style={{ color: t.balance > 0 ? 'var(--danger)' : 'var(--success)' }}>{formatCurrency(t.balance)}</strong></span>
+                      </div>
+
+                      {billingInfo.hasUnbilledWarning && (
+                        <div style={{
+                          marginTop: '4px',
+                          padding: '6px 10px',
+                          borderRadius: '4px',
+                          backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                          border: '1px solid rgba(255, 152, 0, 0.3)',
+                          color: 'var(--warning-dark, #b78103)',
+                          fontSize: '11px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}>
+                          <AlertTriangle size={13} style={{ flexShrink: 0, color: 'var(--warning, #f59e0b)' }} />
+                          <span>Possible unbilled rent: no rent invoice found for current period.</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {t.status === 'active' && (
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '12px', justifyContent: 'flex-end' }}>
+                        <button className="btn btn-danger btn-sm" onClick={() => handleVacateTenant(t.id)}>Vacate Tenant</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )
           )}
 
