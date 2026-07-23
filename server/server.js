@@ -939,7 +939,7 @@ async function recordCaretakerLoginFailure(user, membership, reason) {
     membership?.organization_id,
     user.id,
     lockNow ? 'caretaker_login_locked' : 'caretaker_login_failed',
-    lockNow ? 'Caretaker login locked after repeated failed attempts.' : `Caretaker login failed: ${reason}.`,
+lockNow ? 'Caretaker login locked after repeated failed attempts.' : `Caretaker login failed: ${reason}.`,
     'failed'
   );
 }
@@ -950,27 +950,61 @@ async function attachSessionContext(req, res, next) {
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
     if (token) {
-      const session = verifyToken(token);
-      if (!session) {
+      let session = null;
+      let firebaseUid = null;
+      let isLocalToken = false;
+
+      // Try Firebase Token first
+      try {
+        const decodedToken = await firebaseAdminAuth.verifyIdToken(token);
+        firebaseUid = decodedToken.uid;
+      } catch (err) {
+        // Fallback to local session token (for Caretaker login)
+        session = verifyToken(token);
+        if (session) {
+           isLocalToken = true;
+        }
+      }
+
+      if (!firebaseUid && !isLocalToken) {
         // /api/auth/firebase-profile receives Firebase ID tokens, not legacy Smart Landlord session tokens.
-        // Let the route handler verify Firebase tokens with firebase-admin.
         if (req.path === '/api/auth/firebase-profile' || req.path.startsWith('/api/auth/registration/')) {
           return next();
         }
-
         return res.status(401).json({ error: 'INVALID_SESSION', message: 'Session is invalid or expired.' });
       }
 
-      const user = await activeFindOne('users', { id: session.user_id });
-      const organization = session.organization_id
-        ? await activeFindOne('organizations', { id: session.organization_id })
-        : null;
+      let user = null;
+      let organization = null;
+      let role = null;
 
-      if (!user || (session.organization_id && !organization)) {
-        return res.status(401).json({ error: 'INVALID_SESSION', message: 'Session user or organization no longer exists.' });
+      if (firebaseUid) {
+        // Firebase Auth User (Landlord or Super Admin)
+        user = await activeFindOne('users', { firebase_uid: firebaseUid });
+        if (user) {
+          role = user.role;
+          const membershipRows = pgDb ? await pgDb.pool.query('SELECT organization_id FROM organization_members WHERE user_id = $1 LIMIT 1', [user.id]) : { rows: [] };
+          const orgId = membershipRows.rows[0]?.organization_id;
+          if (orgId) {
+             organization = await activeFindOne('organizations', { id: orgId });
+          }
+        }
+      } else if (isLocalToken) {
+        // Local Token User (Caretaker)
+        user = await activeFindOne('users', { id: session.user_id });
+        role = session.role;
+        organization = session.organization_id ? await activeFindOne('organizations', { id: session.organization_id }) : null;
       }
 
-      if (session.role === 'landlord' && (user.status === 'pending_verification' || user.email_verified === false)) {
+      if (!user || (role !== 'super_admin' && !organization && role !== 'caretaker')) {
+        // We might not have an org yet if they just registered, but let's allow basic auth
+        // The previous logic was: if (!user || (session.organization_id && !organization))
+        if (!user || (isLocalToken && session.organization_id && !organization)) {
+          return res.status(401).json({ error: 'INVALID_SESSION', message: 'Session user or organization no longer exists.' });
+        }
+      }
+
+      if (role === 'landlord' && (user.status === 'pending_verification' || user.email_verified === false)) {
         return res.status(403).json({
           error: 'EMAIL_VERIFICATION_REQUIRED',
           message: 'Please verify your email address before continuing.'
@@ -980,8 +1014,8 @@ async function attachSessionContext(req, res, next) {
       req.auth = {
         user,
         organization,
-        role: session.role,
-        userId: user.id,
+        role: role,
+        userId: user ? user.id : null,
         organizationId: organization ? organization.id : null
       };
     }
