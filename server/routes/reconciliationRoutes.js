@@ -2,8 +2,6 @@ import crypto from 'crypto';
 import express from 'express';
 import multer from 'multer';
 import bcrypt from 'bcryptjs';
-import fs from 'fs';
-import path from 'path';
 import { NotificationService } from '../notificationService.js';
 import { requireSecurityPin } from '../services/security/SecurityPinService.js';
 
@@ -11,16 +9,6 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 2 * 1024 * 1024
-  },
-  fileFilter: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const validTypes = ['text/csv', 'application/vnd.ms-excel'];
-    
-    if (validTypes.includes(file.mimetype) || ext === '.csv') {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only CSV files are allowed.'));
-    }
   }
 });
 
@@ -345,29 +333,24 @@ export function createReconciliationRoutes(pgDb) {
       return res.status(400).json({ error: 'No file uploaded.' });
     }
 
-    try {
-      const content = req.file.buffer.toString('utf8');
-      const { headers, rows } = parseCsv(content);
-      const uploadId = crypto.randomUUID();
+    const content = req.file.buffer.toString('utf8');
+    const { headers, rows } = parseCsv(content);
+    const uploadId = crypto.randomUUID();
 
-      uploadedCsvFiles.set(uploadId, {
-        organization_id: orgId,
-        uploaded_by: userId,
-        fileName: req.file.originalname,
-        content,
-        created_at: Date.now()
-      });
+    uploadedCsvFiles.set(uploadId, {
+      organization_id: orgId,
+      uploaded_by: userId,
+      fileName: req.file.originalname,
+      content,
+      created_at: Date.now()
+    });
 
-      res.json({
-        headers,
-        rows: rows.map(row => ({ id: row.id, data: row.data })),
-        fileName: req.file.originalname,
-        tempPath: uploadId
-      });
-    } catch (error) {
-      console.error('CSV parse error:', error);
-      res.status(400).json({ error: 'Failed to read CSV. Please ensure the file is a valid CSV and is not empty or corrupted.' });
-    }
+    res.json({
+      headers,
+      rows: rows.map(row => ({ id: row.id, data: row.data })),
+      fileName: req.file.originalname,
+      tempPath: uploadId
+    });
   }));
 
   router.post('/reconciliation/import-finalize', requireLandlord, asyncHandler(async (req, res) => {
@@ -383,9 +366,8 @@ export function createReconciliationRoutes(pgDb) {
       return res.status(400).json({ error: 'Upload token is invalid or expired.' });
     }
 
-    try {
-      const result = await withTransaction(pgDb, async client => {
-        const { headers, rows } = parseCsv(uploaded.content);
+    const result = await withTransaction(pgDb, async client => {
+      const { headers, rows } = parseCsv(uploaded.content);
 
       const batchResult = await client.query(
         `
@@ -515,12 +497,8 @@ export function createReconciliationRoutes(pgDb) {
       return { success: true, batchId: batch.id, headers };
     });
 
-      uploadedCsvFiles.delete(tempPath);
-      res.json(result);
-    } catch (error) {
-      console.error('Import finalize error:', error);
-      res.status(500).json({ error: 'Failed to process and import CSV statement rows. The transaction has been rolled back.' });
-    }
+    uploadedCsvFiles.delete(tempPath);
+    res.json(result);
   }));
 
   router.post('/reconciliation/match', requireLandlord, requireSecurityPin('reconcile_match'), asyncHandler(async (req, res) => {

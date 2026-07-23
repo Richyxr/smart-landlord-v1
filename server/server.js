@@ -3653,6 +3653,470 @@ app.post('/api/payments/:id/reverse', requireSecurityPin('reverse_payment'), (re
   res.json({ success: true, message: 'Transaction reversed successfully.' });
 });
 
+// --- RECONCILIATION WORKBENCH API ---
+
+// Get unmatched staging rows
+app.get('/api/reconciliation/staging', (req, res) => {
+  const orgId = req.auth?.organizationId;
+  const rows = db.find('reconciliation_staging_rows', { organization_id: orgId });
+  res.json(rows);
+});
+
+// Sample bank CSV download endpoint
+app.get('/api/reconciliation/sample-csv', (req, res) => {
+  const csvContent = `Date,Amount,Reference,Account number,Description,Payer name
+2026-06-15,45000,KCB-TR-88881,ACC-0010-A1,David Rent,David Kiprop
+2026-06-15,30000,KCB-TR-88882,ACC-0010-A2,Rent payment,Alice Wambui
+2026-06-16,15000,KCB-TR-88883,ACC-0020-G01,Bedsitter G01,John Mwangi
+2026-06-16,10000,KCB-TR-88884,ACC-0010-A2,Partial Payment,Alice Wambui
+2026-06-16,5000,KCB-TR-88885,,Cash Deposit,Samuel Nderitu`;
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=sample_bank_statement.csv');
+  res.send(csvContent);
+});
+
+// CSV Statement Upload
+app.post('/api/reconciliation/upload', upload.single('file'), (req, res) => {
+  const orgId = req.auth?.organizationId;
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded.' });
+  }
+
+  try {
+    const fileContent = fs.readFileSync(req.file.path, 'utf8');
+
+    // Simple line by line CSV parser
+    const lines = fileContent.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    if (lines.length < 2) {
+      return res.status(400).json({ error: 'Empty or invalid CSV file.' });
+    }
+
+    const headers = lines[0].split(',').map(h => h.trim());
+    const rawRows = lines.slice(1).map((line, index) => {
+      // Split by comma ignoring commas inside quotes if present (simplified regex for safety)
+      const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.replace(/^"|"$/g, '').trim());
+
+      const row = {};
+      headers.forEach((header, idx) => {
+        row[header] = values[idx] || '';
+      });
+      return { id: index + 1, data: row };
+    });
+
+    res.json({
+      headers,
+      rows: rawRows,
+      fileName: req.file.originalname,
+      tempPath: req.file.path
+    });
+  } catch (error) {
+    console.error('CSV Parsing error:', error);
+    res.status(500).json({ error: 'The file could not be imported. Please check the date, amount, reference, and description columns.' });
+  }
+});
+
+// Finalize CSV Import & Auto Match
+app.post('/api/reconciliation/import-finalize', (req, res) => {
+  const orgId = req.auth?.organizationId;
+  const { tempPath, fileName, mappings } = req.body;
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
+
+  if (!tempPath || !mappings) {
+    return res.status(400).json({ error: 'Missing temporary file path or column mappings.' });
+  }
+
+  try {
+    const fileContent = fs.readFileSync(tempPath, 'utf8');
+    const lines = fileContent.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    const headers = lines[0].split(',').map(h => h.trim());
+    const rows = lines.slice(1);
+
+    // Create Batch
+    const batch = db.insert('reconciliation_batches', {
+      organization_id: orgId,
+      uploaded_by: userId,
+      source_type: 'bank_csv',
+      original_file_name: fileName || 'statement.csv',
+      status: 'uploaded',
+      total_rows: rows.length,
+      matched_rows: 0,
+      unmatched_rows: 0,
+      duplicate_rows: 0,
+      invalid_rows: 0
+    });
+
+    let probableCount = 0;
+    let possibleCount = 0;
+    let unmatchedCount = 0;
+    let duplicateCount = 0;
+
+    const tenants = db.find('tenants', { organization_id: orgId });
+    const units = db.find('units', { organization_id: orgId, deleted_at: null });
+    const properties = db.find('properties', { organization_id: orgId, deleted_at: null });
+    const invoices = db.find('invoices', { organization_id: orgId }).filter(inv => inv.status !== 'paid' && inv.status !== 'void');
+
+    rows.forEach(line => {
+      const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.replace(/^"|"$/g, '').trim());
+      const rowData = {};
+      headers.forEach((header, idx) => {
+        rowData[header] = values[idx] || '';
+      });
+
+      // Extract mapped values
+      const dateVal = rowData[mappings.date];
+      const amountVal = parseFloat(rowData[mappings.amount]) || 0;
+      const refVal = rowData[mappings.reference];
+      const accVal = rowData[mappings.account_number] || '';
+      const descVal = rowData[mappings.description] || '';
+      const payerVal = rowData[mappings.payer_name] || '';
+
+      // Check duplicates
+      const isRefProvided = refVal && String(refVal).trim() !== '';
+      const dupLedger = isRefProvided ? db.findOne('transactions', { reference_number: refVal, organization_id: orgId }) : null;
+      const dupStaging = isRefProvided ? db.findOne('reconciliation_staging_rows', { reference_number: refVal, organization_id: orgId }) : null;
+
+      if (dupLedger || dupStaging) {
+        duplicateCount++;
+        db.insert('reconciliation_staging_rows', {
+          organization_id: orgId,
+          batch_id: batch.id,
+          raw_row_data: line,
+          transaction_date: dateVal,
+          amount: amountVal,
+          reference_number: refVal,
+          account_number: accVal,
+          description: descVal,
+          payer_name: payerVal,
+          status: 'duplicate',
+          error_message: 'Duplicate reference number.'
+        });
+        return;
+      }
+
+      // Safe Deterministic Weighted Match Logic
+      let bestTenant = null;
+      let bestInvoice = null;
+      let maxScore = 0;
+
+      tenants.forEach(tenant => {
+        let score = 0;
+
+        // 1. Account number match
+        if (accVal && tenant.tenant_account_number) {
+          if (tenant.tenant_account_number.toLowerCase() === accVal.toLowerCase()) {
+            score += 80;
+          }
+        }
+
+        // 2. Phone match
+        if (tenant.phone_number) {
+          const cleanPhone = tenant.phone_number.replace(/\D/g, '');
+          if (cleanPhone && cleanPhone.length > 5) {
+            if (descVal.includes(cleanPhone) || payerVal.includes(cleanPhone) || accVal.includes(cleanPhone)) {
+              score += 70;
+            }
+          }
+        }
+
+        // 3. Name match
+        if (payerVal && tenant.full_name) {
+          const tenantNameLower = tenant.full_name.toLowerCase();
+          const payerValLower = payerVal.toLowerCase();
+          if (tenantNameLower === payerValLower || payerValLower.includes(tenantNameLower) || tenantNameLower.includes(payerValLower)) {
+            score += 50;
+          } else {
+            // Check word inclusion
+            const tenantWords = tenantNameLower.split(/\s+/).filter(w => w.length > 3);
+            const payerWords = payerValLower.split(/\s+/).filter(w => w.length > 3);
+            const commonWords = tenantWords.filter(w => payerWords.includes(w));
+            if (commonWords.length > 0) {
+              score += 25 * commonWords.length;
+            }
+          }
+        }
+
+        // 4. Unit code match
+        const unit = units.find(u => u.id === tenant.unit_id);
+        if (unit && unit.unit_code) {
+          const unitCodeLower = unit.unit_code.toLowerCase();
+          const descLower = descVal.toLowerCase();
+          if (descLower.includes(unitCodeLower)) {
+            score += 40;
+          }
+        }
+
+        // 5. Property name match
+        if (unit) {
+          const prop = properties.find(p => p.id === unit.property_id);
+          if (prop && prop.name) {
+            const propNameLower = prop.name.toLowerCase();
+            const descLower = descVal.toLowerCase();
+            if (descLower.includes(propNameLower)) {
+              score += 20;
+            }
+          }
+        }
+
+        // 6. Rent amount match
+        if (tenant.rent_amount && Math.abs(tenant.rent_amount - amountVal) < 0.01) {
+          score += 30;
+        }
+
+        // 7. Invoice matching
+        const tenantInvs = invoices.filter(inv => inv.tenant_id === tenant.id);
+        let invoiceMatch = null;
+        let invoiceScore = 0;
+
+        tenantInvs.forEach(inv => {
+          let invScore = 0;
+
+          // Exact invoice number match in description
+          if (inv.invoice_number && descVal.toLowerCase().includes(inv.invoice_number.toLowerCase())) {
+            invScore += 100;
+          }
+
+          // Balance match
+          if (inv.balance && Math.abs(inv.balance - amountVal) < 0.01) {
+            invScore += 40;
+          }
+
+          // Date proximity
+          if (inv.due_date && dateVal) {
+            const daysDiff = Math.abs(new Date(inv.due_date) - new Date(dateVal)) / (1000 * 60 * 60 * 24);
+            if (daysDiff <= 5) {
+              invScore += 20;
+            }
+          }
+
+          if (invScore > invoiceScore) {
+            invoiceScore = invScore;
+            invoiceMatch = inv;
+          }
+        });
+
+        score += invoiceScore;
+
+        if (score > maxScore) {
+          maxScore = score;
+          bestTenant = tenant;
+          bestInvoice = invoiceMatch;
+        }
+      });
+
+      // Caps the confidence score to 99% for safety
+      const confidence = Math.min(Math.round(maxScore), 99);
+
+      let status = 'unmatched';
+      // High threshold (probable) >= 70
+      // Medium threshold (possible) >= 40
+      if (bestTenant && confidence >= 40) {
+        status = 'needs_review';
+        if (confidence >= 70) {
+          probableCount++;
+        } else {
+          possibleCount++;
+        }
+      } else {
+        unmatchedCount++;
+        bestTenant = null;
+        bestInvoice = null;
+      }
+
+      db.insert('reconciliation_staging_rows', {
+        organization_id: orgId,
+        batch_id: batch.id,
+        raw_row_data: line,
+        transaction_date: dateVal,
+        amount: amountVal,
+        reference_number: refVal,
+        account_number: accVal,
+        description: descVal,
+        payer_name: payerVal,
+        status,
+        suggested_tenant_id: bestTenant ? bestTenant.id : null,
+        suggested_unit_id: bestTenant ? bestTenant.unit_id : null,
+        suggested_invoice_id: bestInvoice ? bestInvoice.id : null,
+        confidence_score: confidence
+      });
+    });
+
+    // Update batch status
+    db.update('reconciliation_batches', batch.id, {
+      status: 'reviewed',
+      matched_rows: probableCount + possibleCount,
+      unmatched_rows: unmatchedCount,
+      duplicate_rows: duplicateCount
+    });
+
+    db.logAudit(orgId, userId, role, 'csv_uploaded', 'reconciliation_batch', batch.id, null, null, `Imported CSV statement: ${fileName}`);
+
+    // Delete temp upload file
+    try {
+      fs.unlinkSync(tempPath);
+    } catch (_) { }
+
+    res.json({
+      success: true,
+      batchId: batch.id,
+      summary: {
+        total: rows.length,
+        probable: probableCount,
+        possible: possibleCount,
+        unmatched: unmatchedCount,
+        duplicates: duplicateCount
+      }
+    });
+  } catch (error) {
+    console.error('Import error:', error);
+    res.status(500).json({ error: 'Failed to process and import CSV statement rows.' });
+  }
+});
+
+app.post('/api/reconciliation/match', requireSecurityPin('reconcile_match'), (req, res) => {
+  const orgId = req.auth?.organizationId;
+  const { row_id, tenant_id, invoice_id } = req.body;
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
+
+  const row = db.findOne('reconciliation_staging_rows', { id: parseInt(row_id), organization_id: orgId });
+  if (!row) return res.status(404).json({ error: 'Staging row not found.' });
+
+  const tenant = db.findOne('tenants', { id: parseInt(tenant_id), organization_id: orgId });
+  if (!tenant) return res.status(404).json({ error: 'Tenant not found.' });
+
+  // 1. Create Ledger Transaction
+  const transaction = db.insert('transactions', {
+    organization_id: orgId,
+    tenant_id: tenant.id,
+    property_id: tenant.property_id,
+    unit_id: tenant.unit_id,
+    amount: row.amount,
+    currency: tenant.currency || 'KES',
+    transaction_type: 'payment',
+    payment_method: 'bank',
+    source: 'bank_csv',
+    reference_number: row.reference_number,
+    account_number: row.account_number || tenant.tenant_account_number,
+    payer_name: row.payer_name || tenant.full_name,
+    payer_phone: tenant.phone_number,
+    transaction_date: row.transaction_date,
+    status: 'reconciled',
+    raw_payload: row.raw_row_data,
+    created_by: userId,
+    reconciled_by: userId,
+    reconciled_at: new Date().toISOString()
+  });
+
+  // 2. Allocate payment to invoice(s)
+  let remainingAmount = row.amount;
+
+  if (invoice_id) {
+    const inv = db.findOne('invoices', { id: parseInt(invoice_id), tenant_id: tenant.id });
+    if (inv) {
+      const toAllocate = Math.min(inv.balance, remainingAmount);
+      db.update('invoices', inv.id, {
+        amount_paid: inv.amount_paid + toAllocate,
+        balance: inv.balance - toAllocate,
+        status: (inv.balance - toAllocate) === 0 ? 'paid' : 'partially_paid'
+      });
+      db.insert('payment_allocations', {
+        organization_id: orgId,
+        transaction_id: transaction.id,
+        invoice_id: inv.id,
+        amount_allocated: toAllocate,
+        allocated_by: userId,
+        allocated_at: new Date().toISOString()
+      });
+      remainingAmount -= toAllocate;
+    }
+  }
+
+  // Allocate remaining to any other outstanding invoices
+  if (remainingAmount > 0) {
+    const unpaid = db.find('invoices', { tenant_id: tenant.id })
+      .filter(inv => inv.status === 'issued' || inv.status === 'partially_paid' || inv.status === 'overdue')
+      .sort((a, b) => new Date(a.due_date) - new Date(b.due_date));
+
+    for (const inv of unpaid) {
+      if (remainingAmount <= 0) break;
+      const toAllocate = Math.min(inv.balance, remainingAmount);
+      db.update('invoices', inv.id, {
+        amount_paid: inv.amount_paid + toAllocate,
+        balance: inv.balance - toAllocate,
+        status: (inv.balance - toAllocate) === 0 ? 'paid' : 'partially_paid'
+      });
+      db.insert('payment_allocations', {
+        organization_id: orgId,
+        transaction_id: transaction.id,
+        invoice_id: inv.id,
+        amount_allocated: toAllocate,
+        allocated_by: userId,
+        allocated_at: new Date().toISOString()
+      });
+      remainingAmount -= toAllocate;
+    }
+  }
+
+  // 3. Mark row as reconciled
+  db.update('reconciliation_staging_rows', row.id, {
+    status: 'reconciled',
+    matched_transaction_id: transaction.id,
+    reviewed_by: userId,
+    reviewed_at: new Date().toISOString()
+  });
+
+  db.logAudit(orgId, userId, role, 'csv_row_matched', 'reconciliation_staging_rows', row.id, null, transaction, `Manually matched transaction ref ${row.reference_number} to tenant ${tenant.full_name}`, 'success');
+
+  // SMS Confirmation
+  const notificationService = new NotificationService(null);
+  notificationService.queue({
+    organizationId: orgId,
+    tenantId: tenant.id,
+    channel: 'sms',
+    type: 'payment_confirmed',
+    data: {
+      amount: row.amount,
+      account_number: tenant.tenant_account_number,
+      reference: row.reference_number
+    }
+  });
+
+  res.json({ success: true, transactionId: transaction.id });
+});
+
+// Ignore row
+app.post('/api/reconciliation/ignore', requireSecurityPin('reconcile_ignore'), (req, res) => {
+  const orgId = req.auth?.organizationId;
+  const { row_id } = req.body;
+  const userId = req.auth?.userId;
+  const role = req.auth?.role;
+
+  const row = db.findOne('reconciliation_staging_rows', { id: parseInt(row_id), organization_id: orgId });
+  if (!row) return res.status(404).json({ error: 'Staging row not found.' });
+
+  let newStatus = 'ignored';
+  let auditAction = 'csv_row_ignored';
+  let auditMsg = `Ignored statement row: ${row_id}`;
+
+  if (row.status === 'ignored' || row.status === 'duplicate') {
+    // Restore
+    newStatus = (row.suggested_tenant_id && row.confidence_score >= 40) ? 'needs_review' : 'unmatched';
+    auditAction = 'csv_row_restored';
+    auditMsg = `Restored statement row: ${row_id} to ${newStatus}`;
+  }
+
+  const updated = db.update('reconciliation_staging_rows', row.id, {
+    status: newStatus,
+    reviewed_by: userId,
+    reviewed_at: new Date().toISOString()
+  });
+
+  db.logAudit(orgId, userId, role, auditAction, 'reconciliation_staging_rows', row_id, null, null, auditMsg);
+  res.json({ success: true });
+});
+
 // Webhook incoming payment endpoint (M-Pesa callback simulation)
 app.post('/api/webhooks/payment', (req, res) => {
   // Simulates MPesa Paybill callback format
