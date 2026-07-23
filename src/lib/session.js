@@ -72,6 +72,9 @@ export function installAuthFetch() {
     let token = null;
     
     if (shouldAttachToken) {
+      if (!auth.currentUser) {
+        await auth.authStateReady();
+      }
       if (auth.currentUser) {
         try {
           token = await auth.currentUser.getIdToken();

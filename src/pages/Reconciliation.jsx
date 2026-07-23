@@ -240,7 +240,7 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
   };
 
   const getFilteredRows = () => {
-    return stagingRows.filter(r => {
+    return (Array.isArray(stagingRows) ? stagingRows : []).filter(r => {
       if (filterStatus === 'ignored') {
         return r.status === 'ignored' || r.status === 'duplicate';
       }
@@ -249,7 +249,7 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
   };
 
   const getUnpaidInvoicesForTenant = (tenantId) => {
-    return invoices.filter(inv => inv.tenant_id === parseInt(tenantId) && inv.status !== 'paid' && inv.status !== 'void');
+    return (Array.isArray(invoices) ? invoices : []).filter(inv => inv.tenant_id === parseInt(tenantId) && inv.status !== 'paid' && inv.status !== 'void');
   };
 
   const getTenantName = (id) => {
@@ -423,7 +423,7 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
                 onChange={e => { setSelectedTenantId(e.target.value); setSelectedInvoiceId(''); }}
               >
                 <option value="">-- Select Matching Tenant --</option>
-                {tenants.filter(t => t.status === 'active').map(t => (
+                {(Array.isArray(tenants) ? tenants : []).filter(t => t.status === 'active').map(t => (
                   <option key={t.id} value={t.id}>{t.full_name} ({t.unit_code} - Acc: {t.tenant_account_number})</option>
                 ))}
               </select>

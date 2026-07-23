@@ -1402,7 +1402,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
       // Confirmed Allocations: counts both manually_reconciled and auto_reconciled rows.
       // "auto_reconciled" is a legacy internal status — the KPI label is "Confirmed Allocations".
       confirmedAllocations: 0,
-      total: evidenceRows.length
+      total: (Array.isArray(evidenceRows) ? evidenceRows : []).length
     };
 
     evidenceRows.forEach(r => {
@@ -1419,7 +1419,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
   const stats = getStats();
 
   // Derived booleans for progressive disclosure
-  const hasRows = Array.isArray(evidenceRows) && evidenceRows.length > 0;
+  const hasRows = Array.isArray(evidenceRows) && (Array.isArray(evidenceRows) ? evidenceRows : []).length > 0;
   const hasBatches = Array.isArray(batches) && batches.length > 0;
   const hasConfirmedPayments = (Array.isArray(evidenceRows) && evidenceRows.some(row =>
     row.status === 'manually_reconciled' || row.status === 'auto_reconciled'
@@ -1475,7 +1475,7 @@ Please split the file into smaller batches or wait for the upcoming server-side 
 
   const getFilteredRows = () => {
     const active = status || 'needs_review';
-    return evidenceRows.filter(row => {
+    return (Array.isArray(evidenceRows) ? evidenceRows : []).filter(row => {
       if (active === 'needs_review') {
         return row.status === 'needs_review' || row.status === 'candidate_found';
       }

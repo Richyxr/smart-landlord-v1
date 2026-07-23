@@ -114,12 +114,12 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
 
       const propertyUnitCount = props.reduce((acc, prop) => acc + toNumber(prop.total_units), 0);
       const propertyOccupiedCount = props.reduce((acc, prop) => acc + toNumber(prop.occupied_units), 0);
-      const unitCount = units.length > 0 ? units.length : propertyUnitCount;
-      const occupiedCount = units.length > 0
-        ? units.filter((u) => String(u.status || '').toLowerCase() === 'occupied').length
+      const unitCount = (Array.isArray(units) ? units : []).length > 0 ? (Array.isArray(units) ? units : []).length : propertyUnitCount;
+      const occupiedCount = (Array.isArray(units) ? units : []).length > 0
+        ? (Array.isArray(units) ? units : []).filter((u) => String(u.status || '').toLowerCase() === 'occupied').length
         : propertyOccupiedCount;
 
-      const activeTenants = tenants.filter((t) => t.status === 'active');
+      const activeTenants = (Array.isArray(tenants) ? tenants : []).filter((t) => t.status === 'active');
       const expected = activeTenants.reduce((acc, curr) => acc + toNumber(curr.rent_amount), 0);
       const collected = invoices
         .filter((inv) => String(inv.status || '').toLowerCase() === 'paid')
@@ -133,14 +133,14 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
         propertiesCount: props.length,
         unitsCount: unitCount,
         occupiedCount,
-        vacantCount: units.length > 0
-          ? units.filter((u) => String(u.status || '').toLowerCase() === 'vacant').length
+        vacantCount: (Array.isArray(units) ? units : []).length > 0
+          ? (Array.isArray(units) ? units : []).filter((u) => String(u.status || '').toLowerCase() === 'vacant').length
           : Math.max(unitCount - occupiedCount, 0),
         expectedRent: expected,
         collectedRent: collected,
         arrears: outstanding,
-        unmatchedCount: staging.filter((r) => r.status === 'unmatched' || r.status === 'needs_review').length,
-        pendingReadingsCount: readings.filter((r) => r.status === 'submitted').length,
+        unmatchedCount: (Array.isArray(staging) ? staging : []).filter((r) => r.status === 'unmatched' || r.status === 'needs_review').length,
+        pendingReadingsCount: (Array.isArray(readings) ? readings : []).filter((r) => r.status === 'submitted').length,
         saasLocked: !!saas.organization?.is_locked,
         readinessStatus: readiness.is_ready !== false,
         subscriptionStatus: saas.organization?.subscription_status || 'trial',

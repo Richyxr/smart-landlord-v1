@@ -75,18 +75,18 @@ export default function Stats() {
         .filter(i => i.status === 'overdue' || i.status === 'partially_paid')
         .reduce((acc, i) => acc + (i.balance || 0), 0);
 
-      const allocatedPayments = paymentsArray.filter(p => p.allocation_status === 'fully_allocated' || p.allocation_status === 'partially_allocated').length;
+      const allocatedPayments = (Array.isArray(paymentsArray) ? paymentsArray : []).filter(p => p.allocation_status === 'fully_allocated' || p.allocation_status === 'partially_allocated').length;
 
       setData({
         propertiesCount: props.length,
-        unitsCount: unts.length,
-        occupiedCount: unts.filter(u => u.status === 'occupied').length,
+        unitsCount: (Array.isArray(unts) ? unts : []).length,
+        occupiedCount: (Array.isArray(unts) ? unts : []).filter(u => u.status === 'occupied').length,
         tenantsCount: tnts.length,
         totalExpected: expected,
         totalCollected: collected,
         totalArrears: arrears,
         allocatedPaymentsCount: allocatedPayments,
-        totalPaymentsCount: paymentsArray.length
+        totalPaymentsCount: (Array.isArray(paymentsArray) ? paymentsArray : []).length
       });
     } catch (err) {
       console.error(err);
@@ -199,7 +199,7 @@ export default function Stats() {
 
           <div className="card">
             <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: '700' }}>Due Tenants Account Breakdown</h4>
-            {tenants.filter(t => t.balance > 0).length === 0 ? (
+            {(Array.isArray(tenants) ? tenants : []).filter(t => t.balance > 0).length === 0 ? (
               <EmptyState icon={CheckCircle} title="No Outstanding Arrears" description="All active tenant accounts are fully settled." />
             ) : (
               <table className="sl-table">
@@ -211,7 +211,7 @@ export default function Stats() {
                   </tr>
                 </thead>
                 <tbody>
-                  {tenants.filter(t => t.balance > 0).map(t => (
+                  {(Array.isArray(tenants) ? tenants : []).filter(t => t.balance > 0).map(t => (
                     <tr key={t.id}>
                       <td style={{ fontWeight: '600' }}>{t.full_name}</td>
                       <td>{t.unit_code}</td>
@@ -238,7 +238,7 @@ export default function Stats() {
 
           <div className="card">
             <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: '700' }}>Property Occupancy Details</h4>
-            {properties.length === 0 ? (
+            {(Array.isArray(properties) ? properties : []).length === 0 ? (
               <EmptyState icon={Home} title="No Properties Found" description="Configure properties to track occupancy." />
             ) : (
               <table className="sl-table">
@@ -250,9 +250,9 @@ export default function Stats() {
                   </tr>
                 </thead>
                 <tbody>
-                  {properties.map(p => {
-                    const totalUnits = units.filter(u => u.property_id === p.id).length;
-                    const occupiedUnits = units.filter(u => u.property_id === p.id && u.status === 'occupied').length;
+                  {(Array.isArray(properties) ? properties : []).map(p => {
+                    const totalUnits = (Array.isArray(units) ? units : []).filter(u => u.property_id === p.id).length;
+                    const occupiedUnits = (Array.isArray(units) ? units : []).filter(u => u.property_id === p.id && u.status === 'occupied').length;
                     return (
                       <tr key={p.id}>
                         <td style={{ fontWeight: '600' }}>{p.name}</td>
@@ -274,12 +274,12 @@ export default function Stats() {
           <div className="grid-2">
             <div className="card">
               <span className="kpi-lbl">Total Issued Invoices</span>
-              <h3 style={{ fontSize: '24px', margin: '4px 0' }}>{invoices.length}</h3>
+              <h3 style={{ fontSize: '24px', margin: '4px 0' }}>{(Array.isArray(invoices) ? invoices : []).length}</h3>
             </div>
             <div className="card">
               <span className="kpi-lbl">Overdue Invoices</span>
               <h3 style={{ fontSize: '24px', color: 'var(--danger)', margin: '4px 0' }}>
-                {invoices.filter(i => i.status === 'overdue').length}
+                {(Array.isArray(invoices) ? invoices : []).filter(i => i.status === 'overdue').length}
               </h3>
             </div>
           </div>
@@ -289,19 +289,19 @@ export default function Stats() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Paid Invoices</span>
-                <strong>{invoices.filter(i => i.status === 'paid').length}</strong>
+                <strong>{(Array.isArray(invoices) ? invoices : []).filter(i => i.status === 'paid').length}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Partially Paid Invoices</span>
-                <strong>{invoices.filter(i => i.status === 'partially_paid').length}</strong>
+                <strong>{(Array.isArray(invoices) ? invoices : []).filter(i => i.status === 'partially_paid').length}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Overdue Invoices</span>
-                <strong>{invoices.filter(i => i.status === 'overdue').length}</strong>
+                <strong>{(Array.isArray(invoices) ? invoices : []).filter(i => i.status === 'overdue').length}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Drafts</span>
-                <strong>{invoices.filter(i => i.status === 'draft').length}</strong>
+                <strong>{(Array.isArray(invoices) ? invoices : []).filter(i => i.status === 'draft').length}</strong>
               </div>
             </div>
           </div>
@@ -314,7 +314,7 @@ export default function Stats() {
           <div className="grid-2">
             <div className="card">
               <span className="kpi-lbl">Total Recorded Payments</span>
-              <h3 style={{ fontSize: '24px', margin: '4px 0' }}>{payments.length}</h3>
+              <h3 style={{ fontSize: '24px', margin: '4px 0' }}>{(Array.isArray(payments) ? payments : []).length}</h3>
             </div>
             <div className="card">
               <span className="kpi-lbl">Collection Value</span>
@@ -329,15 +329,15 @@ export default function Stats() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>M-Pesa Collections</span>
-                <strong>{payments.filter(p => p.payment_method === 'mpesa').length}</strong>
+                <strong>{(Array.isArray(payments) ? payments : []).filter(p => p.payment_method === 'mpesa').length}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Bank Deposits</span>
-                <strong>{payments.filter(p => p.payment_method === 'bank_transfer' || p.payment_method === 'bank').length}</strong>
+                <strong>{(Array.isArray(payments) ? payments : []).filter(p => p.payment_method === 'bank_transfer' || p.payment_method === 'bank').length}</strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>Cash Receipts</span>
-                <strong>{payments.filter(p => p.payment_method === 'cash').length}</strong>
+                <strong>{(Array.isArray(payments) ? payments : []).filter(p => p.payment_method === 'cash').length}</strong>
               </div>
             </div>
           </div>

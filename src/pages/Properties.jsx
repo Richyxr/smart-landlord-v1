@@ -515,7 +515,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
 
   const getVacantUnitsForProp = (propId) => {
     const selectedPropertyId = String(propId ?? '');
-    return units.filter(u => {
+    return (Array.isArray(units) ? units : []).filter(u => {
       const unitPropertyId = String(
         u.property_id ??
         u.propertyId ??
@@ -668,7 +668,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                 <label className="form-label">Belongs to Property</label>
                 <select required className="form-control" value={selectedPropId} onChange={e => setSelectedPropId(e.target.value)}>
                   <option value="">-- Select Property --</option>
-                  {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {(Array.isArray(properties) ? properties : []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
               <div className="grid-2">
@@ -728,7 +728,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                   <label className="form-label">Select Property</label>
                   <select required className="form-control" value={tenantPropId} onChange={e => { setTenantPropId(e.target.value); setTenantUnitId(''); }}>
                     <option value="">-- Select Property --</option>
-                    {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    {(Array.isArray(properties) ? properties : []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
                 
@@ -874,7 +874,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
               <div className="form-group">
                 <label className="form-label">Assign to Properties</label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '120px', overflowY: 'auto', padding: '6px', border: '1px solid var(--border)', borderRadius: '6px' }}>
-                  {properties.map(p => (
+                  {(Array.isArray(properties) ? properties : []).map(p => (
                     <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
                       <input 
                         type="checkbox" 
@@ -928,13 +928,13 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
           
           {/* PROPERTIES LIST */}
           {activeTab === 'properties' && (
-            properties.length === 0 ? (
+            (Array.isArray(properties) ? properties : []).length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <Building2 size={32} style={{ marginBottom: '8px', color: 'var(--text-secondary)' }} />
                 No rental properties registered yet. Click the button above to add your first property.
               </div>
             ) : (
-              properties.map(p => (
+              (Array.isArray(properties) ? properties : []).map(p => (
                 <div key={p.id} className="card">
                   <div className="flex-row">
                     <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -982,13 +982,13 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
 
           {/* UNITS LIST */}
           {activeTab === 'units' && (
-            units.length === 0 ? (
+            (Array.isArray(units) ? units : []).length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <DoorOpen size={32} style={{ marginBottom: '8px', color: 'var(--text-secondary)' }} />
                 No rental units registered yet. Click the button above to add your first unit.
               </div>
             ) : (
-              units.map(u => (
+              (Array.isArray(units) ? units : []).map(u => (
                 <div key={u.id} className="card">
                   <div className="flex-row">
                     <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1037,13 +1037,13 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
 
           {/* TENANTS LIST */}
           {activeTab === 'tenants' && (
-            tenants.length === 0 ? (
+            (Array.isArray(tenants) ? tenants : []).length === 0 ? (
               <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                 <User size={32} style={{ marginBottom: '8px', color: 'var(--text-secondary)' }} />
                 No active tenants registered. Click the button above to occupy a vacant unit and add a tenant.
               </div>
             ) : (
-              tenants.map(t => {
+              (Array.isArray(tenants) ? tenants : []).map(t => {
                 const billingInfo = calculateTenantBillingCycle(t, invoices);
                 return (
                   <div key={t.id} className="card">
@@ -1142,13 +1142,13 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                 </div>
               )}
 
-              {caretakers.length === 0 ? (
+              {(Array.isArray(caretakers) ? caretakers : []).length === 0 ? (
                 <div className="card" style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                   <Wrench size={32} style={{ marginBottom: '8px', color: 'var(--text-secondary)' }} />
                   No caretaker staff assigned yet. Send an invitation above.
                 </div>
               ) : (
-                caretakers.map(ct => (
+                (Array.isArray(caretakers) ? caretakers : []).map(ct => (
                   <div key={ct.id} className="card">
                     <div className="flex-row">
                       <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>

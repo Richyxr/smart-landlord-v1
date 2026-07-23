@@ -490,7 +490,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
   };
 
   // Dashboard Data Calculations
-  const activeTenants = tenants.filter(t => t.status === 'active');
+  const activeTenants = (Array.isArray(tenants) ? tenants : []).filter(t => t.status === 'active');
   const totalArrears = activeTenants.reduce((sum, t) => sum + safeNumber(t.balance), 0);
   const totalMonthlyRent = activeTenants.reduce((sum, t) => sum + safeNumber(t.rent_amount), 0);
   const totalDueAmount = totalMonthlyRent + totalArrears;
@@ -498,8 +498,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
     .filter(inv => inv.status === 'paid')
     .reduce((sum, inv) => sum + safeNumber(inv.amount_paid), 0);
   const unpaidTenantsCount = activeTenants.filter(t => safeNumber(t.balance) > 0).length;
-  const pendingReadingsCount = units.length - Object.keys(readings).filter(key => readings[key]?.water || readings[key]?.electricity).length;
-  const invoicesCount = invoices.length;
+  const pendingReadingsCount = (Array.isArray(units) ? units : []).length - Object.keys(readings).filter(key => readings[key]?.water || readings[key]?.electricity).length;
+  const invoicesCount = (Array.isArray(invoices) ? invoices : []).length;
 
   // Filter Due Tenants
   const filteredTenants = activeTenants.filter(t => {
@@ -520,12 +520,12 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
     invoices: {
       title: 'Invoice Records',
       helper: 'Create, issue, remind, print, void, and review tenant invoices from one ledger view.',
-      badge: `${invoices.length} total`
+      badge: `${(Array.isArray(invoices) ? invoices : []).length} total`
     },
     payments: {
       title: 'Tenant Payments',
       helper: 'Review captured payments, references, receipt previews, and allocation status.',
-      badge: `${payments.length} recorded`
+      badge: `${(Array.isArray(payments) ? payments : []).length} recorded`
     },
     banking: {
       title: 'Banking',
@@ -563,7 +563,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                 disabled={!!editId}
               >
                 <option value="">-- Choose Occupied Tenant --</option>
-                {tenants.filter(t => t.status === 'active').map(t => (
+                {(Array.isArray(tenants) ? tenants : []).filter(t => t.status === 'active').map(t => (
                   <option key={t.id} value={t.id}>{t.full_name} ({t.unit_code} - Account: {t.tenant_account_number})</option>
                 ))}
               </select>
@@ -981,7 +981,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                 onChange={e => setPaymentTenantId(e.target.value)}
               >
                 <option value="">-- Select Tenant --</option>
-                {tenants.filter(t => t.status === 'active').map(t => (
+                {(Array.isArray(tenants) ? tenants : []).filter(t => t.status === 'active').map(t => (
                   <option key={t.id} value={t.id}>
                     {t.full_name} ({t.unit_code} - Account: {t.tenant_account_number})
                   </option>
@@ -1926,7 +1926,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Invoice Records: <strong>{invoices.length}</strong> total</span>
+            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Invoice Records: <strong>{(Array.isArray(invoices) ? invoices : []).length}</strong> total</span>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => { setShowPaymentForm(true); setError(''); }}>
                 <CircleDollarSign size={14} /> Record Payment
@@ -1940,7 +1940,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
             </div>
           </div>
 
-          {invoices.length === 0 ? (
+          {(Array.isArray(invoices) ? invoices : []).length === 0 ? (
             <div className="sl-empty-state">
               <div className="sl-empty-state-icon">
                 <FileText size={32} />
@@ -1951,7 +1951,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
               </div>
             </div>
           ) : (
-            invoices.map(inv => (
+            (Array.isArray(invoices) ? invoices : []).map(inv => (
               <div key={inv.id} className="sl-list-card">
                 <div className="flex-row">
                   <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{inv.invoice_number}</span>
@@ -2045,7 +2045,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
           </div>
 
           <div className="card">
-            {payments.length === 0 ? (
+            {(Array.isArray(payments) ? payments : []).length === 0 ? (
               <EmptyState
                 icon={CircleDollarSign}
                 title="No payments recorded"
@@ -2065,7 +2065,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                     </tr>
                   </thead>
                   <tbody>
-                    {payments.map(pay => (
+                    {(Array.isArray(payments) ? payments : []).map(pay => (
                       <tr key={pay.id}>
                         <td>{new Date(pay.transaction_date).toLocaleDateString('en-KE')}</td>
                         <td>
@@ -2152,7 +2152,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                 Utility readings are currently disabled. Please enable water or electricity logging inside the <strong>Utility Cost Rules</strong> card below.
               </div>
             ) : (
-              units.map(u => {
+              (Array.isArray(units) ? units : []).map(u => {
                 const currentReading = readings[u.id];
                 const activeTenant = activeTenants.find(t => String(t.unit_id) === String(u.id));
                 

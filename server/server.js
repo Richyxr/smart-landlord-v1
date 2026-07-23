@@ -906,7 +906,7 @@ async function attachSessionContext(req, res, next) {
         const membership = await activeDb.findOne('organization_members', { user_id: user.id });
         const organization = membership ? await activeDb.findOne('organizations', { id: membership.organization_id }) : null;
         
-        let role = user.is_super_admin ? 'super_admin' : (membership ? membership.role : 'landlord');
+        let role = user.is_super_admin ? 'super_admin' : (membership?.role || 'landlord');
         if (role === 'owner' || role === 'admin') role = 'landlord'; // map legacy roles if necessary
 
         if (role === 'landlord' && (user.status === 'pending_verification' || user.email_verified === false)) {

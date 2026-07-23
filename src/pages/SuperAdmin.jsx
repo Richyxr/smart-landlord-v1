@@ -283,7 +283,7 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
           throw new Error(data?.message || data?.error || 'Failed to fetch platform payments.');
         }
         const payments = safeArrayPayload(data);
-        setPendingPayments(payments.filter(p => p?.status === 'pending'));
+        setPendingPayments((Array.isArray(payments) ? payments : []).filter(p => p?.status === 'pending'));
       } else if (activeTab === 'email') {
         const res = await fetch('/api/admin/platform-email', { headers });
         if (!res.ok) throw new Error('Failed to fetch platform email settings.');

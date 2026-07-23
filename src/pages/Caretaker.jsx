@@ -60,7 +60,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
         ]);
         setAssignedProperties(await resProps.json());
         const readings = await resReadings.json();
-        setReadingsHistory(readings.filter(r => r.submitted_by === user.id));
+        setReadingsHistory((Array.isArray(readings) ? readings : []).filter(r => r.submitted_by === user.id));
       } else if (activeTab === 'submit') {
         const [resProps, resUnits, resReadings] = await Promise.all([
           fetch('/api/properties', { headers }),
@@ -73,7 +73,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
       } else if (activeTab === 'history') {
         const res = await fetch('/api/meter-readings', { headers });
         const readings = await res.json();
-        setReadingsHistory(readings.filter(r => r.submitted_by === user.id));
+        setReadingsHistory((Array.isArray(readings) ? readings : []).filter(r => r.submitted_by === user.id));
       } else if (activeTab === 'messages') {
         const res = await fetch('/api/messages', { headers });
         const chats = await res.json();
@@ -317,7 +317,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
           <div className="card">
             <h4 className="card-title">My Assignments</h4>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '10px' }}>
-              {assignedProperties.map(p => (
+              {(Array.isArray(assignedProperties) ? assignedProperties : []).map(p => (
                 <div key={p.id} style={{ fontSize: '13px', padding: '6px 0', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                   <Building2 size={14} style={{ color: 'var(--primary)' }} />
                   <strong>{p.name}</strong> 
@@ -446,7 +446,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
                   <label className="form-label">Select Assigned Property</label>
                   <select required className="form-control" value={propId} onChange={e => handlePropertyChange(e.target.value)}>
                     <option value="">-- Select Property --</option>
-                    {assignedProperties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    {(Array.isArray(assignedProperties) ? assignedProperties : []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
                 </div>
 
@@ -454,10 +454,10 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
                   <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <h4 style={{ fontSize: '12px', fontWeight: '800', textTransform: 'uppercase', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border)', paddingBottom: '6px' }}>Units for Property</h4>
                     
-                    {units.filter(u => u.property_id === parseInt(propId) && !u.deleted_at).length === 0 ? (
+                    {(Array.isArray(units) ? units : []).filter(u => u.property_id === parseInt(propId) && !u.deleted_at).length === 0 ? (
                       <p style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>No units found in this property.</p>
                     ) : (
-                      units.filter(u => u.property_id === parseInt(propId) && !u.deleted_at)
+                      (Array.isArray(units) ? units : []).filter(u => u.property_id === parseInt(propId) && !u.deleted_at)
                         .map(u => {
                           const prevVal = getPrevReadingForUnit(u.id);
                           const isSubmitted = submittedUnitIds.includes(u.id);
@@ -547,7 +547,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
 
                 {unitSearchQuery && (
                   <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {units.filter(u => !u.deleted_at && u.unit_code.toLowerCase().includes(unitSearchQuery.toLowerCase()))
+                    {(Array.isArray(units) ? units : []).filter(u => !u.deleted_at && u.unit_code.toLowerCase().includes(unitSearchQuery.toLowerCase()))
                       .slice(0, 5)
                       .map(u => {
                         const prevVal = getPrevReadingForUnit(u.id);
@@ -621,7 +621,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
                         );
                       })
                     }
-                    {units.filter(u => !u.deleted_at && u.unit_code.toLowerCase().includes(unitSearchQuery.toLowerCase())).length === 0 && (
+                    {(Array.isArray(units) ? units : []).filter(u => !u.deleted_at && u.unit_code.toLowerCase().includes(unitSearchQuery.toLowerCase())).length === 0 && (
                       <p style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>No matching units found.</p>
                     )}
                   </div>

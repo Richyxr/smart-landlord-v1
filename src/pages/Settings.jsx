@@ -226,7 +226,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
         if (!res.ok) throw new Error('Failed to fetch payments.');
         const txs = await res.json();
         const txsArray = Array.isArray(txs) ? txs : (txs && Array.isArray(txs.payments) ? txs.payments : []);
-        const count = txsArray.filter(t => t && t.transaction_date && new Date(t.transaction_date) < new Date(archiveDate) && t.status === 'reconciled').length;
+        const count = (Array.isArray(txsArray) ? txsArray : []).filter(t => t && t.transaction_date && new Date(t.transaction_date) < new Date(archiveDate) && t.status === 'reconciled').length;
         setArchiveCount(count);
       } else if (activeTab === 'audits') {
         const res = await fetch('/api/settings/audit-logs', { headers });
@@ -457,7 +457,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       }
       const txs = await res.json();
       const txsArray = Array.isArray(txs) ? txs : [];
-      const count = txsArray.filter(t => t && t.transaction_date && new Date(t.transaction_date) < new Date(date) && t.status === 'reconciled').length;
+      const count = (Array.isArray(txsArray) ? txsArray : []).filter(t => t && t.transaction_date && new Date(t.transaction_date) < new Date(date) && t.status === 'reconciled').length;
       setArchiveCount(count);
     } catch (e) {
       setArchiveCount(0);
