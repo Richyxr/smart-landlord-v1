@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Mail, Smartphone, Lock } from 'lucide-react';
 import { setSessionToken, getSessionToken } from '../lib/session.js';
 import { auth } from '../lib/firebase.js';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signInWithCustomToken } from 'firebase/auth';
 
 const isGoogleHostedEmail = (value) => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -504,7 +504,13 @@ export default function Auth({ onAuthSuccess }) {
         return;
       }
 
-      onAuthSuccess(data.user, data.role, data.organization, data.auth_token);
+      try {
+        await signInWithCustomToken(auth, data.auth_token);
+        onAuthSuccess(data.user, data.role, data.organization, data.auth_token);
+      } catch (fbErr) {
+        console.error('Firebase custom token sign-in failed:', fbErr);
+        setError('Failed to elevate session securely. Please try again.');
+      }
     } catch (err) {
       setError('Caretaker login is temporarily unavailable. Please try again later.');
     } finally {
