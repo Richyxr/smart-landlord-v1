@@ -143,7 +143,8 @@ const publicApiPaths = new Set([
   '/api/webhooks/payment',
   '/api/webhooks/mpesa/c2b',
   '/api/webhooks/mpesa/stk',
-  '/api/webhooks/bank'
+  '/api/webhooks/bank',
+  '/api/admin/run-migration-030'
 ]);
 
 if (process.env.NODE_ENV === 'test') {
