@@ -109,9 +109,6 @@ export default function Auth({ onAuthSuccess }) {
       throw error;
     }
 
-    // Always use the Firebase ID token for secure backend authentication
-    data.auth_token = idToken;
-
     return data;
   };
 

@@ -268,9 +268,6 @@ export default function App() {
       throw new Error(data.message || data.error || 'Failed to restore session.');
     }
 
-    // Always use the Firebase ID token for secure backend authentication
-    data.auth_token = idToken;
-
     return data;
   };
 
