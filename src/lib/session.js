@@ -75,6 +75,14 @@ export function installAuthFetch() {
       if (!auth.currentUser) {
         await auth.authStateReady();
       }
+
+      // Wait for auth.currentUser to populate if it's temporarily null
+      let retries = 50;
+      while (!auth.currentUser && retries > 0) {
+        await new Promise(r => setTimeout(r, 100));
+        retries--;
+      }
+
       if (auth.currentUser) {
         try {
           token = await auth.currentUser.getIdToken();
@@ -83,6 +91,7 @@ export function installAuthFetch() {
           token = getSessionToken();
         }
       } else {
+        console.warn('auth.currentUser is still null after waiting. API calls might fail.');
         token = getSessionToken();
       }
     }

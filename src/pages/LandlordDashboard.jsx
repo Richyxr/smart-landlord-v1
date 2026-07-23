@@ -73,11 +73,13 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
         try {
           const res = await fetch(url, { headers });
           if (!res.ok) {
+            console.error(`API Error [${res.status}] on ${url}`);
             return { error: true, status: res.status, data: fallback };
           }
           const data = await res.json();
           return { error: false, status: res.status, data };
         } catch (err) {
+          console.error(`API Exception on ${url}:`, err.message);
           return { error: true, status: 500, message: err.message, data: fallback };
         }
       };
