@@ -47,7 +47,7 @@ function toFiniteNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret = null, sessionTtlSeconds = 86400, createSessionToken = null } = {}) {
+export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret = null, sessionTtlSeconds = 86400 } = {}) {
   const router = express.Router();
 
   const reqDb = () => {

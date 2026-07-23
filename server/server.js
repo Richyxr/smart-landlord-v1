@@ -2414,8 +2414,7 @@ app.use('/api', createPaymentEvidenceRoutes(pgDb));
 app.use('/api', createSaasBillingRoutes(pgDb, {
   demoMode: DEMO_MODE,
   sessionSecret: SESSION_SECRET,
-  sessionTtlSeconds: SESSION_TTL_SECONDS,
-  createSessionToken
+  sessionTtlSeconds: SESSION_TTL_SECONDS
 }));
 
 // --- PROPERTIES / UNITS / TENANTS API ---
