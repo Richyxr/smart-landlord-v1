@@ -953,13 +953,10 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
 
     if (!owner) return res.status(404).json({ error: 'Target owner user not found.' });
 
-    const authToken = createSessionToken ? createSessionToken(owner, 'landlord', targetOrg) : null;
-
-    res.json({
+    return res.json({
       session,
       targetOrg,
-      ownerUser: owner,
-      auth_token: authToken
+      ownerUser: owner
     });
   }));
 

@@ -1315,12 +1315,11 @@ app.post('/api/auth/registration/verify-email', async (req, res, next) => {
       { email }
     );
 
-    const authToken = createSessionToken(verifiedUser, 'landlord', organization);
-    return res.json({
+    return res.status(200).json({
+      message: 'Email successfully verified.',
       user: verifiedUser,
-      role: 'landlord',
       organization,
-      auth_token: authToken
+      role: 'landlord'
     });
   } catch (error) {
     if (error.statusCode) {
@@ -1468,13 +1467,10 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
 
     const role = user.is_super_admin ? 'super_admin' : (membership?.role || 'landlord');
     const organizationForSession = role === 'super_admin' ? null : organization;
-    const authToken = createSessionToken(user, role, organizationForSession);
-
     return res.status(200).json({
       user,
       role,
-      organization: organizationForSession,
-      auth_token: authToken
+      organization: organizationForSession
     });
   } catch (error) {
     if (error.statusCode) {
@@ -1546,17 +1542,15 @@ app.post('/api/auth/login', async (req, res) => {
 
   const resolvedRole = user.is_super_admin ? 'super_admin' : (member ? member.role : (user.email.includes('admin') ? 'super_admin' : 'landlord'));
   const organizationForSession = resolvedRole === 'super_admin' ? null : org;
-  const authToken = createSessionToken(user, resolvedRole, organizationForSession);
 
   if (!pgDb && typeof db.logAudit === 'function') {
     db.logAudit(org ? org.id : null, user.id, resolvedRole || requestedRole || 'unknown', 'login', 'user', user.id, null, null, 'User logged in successfully', 'success');
   }
 
-  res.json({
+  return res.status(200).json({
     user,
     role: resolvedRole,
-    organization: organizationForSession,
-    auth_token: authToken
+    organization: organizationForSession
   });
 });
 
@@ -1740,13 +1734,11 @@ app.post('/api/auth/register', async (req, res) => {
   if (!pgDb && typeof db.logAudit === 'function') {
     db.logAudit(org.id, user.id, 'landlord', 'register_landlord', 'organization', org.id, null, { org_id: org.id, name: org.name });
   }
-  const authToken = createSessionToken(user, 'landlord', org);
-
-  res.status(201).json({
+  return res.status(201).json({
+    message: 'Staff member registered successfully.',
     user,
-    role: 'landlord',
     organization: org,
-    auth_token: authToken
+    role: 'landlord'
   });
 });
 
@@ -1896,18 +1888,15 @@ app.post('/api/auth/complete-profile', requireAuthenticated, async (req, res) =>
   const updatedUser = await activeFindOne('users', { id: user.id });
   const updatedOrg = await activeFindOne('organizations', { id: organization.id });
 
-  // Update session token with updated info
-  const newAuthToken = createSessionToken(updatedUser, 'landlord', updatedOrg);
-
   if (!pgDb && typeof db.logAudit === 'function') {
     db.logAudit(updatedOrg.id, updatedUser.id, 'landlord', 'complete_profile', 'organization', updatedOrg.id, null, { org_id: updatedOrg.id, name: updatedOrg.name });
   }
 
-  res.json({
-    success: true,
+   return res.json({
+    message: 'Profile completed successfully.',
     user: updatedUser,
     organization: updatedOrg,
-    auth_token: newAuthToken
+    role: 'landlord'
   });
 });
 
