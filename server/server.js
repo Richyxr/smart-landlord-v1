@@ -106,28 +106,28 @@ const firebaseAdminApp = getFirebaseAdminApps().length
   : initializeFirebaseAdminApp({ projectId: FIREBASE_PROJECT_ID });
 const firebaseAdminAuth = process.env.NODE_ENV === 'test'
   ? (() => {
-      global.mockFirebasePasswords = global.mockFirebasePasswords || {
-        'smoke:reset-test@example.com': 'OldPassword123!'
-      };
-      return {
-        getUser: async (uid) => ({
-          uid,
-          providerData: [{ providerId: 'password' }],
-          email: uid.startsWith('smoke:') ? uid.slice(6) : uid
-        }),
-        verifyIdToken: async (idToken) => ({
-          uid: idToken,
-          email: idToken.startsWith('smoke:') ? idToken.slice(6) : idToken
-        }),
-        updateUser: async (uid, properties) => {
-          if (properties.password) {
-            global.mockFirebasePasswords[uid] = properties.password;
-          }
-          return { uid };
-        },
-        revokeRefreshTokens: async (uid) => ({ uid })
-      };
-    })()
+    global.mockFirebasePasswords = global.mockFirebasePasswords || {
+      'smoke:reset-test@example.com': 'OldPassword123!'
+    };
+    return {
+      getUser: async (uid) => ({
+        uid,
+        providerData: [{ providerId: 'password' }],
+        email: uid.startsWith('smoke:') ? uid.slice(6) : uid
+      }),
+      verifyIdToken: async (idToken) => ({
+        uid: idToken,
+        email: idToken.startsWith('smoke:') ? idToken.slice(6) : idToken
+      }),
+      updateUser: async (uid, properties) => {
+        if (properties.password) {
+          global.mockFirebasePasswords[uid] = properties.password;
+        }
+        return { uid };
+      },
+      revokeRefreshTokens: async (uid) => ({ uid })
+    };
+  })()
   : getFirebaseAdminAuth(firebaseAdminApp);
 
 const publicApiPaths = new Set([
@@ -950,40 +950,80 @@ async function attachSessionContext(req, res, next) {
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
     if (token) {
-      const session = verifyToken(token);
-      if (!session) {
-        // /api/auth/firebase-profile receives Firebase ID tokens, not legacy Smart Landlord session tokens.
-        // Let the route handler verify Firebase tokens with firebase-admin.
-        if (req.path === '/api/auth/firebase-profile' || req.path.startsWith('/api/auth/registration/')) {
-          return next();
+      let isFirebaseAuthenticated = false;
+
+      // 1. Soft Mode: Try Firebase first
+      try {
+        const auth = getFirebaseAdminAuth();
+        const decodedToken = await auth.verifyIdToken(token);
+        
+        const activeDb = pgDb || db;
+        const user = await activeDb.findOne('users', { firebase_uid: decodedToken.uid });
+        if (user) {
+          const membership = await activeDb.findOne('organization_members', { user_id: user.id });
+          const organization = membership ? await activeDb.findOne('organizations', { id: membership.organization_id }) : null;
+          
+          let role = user.is_super_admin ? 'super_admin' : (membership ? membership.role : 'landlord');
+          if (role === 'owner' || role === 'admin') role = 'landlord'; // map legacy roles if necessary
+
+          if (role === 'landlord' && (user.status === 'pending_verification' || user.email_verified === false)) {
+            return res.status(403).json({
+              error: 'EMAIL_VERIFICATION_REQUIRED',
+              message: 'Please verify your email address before continuing.'
+            });
+          }
+
+          req.auth = {
+            user,
+            organization,
+            role,
+            userId: user.id,
+            organizationId: organization ? organization.id : null,
+            isFirebase: true
+          };
+          isFirebaseAuthenticated = true;
+        } else {
+          console.warn(`Firebase token verified for UID ${decodedToken.uid}, but no matching user found in database. Falling back...`);
+        }
+      } catch (firebaseError) {
+        console.warn('Firebase JWT verification failed, falling back to legacy token:', firebaseError.message);
+      }
+
+      if (!isFirebaseAuthenticated) {
+        const session = verifyToken(token);
+        if (!session) {
+          if (req.path === '/api/auth/firebase-profile' || req.path.startsWith('/api/auth/registration/')) {
+            return next();
+          }
+          return res.status(401).json({ error: 'INVALID_SESSION', message: 'Session is invalid or expired.' });
         }
 
-        return res.status(401).json({ error: 'INVALID_SESSION', message: 'Session is invalid or expired.' });
+        const activeDb = pgDb || db;
+        const user = await activeDb.findOne('users', { id: session.user_id });
+        const organization = session.organization_id
+          ? await activeDb.findOne('organizations', { id: session.organization_id })
+          : null;
+
+        if (!user || (session.organization_id && !organization)) {
+          return res.status(401).json({ error: 'INVALID_SESSION', message: 'Session user or organization no longer exists.' });
+        }
+
+        if (session.role === 'landlord' && (user.status === 'pending_verification' || user.email_verified === false)) {
+          return res.status(403).json({
+            error: 'EMAIL_VERIFICATION_REQUIRED',
+            message: 'Please verify your email address before continuing.'
+          });
+        }
+
+        req.auth = {
+          user,
+          organization,
+          role: session.role,
+          userId: user.id,
+          organizationId: organization ? organization.id : null,
+          isFirebase: false
+        };
       }
-
-      const user = await activeFindOne('users', { id: session.user_id });
-      const organization = session.organization_id
-        ? await activeFindOne('organizations', { id: session.organization_id })
-        : null;
-
-      if (!user || (session.organization_id && !organization)) {
-        return res.status(401).json({ error: 'INVALID_SESSION', message: 'Session user or organization no longer exists.' });
-      }
-
-      if (session.role === 'landlord' && (user.status === 'pending_verification' || user.email_verified === false)) {
-        return res.status(403).json({
-          error: 'EMAIL_VERIFICATION_REQUIRED',
-          message: 'Please verify your email address before continuing.'
-        });
-      }
-
-      req.auth = {
-        user,
-        organization,
-        role: session.role,
-        userId: user.id,
-        organizationId: organization ? organization.id : null
-      };
     }
 
     if (IS_PRODUCTION && req.path.startsWith('/api') && !publicApiPaths.has(req.path) && !req.auth) {
@@ -4908,10 +4948,10 @@ app.get('/api/settings/readiness', async (req, res) => {
     let tenants = [];
     let integrations = [];
 
-    try { props = await activeDb.find('properties', { organization_id: orgId, deleted_at: null }); } catch (_) {}
-    try { units = await activeDb.find('units', { organization_id: orgId, deleted_at: null }); } catch (_) {}
-    try { tenants = await activeDb.find('tenants', { organization_id: orgId, deleted_at: null }); } catch (_) {}
-    try { integrations = await activeDb.find('organization_integrations', { organization_id: orgId }); } catch (_) {}
+    try { props = await activeDb.find('properties', { organization_id: orgId, deleted_at: null }); } catch (_) { }
+    try { units = await activeDb.find('units', { organization_id: orgId, deleted_at: null }); } catch (_) { }
+    try { tenants = await activeDb.find('tenants', { organization_id: orgId, deleted_at: null }); } catch (_) { }
+    try { integrations = await activeDb.find('organization_integrations', { organization_id: orgId }); } catch (_) { }
 
     let pinSet = false;
     let pinError = null;
@@ -4971,25 +5011,25 @@ app.get('/api/settings/email', async (req, res) => {
   const customConfig = customIntegration?.config_json_encrypted ? decryptConfig(customIntegration.config_json_encrypted) : {};
   const customSmtp = customIntegration
     ? {
-        id: customIntegration.id,
-        status: customIntegration.status,
-        last_tested_at: customIntegration.last_tested_at,
-        has_credentials: Boolean(customIntegration.config_json_encrypted),
-        config_masked: customIntegration.config_json_encrypted ? maskSmtpConfig(normalizeSmtpConfig(customConfig)) : {}
-      }
+      id: customIntegration.id,
+      status: customIntegration.status,
+      last_tested_at: customIntegration.last_tested_at,
+      has_credentials: Boolean(customIntegration.config_json_encrypted),
+      config_masked: customIntegration.config_json_encrypted ? maskSmtpConfig(normalizeSmtpConfig(customConfig)) : {}
+    }
     : null;
 
   const platformEmail = platformSettings
     ? {
-        status: platformSettings.smtp_status || 'not_configured',
-        last_tested_at: platformSettings.smtp_last_tested_at || null,
-        has_credentials: Boolean(platformSettings.smtp_config_encrypted)
-      }
+      status: platformSettings.smtp_status || 'not_configured',
+      last_tested_at: platformSettings.smtp_last_tested_at || null,
+      has_credentials: Boolean(platformSettings.smtp_config_encrypted)
+    }
     : {
-        status: 'not_configured',
-        last_tested_at: null,
-        has_credentials: false
-      };
+      status: 'not_configured',
+      last_tested_at: null,
+      has_credentials: false
+    };
 
   res.json({
     email_delivery_mode: mode,

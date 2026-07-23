@@ -1,3 +1,5 @@
+import { auth } from './firebase';
+
 const SESSION_KEY = 'smart_landlord_session_token';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -64,10 +66,23 @@ export function installAuthFetch() {
 
   const originalFetch = window.fetch.bind(window);
 
-  window.fetch = (input, init = {}) => {
+  window.fetch = async (input, init = {}) => {
     const shouldAttachToken = isApiRequest(input);
     const rewrittenInput = rewriteApiRequest(input);
-    const token = shouldAttachToken ? getSessionToken() : null;
+    let token = null;
+    
+    if (shouldAttachToken) {
+      if (auth.currentUser) {
+        try {
+          token = await auth.currentUser.getIdToken();
+        } catch (e) {
+          console.warn('Failed to get Firebase token, falling back to legacy session', e);
+          token = getSessionToken();
+        }
+      } else {
+        token = getSessionToken();
+      }
+    }
 
     if (!token) {
       return originalFetch(rewrittenInput, init);
