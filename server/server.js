@@ -195,67 +195,6 @@ function requireAnyRole(...allowedRoles) {
   };
 }
 
-function base64UrlEncode(value) {
-  return Buffer.from(value).toString('base64url');
-}
-
-function base64UrlDecode(value) {
-  return Buffer.from(value, 'base64url').toString('utf8');
-}
-
-function signPayload(payload) {
-  if (!SESSION_SECRET) {
-    throw new Error('SESSION_SECRET is required outside demo development mode.');
-  }
-
-  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
-  const signature = crypto
-    .createHmac('sha256', SESSION_SECRET)
-    .update(encodedPayload)
-    .digest('base64url');
-
-  return `${encodedPayload}.${signature}`;
-}
-
-function verifyToken(token) {
-  if (!SESSION_SECRET || !token || !token.includes('.')) return null;
-
-  const [encodedPayload, signature] = token.split('.');
-  const expectedSignature = crypto
-    .createHmac('sha256', SESSION_SECRET)
-    .update(encodedPayload)
-    .digest('base64url');
-
-  if (signature.length !== expectedSignature.length) {
-    return null;
-  }
-
-  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
-    return null;
-  }
-
-  try {
-    const payload = JSON.parse(base64UrlDecode(encodedPayload));
-    if (payload.expires_at && Date.now() > payload.expires_at) {
-      return null;
-    }
-
-    return payload;
-  } catch (_error) {
-    return null;
-  }
-}
-
-function createSessionToken(user, role, organization) {
-  return signPayload({
-    user_id: user.id,
-    role,
-    organization_id: organization ? organization.id : null,
-    issued_at: Date.now(),
-    expires_at: Date.now() + SESSION_TTL_SECONDS * 1000
-  });
-}
-
 async function activeFindOne(table, filterObj) {
   return pgDb ? pgDb.findOne(table, filterObj) : db.findOne(table, filterObj);
 }
@@ -950,65 +889,23 @@ async function attachSessionContext(req, res, next) {
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
     if (token) {
-      let isFirebaseAuthenticated = false;
-
-      // 1. Soft Mode: Try Firebase first
       try {
         const auth = getFirebaseAdminAuth();
         const decodedToken = await auth.verifyIdToken(token);
         
         const activeDb = pgDb || db;
         const user = await activeDb.findOne('users', { firebase_uid: decodedToken.uid });
-        if (user) {
-          const membership = await activeDb.findOne('organization_members', { user_id: user.id });
-          const organization = membership ? await activeDb.findOne('organizations', { id: membership.organization_id }) : null;
-          
-          let role = user.is_super_admin ? 'super_admin' : (membership ? membership.role : 'landlord');
-          if (role === 'owner' || role === 'admin') role = 'landlord'; // map legacy roles if necessary
-
-          if (role === 'landlord' && (user.status === 'pending_verification' || user.email_verified === false)) {
-            return res.status(403).json({
-              error: 'EMAIL_VERIFICATION_REQUIRED',
-              message: 'Please verify your email address before continuing.'
-            });
-          }
-
-          req.auth = {
-            user,
-            organization,
-            role,
-            userId: user.id,
-            organizationId: organization ? organization.id : null,
-            isFirebase: true
-          };
-          isFirebaseAuthenticated = true;
-        } else {
-          console.warn(`Firebase token verified for UID ${decodedToken.uid}, but no matching user found in database. Falling back...`);
-        }
-      } catch (firebaseError) {
-        console.warn('Firebase JWT verification failed, falling back to legacy token:', firebaseError.message);
-      }
-
-      if (!isFirebaseAuthenticated) {
-        const session = verifyToken(token);
-        if (!session) {
-          if (req.path === '/api/auth/firebase-profile' || req.path.startsWith('/api/auth/registration/')) {
-            return next();
-          }
-          return res.status(401).json({ error: 'INVALID_SESSION', message: 'Session is invalid or expired.' });
+        if (!user) {
+          return res.status(401).json({ error: 'UNAUTHORIZED', message: 'User not found in database.' });
         }
 
-        const activeDb = pgDb || db;
-        const user = await activeDb.findOne('users', { id: session.user_id });
-        const organization = session.organization_id
-          ? await activeDb.findOne('organizations', { id: session.organization_id })
-          : null;
+        const membership = await activeDb.findOne('organization_members', { user_id: user.id });
+        const organization = membership ? await activeDb.findOne('organizations', { id: membership.organization_id }) : null;
+        
+        let role = user.is_super_admin ? 'super_admin' : (membership ? membership.role : 'landlord');
+        if (role === 'owner' || role === 'admin') role = 'landlord'; // map legacy roles if necessary
 
-        if (!user || (session.organization_id && !organization)) {
-          return res.status(401).json({ error: 'INVALID_SESSION', message: 'Session user or organization no longer exists.' });
-        }
-
-        if (session.role === 'landlord' && (user.status === 'pending_verification' || user.email_verified === false)) {
+        if (role === 'landlord' && (user.status === 'pending_verification' || user.email_verified === false)) {
           return res.status(403).json({
             error: 'EMAIL_VERIFICATION_REQUIRED',
             message: 'Please verify your email address before continuing.'
@@ -1018,11 +915,16 @@ async function attachSessionContext(req, res, next) {
         req.auth = {
           user,
           organization,
-          role: session.role,
+          role,
           userId: user.id,
           organizationId: organization ? organization.id : null,
-          isFirebase: false
+          isFirebase: true
         };
+      } catch (firebaseError) {
+        if (req.path === '/api/auth/firebase-profile' || req.path.startsWith('/api/auth/registration/')) {
+          return next();
+        }
+        return res.status(401).json({ error: 'INVALID_SESSION', message: 'Session is invalid or expired.' });
       }
     }
 
@@ -1409,12 +1311,10 @@ app.post('/api/auth/registration/verify-email', async (req, res, next) => {
       { email }
     );
 
-    const authToken = createSessionToken(verifiedUser, 'landlord', organization);
     return res.json({
       user: verifiedUser,
       role: 'landlord',
-      organization,
-      auth_token: authToken
+      organization
     });
   } catch (error) {
     if (error.statusCode) {
@@ -1562,13 +1462,10 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
 
     const role = user.is_super_admin ? 'super_admin' : (membership?.role || 'landlord');
     const organizationForSession = role === 'super_admin' ? null : organization;
-    const authToken = createSessionToken(user, role, organizationForSession);
-
     return res.status(200).json({
       user,
       role,
-      organization: organizationForSession,
-      auth_token: authToken
+      organization: organizationForSession
     });
   } catch (error) {
     if (error.statusCode) {
@@ -1640,8 +1537,6 @@ app.post('/api/auth/login', async (req, res) => {
 
   const resolvedRole = user.is_super_admin ? 'super_admin' : (member ? member.role : (user.email.includes('admin') ? 'super_admin' : 'landlord'));
   const organizationForSession = resolvedRole === 'super_admin' ? null : org;
-  const authToken = createSessionToken(user, resolvedRole, organizationForSession);
-
   if (!pgDb && typeof db.logAudit === 'function') {
     db.logAudit(org ? org.id : null, user.id, resolvedRole || requestedRole || 'unknown', 'login', 'user', user.id, null, null, 'User logged in successfully', 'success');
   }
@@ -1649,8 +1544,7 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({
     user,
     role: resolvedRole,
-    organization: organizationForSession,
-    auth_token: authToken
+    organization: organizationForSession
   });
 });
 
@@ -1834,13 +1728,10 @@ app.post('/api/auth/register', async (req, res) => {
   if (!pgDb && typeof db.logAudit === 'function') {
     db.logAudit(org.id, user.id, 'landlord', 'register_landlord', 'organization', org.id, null, { org_id: org.id, name: org.name });
   }
-  const authToken = createSessionToken(user, 'landlord', org);
-
   res.status(201).json({
     user,
     role: 'landlord',
-    organization: org,
-    auth_token: authToken
+    organization: org
   });
 });
 
@@ -1990,9 +1881,6 @@ app.post('/api/auth/complete-profile', requireAuthenticated, async (req, res) =>
   const updatedUser = await activeFindOne('users', { id: user.id });
   const updatedOrg = await activeFindOne('organizations', { id: organization.id });
 
-  // Update session token with updated info
-  const newAuthToken = createSessionToken(updatedUser, 'landlord', updatedOrg);
-
   if (!pgDb && typeof db.logAudit === 'function') {
     db.logAudit(updatedOrg.id, updatedUser.id, 'landlord', 'complete_profile', 'organization', updatedOrg.id, null, { org_id: updatedOrg.id, name: updatedOrg.name });
   }
@@ -2000,8 +1888,7 @@ app.post('/api/auth/complete-profile', requireAuthenticated, async (req, res) =>
   res.json({
     success: true,
     user: updatedUser,
-    organization: updatedOrg,
-    auth_token: newAuthToken
+    organization: updatedOrg
   });
 });
 
@@ -2193,7 +2080,14 @@ app.post('/api/auth/caretaker/login', async (req, res) => {
     }
 
     const organization = await activeFindOne('organizations', { id: membership.organization_id });
-    const token = createSessionToken(user, 'caretaker', organization);
+    
+    let firebaseUid = user.firebase_uid;
+    if (!firebaseUid) {
+      firebaseUid = `caretaker_uid_${user.id}`;
+      await activeUpdate('users', user.id, { firebase_uid: firebaseUid });
+    }
+    const token = await getFirebaseAdminAuth().createCustomToken(firebaseUid, { role: 'caretaker', organization_id: organization.id });
+    
     await resetCaretakerLoginState(user.id);
 
     await logCaretakerAuditSafe(
@@ -2498,8 +2392,7 @@ app.use('/api', createPaymentEvidenceRoutes(pgDb));
 app.use('/api', createSaasBillingRoutes(pgDb, {
   demoMode: DEMO_MODE,
   sessionSecret: SESSION_SECRET,
-  sessionTtlSeconds: SESSION_TTL_SECONDS,
-  createSessionToken
+  sessionTtlSeconds: SESSION_TTL_SECONDS
 }));
 
 // --- PROPERTIES / UNITS / TENANTS API ---
