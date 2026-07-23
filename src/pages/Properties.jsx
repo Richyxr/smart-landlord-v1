@@ -609,12 +609,6 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
             onClick={() => {
               setShowAddForm(true);
               setError('');
-              setEditId(null);
-              resetPropertyForm();
-              resetUnitForm();
-              resetTenantForm();
-              resetCaretakerForm();
-              setResetPinResult(null);
             }}
             style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
           >
@@ -907,6 +901,24 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
         </div>
       )}
 
+      {/* QUICK ADD BUTTON */}
+      {!showAddForm && (
+        <button
+          className="btn btn-primary"
+          style={{ width: 'fit-content', display: 'flex', alignItems: 'center', gap: '6px' }}
+          onClick={() => {
+            setShowAddForm(true);
+            setEditId(null);
+            resetPropertyForm();
+            resetUnitForm();
+            resetTenantForm();
+            resetCaretakerForm();
+            setResetPinResult(null);
+          }}
+        >
+          <Plus size={14} /> {activeSection.actionLabel}
+        </button>
+      )}
 
       {/* RENDER LISTS */}
       {loading && <p style={{ textAlign: 'center' }}>Loading List...</p>}
