@@ -47,7 +47,7 @@ function toFiniteNumber(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret = null, sessionTtlSeconds = 86400 } = {}) {
+export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret = null, sessionTtlSeconds = 86400, createSessionToken = null } = {}) {
   const router = express.Router();
 
   const reqDb = () => {
@@ -953,10 +953,13 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
 
     if (!owner) return res.status(404).json({ error: 'Target owner user not found.' });
 
+    const authToken = createSessionToken ? createSessionToken(owner, 'landlord', targetOrg) : null;
+
     res.json({
       session,
       targetOrg,
-      ownerUser: owner
+      ownerUser: owner,
+      auth_token: authToken
     });
   }));
 
