@@ -6291,6 +6291,45 @@ app.put('/api/maintenance/:id', (req, res) => {
   res.json(updated);
 });
 
+// --- TEMPORARY SYNC ROUTE ---
+app.post('/api/admin/run-migration-030', async (req, res) => {
+  if (req.headers['x-migration-key'] !== 'my-secret-migration-key-123') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  try {
+    const auth = getFirebaseAdminAuth();
+    const activeDb = pgDb || db;
+    let users = await activeDb.find('users', {});
+    users = users.filter(u => !u.firebase_uid);
+    
+    let updatedCount = 0;
+    const errors = [];
+    
+    for (const user of users) {
+      try {
+        const firebaseUser = await auth.getUserByEmail(user.email);
+        if (firebaseUser) {
+          if (pgDb) {
+            await activeDb.query('UPDATE users SET firebase_uid = $1 WHERE id = $2', [firebaseUser.uid, user.id]);
+          } else {
+            activeDb.update('users', user.id, { firebase_uid: firebaseUser.uid });
+          }
+          updatedCount++;
+        }
+      } catch (error) {
+        if (error.code !== 'auth/user-not-found') {
+          errors.push({ email: user.email, error: error.message });
+        }
+      }
+    }
+    
+    res.json({ success: true, mappedCount: updatedCount, unmappedRemaining: users.length - updatedCount, errors });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Global error handler to guarantee JSON responses for all unhandled backend errors
 app.use((err, req, res, next) => {
   console.error('Unhandled Server Error:', err);
