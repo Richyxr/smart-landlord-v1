@@ -36,7 +36,7 @@ function getContext(req) {
 function requireAuthenticatedContext(req, res, next) {
   const { orgId, userId, role } = getContext(req);
 
-  if (!orgId || !userId || !role) {
+  if (!userId || !role || (!orgId && role !== 'super_admin')) {
     return res.status(401).json({
       error: 'AUTHENTICATION_REQUIRED',
       message: 'A valid Smart Landlord session is required.'
@@ -309,8 +309,8 @@ export function createReconciliationRoutes(pgDb) {
   router.use('/reconciliation', requireAuthenticatedContext);
 
   router.get('/reconciliation/staging', requireLandlord, asyncHandler(async (req, res) => {
-    const { orgId } = getContext(req);
-    const rows = await pgDb.find('reconciliation_staging_rows', { organization_id: orgId });
+    const { orgId, role } = getContext(req);
+    const rows = await pgDb.find('reconciliation_staging_rows', role === 'super_admin' ? {} : { organization_id: orgId });
     res.json(rows);
   }));
 

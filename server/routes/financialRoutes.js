@@ -34,7 +34,7 @@ function getContext(req) {
 function requireAuthenticatedContext(req, res, next) {
   const { orgId, userId, role } = getContext(req);
 
-  if (!orgId || !userId || !role) {
+  if (!userId || !role || (!orgId && role !== 'super_admin')) {
     return res.status(401).json({
       error: 'AUTHENTICATION_REQUIRED',
       message: 'A valid Smart Landlord session is required.'
@@ -138,7 +138,7 @@ async function verifyPin(client, orgId, pin) {
   return { valid: true, org };
 }
 
-async function getDetailedInvoices(pgDb, orgId) {
+async function getDetailedInvoices(pgDb, orgId, role) {
   const result = await pgDb.query(
     `
       SELECT
@@ -156,10 +156,10 @@ async function getDetailedInvoices(pgDb, orgId) {
       LEFT JOIN units u
         ON u.id = i.unit_id
        AND u.organization_id = i.organization_id
-      WHERE i.organization_id = $1
+      WHERE ($1::int IS NULL OR i.organization_id = $1)
       ORDER BY i.created_at DESC, i.id DESC
     `,
-    [orgId]
+    [role === 'super_admin' ? null : orgId]
   );
 
   return result.rows.map(row => ({
@@ -281,8 +281,8 @@ export function createFinancialRoutes(pgDb) {
   router.use(['/invoices', '/payments'], requireAuthenticatedContext);
 
   router.get('/invoices', requireLandlord, asyncHandler(async (req, res) => {
-    const { orgId } = getContext(req);
-    res.json(await getDetailedInvoices(pgDb, orgId));
+    const { orgId, role } = getContext(req);
+    res.json(await getDetailedInvoices(pgDb, orgId, role));
   }));
 
   router.post('/invoices', requireLandlord, asyncHandler(async (req, res) => {
@@ -695,7 +695,7 @@ export function createFinancialRoutes(pgDb) {
   }));
 
   router.get('/payments', requireLandlord, asyncHandler(async (req, res) => {
-    const { orgId } = getContext(req);
+    const { orgId, role } = getContext(req);
     const result = await pgDb.query(
       `
         SELECT
@@ -713,10 +713,11 @@ export function createFinancialRoutes(pgDb) {
         LEFT JOIN units u
           ON u.id = tx.unit_id
          AND u.organization_id = tx.organization_id
-        WHERE tx.organization_id = $1
+        WHERE ($1::int IS NULL OR tx.organization_id = $1)
+          AND tx.transaction_type = 'payment'
         ORDER BY tx.transaction_date DESC, tx.id DESC
       `,
-      [orgId]
+      [role === 'super_admin' ? null : orgId]
     );
 
     res.json(result.rows.map(row => ({

@@ -1908,7 +1908,7 @@ function getContext(req) {
 
 function requireAuthenticatedContext(req, res, next) {
   const { orgId, userId, role } = getContext(req);
-  if (!orgId || !userId || !role) {
+  if (!userId || !role || (!orgId && role !== 'super_admin')) {
     return res.status(401).json({
       error: 'AUTHENTICATION_REQUIRED',
       message: 'A valid Smart Landlord session is required.'

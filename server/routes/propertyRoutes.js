@@ -34,7 +34,7 @@ function getContext(req) {
 function requireAuthenticatedContext(req, res, next) {
   const { orgId, userId, role } = getContext(req);
 
-  if (!orgId || !userId || !role) {
+  if (!userId || !role || (!orgId && role !== 'super_admin')) {
     return res.status(401).json({
       error: 'AUTHENTICATION_REQUIRED',
       message: 'A valid Smart Landlord session is required.'
@@ -373,7 +373,7 @@ export function createPropertyRoutes(pgDb) {
 
   router.get('/properties', asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
-    let properties = await pgDb.find('properties', { organization_id: orgId, deleted_at: null });
+    let properties = await pgDb.find('properties', role === 'super_admin' ? { deleted_at: null } : { organization_id: orgId, deleted_at: null });
 
     if (role === 'caretaker') {
       const assignedPropertyIds = await getCaretakerPropertyIds(pgDb, orgId, userId);
@@ -404,11 +404,11 @@ export function createPropertyRoutes(pgDb) {
         LEFT JOIN invoices i
           ON i.property_id = p.id
          AND i.organization_id = p.organization_id
-        WHERE p.organization_id = $1
+        WHERE ($1::int IS NULL OR p.organization_id = $1)
           AND p.id = ANY($2::bigint[])
         GROUP BY p.id
       `,
-      [orgId, propertyIds]
+      [role === 'super_admin' ? null : orgId, propertyIds]
     );
 
     const statsByPropertyId = new Map(stats.rows.map(row => [row.property_id, row]));
@@ -480,7 +480,8 @@ export function createPropertyRoutes(pgDb) {
   router.get('/units', asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const propertyId = req.query.property_id ? parseInt(req.query.property_id) : null;
-    const query = { organization_id: orgId, deleted_at: null };
+    const query = { deleted_at: null };
+    if (role !== 'super_admin') query.organization_id = orgId;
     if (propertyId) query.property_id = propertyId;
 
     let units = await pgDb.find('units', query);
@@ -510,10 +511,10 @@ export function createPropertyRoutes(pgDb) {
          AND t.organization_id = u.organization_id
          AND t.status = 'active'
          AND t.deleted_at IS NULL
-        WHERE u.organization_id = $1
+        WHERE ($1::int IS NULL OR u.organization_id = $1)
           AND u.id = ANY($2::bigint[])
       `,
-      [orgId, unitIds]
+      [role === 'super_admin' ? null : orgId, unitIds]
     );
 
     const detailByUnitId = new Map(result.rows.map(row => [row.id, row]));
@@ -633,11 +634,11 @@ export function createPropertyRoutes(pgDb) {
           ORDER BY rent_invoice.issue_date DESC, rent_invoice.id DESC
           LIMIT 1
         ) li ON TRUE
-        WHERE t.organization_id = $1
+        WHERE ($1::int IS NULL OR t.organization_id = $1)
           AND t.id = ANY($2::bigint[])
         GROUP BY t.id, p.name, u.unit_code, lp.amount, lp.transaction_date, li.issue_date, li.invoice_number
       `,
-      [orgId, tenantIds]
+      [role === 'super_admin' ? null : orgId, tenantIds]
     );
 
     const detailByTenantId = new Map(result.rows.map(row => [row.id, row]));

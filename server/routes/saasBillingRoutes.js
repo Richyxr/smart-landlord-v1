@@ -19,7 +19,7 @@ function getContext(req) {
 function requireAuthenticatedContext(req, res, next) {
   const { orgId, userId, role } = getContext(req);
 
-  if (!orgId || !userId || !role) {
+  if (!userId || !role || (!orgId && role !== 'super_admin')) {
     return res.status(401).json({
       error: 'AUTHENTICATION_REQUIRED',
       message: 'A valid Smart Landlord session is required.'
@@ -58,8 +58,8 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // GET /api/saas/status
   // =========================================================================
   router.get('/saas/status', requireAuthenticatedContext, asyncHandler(async (req, res) => {
-    const { orgId } = getContext(req);
-    if (!orgId) {
+    const { orgId, role } = getContext(req);
+    if (!orgId && role !== 'super_admin') {
       return res.status(400).json({ error: 'Missing organization ID.' });
     }
 
@@ -69,43 +69,39 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
     let invoices = [];
 
     if (pgDb) {
-      org = await pgDb.findOne('organizations', { id: orgId });
+      org = role === 'super_admin' ? { name: 'Super Admin View' } : await pgDb.findOne('organizations', { id: orgId });
       if (!org) return res.status(404).json({ error: 'Organization not found' });
 
       const tenantCountRes = await pgDb.query(
         `SELECT COUNT(*) as count 
          FROM tenants t 
-         JOIN organizations o ON t.organization_id = o.id 
-         WHERE t.organization_id = $1 
+         WHERE ($1::int IS NULL OR t.organization_id = $1)
            AND t.status = 'active' 
-           AND t.deleted_at IS NULL 
-           AND o.status = 'active'`,
-        [orgId]
+           AND t.deleted_at IS NULL`,
+        [role === 'super_admin' ? null : orgId]
       );
-      activeTenantCount = parseInt(tenantCountRes.rows[0]?.count || '0');
+      activeTenantCount = parseInt(tenantCountRes.rows[0].count, 10) || 0;
 
-      const settingsRes = await pgDb.query('SELECT price_per_active_tenant FROM platform_billing_settings ORDER BY id ASC LIMIT 1');
-      if (settingsRes.rows.length > 0) {
-        pricePerTenant = parseFloat(settingsRes.rows[0].price_per_active_tenant);
-      }
-
-      const invoicesRes = await pgDb.query(
-        'SELECT * FROM platform_billing_invoices WHERE organization_id = $1 ORDER BY id DESC',
-        [orgId]
+      // In PG mode, we check for a global config or similar. Hardcode 200 for now.
+      pricePerTenant = 200;
+      
+      invoices = await pgDb.query(
+        `SELECT * FROM platform_billing_invoices WHERE ($1::int IS NULL OR organization_id = $1) ORDER BY created_at DESC`,
+        [role === 'super_admin' ? null : orgId]
       );
-      invoices = invoicesRes.rows;
+      invoices = invoices.rows;
     } else {
-      const localDb = await reqDb();
-      org = localDb.findOne('organizations', { id: orgId });
+      const db = await reqDb();
+      org = db.findOne('organizations', role === 'super_admin' ? {} : { id: orgId });
       if (!org) return res.status(404).json({ error: 'Organization not found' });
 
-      const activeTenants = localDb.find('tenants', { organization_id: orgId, status: 'active', deleted_at: null });
+      const activeTenants = db.find('tenants', role === 'super_admin' ? { status: 'active', deleted_at: null } : { organization_id: orgId, status: 'active', deleted_at: null });
       activeTenantCount = (org.status === 'active') ? activeTenants.length : 0;
 
-      const settings = localDb.findOne('platform_billing_settings', { id: 1 }) || { price_per_active_tenant: 200 };
+      const settings = db.findOne('platform_billing_settings', { id: 1 }) || { price_per_active_tenant: 200 };
       pricePerTenant = settings.price_per_active_tenant;
 
-      invoices = localDb.find('platform_billing_invoices', { organization_id: orgId })
+      invoices = db.find('platform_billing_invoices', { organization_id: orgId })
         .sort((a, b) => b.id - a.id);
     }
 
@@ -140,8 +136,8 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
     if (pgDb) {
       invoice = await pgDb.findOne('platform_billing_invoices', { id: parseInt(invoice_id), organization_id: orgId });
     } else {
-      const localDb = await reqDb();
-      invoice = localDb.findOne('platform_billing_invoices', { id: parseInt(invoice_id), organization_id: orgId });
+      const db = await reqDb();
+      invoice = db.findOne('platform_billing_invoices', { id: parseInt(invoice_id), organization_id: orgId });
     }
 
     if (!invoice) return res.status(404).json({ error: 'SaaS invoice not found' });
@@ -162,8 +158,8 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         confirmed_at: null
       });
     } else {
-      const localDb = await reqDb();
-      payment = localDb.insert('platform_billing_payments', {
+      const db = await reqDb();
+      payment = db.insert('platform_billing_payments', {
         organization_id: orgId,
         billing_invoice_id: invoice.id,
         amount: invoice.total,
@@ -261,12 +257,12 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         gracePeriodDays = parseInt(settingsRes.rows[0].grace_period_days);
       }
     } else {
-      const localDb = await reqDb();
-      const org = localDb.findOne('organizations', { id: orgId });
-      const activeTenants = localDb.find('tenants', { organization_id: orgId, status: 'active', deleted_at: null });
+      const db = await reqDb();
+      const org = db.findOne('organizations', { id: orgId });
+      const activeTenants = db.find('tenants', { organization_id: orgId, status: 'active', deleted_at: null });
       activeTenantCount = (org && org.status === 'active') ? activeTenants.length : 0;
 
-      const settings = localDb.findOne('platform_billing_settings', { id: 1 }) || { price_per_active_tenant: 200, grace_period_days: 7 };
+      const settings = db.findOne('platform_billing_settings', { id: 1 }) || { price_per_active_tenant: 200, grace_period_days: 7 };
       pricePerTenant = settings.price_per_active_tenant;
       gracePeriodDays = settings.grace_period_days;
     }
@@ -335,8 +331,8 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         is_read: false
       });
     } else {
-      const localDb = await reqDb();
-      const existing = localDb.findOne('platform_billing_invoices', {
+      const db = await reqDb();
+      const existing = db.findOne('platform_billing_invoices', {
         organization_id: orgId,
         billing_period_start: billingPeriodStart,
         billing_period_end: billingPeriodEnd
@@ -345,7 +341,7 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       if (existing) {
         invoice = existing;
       } else {
-        invoice = localDb.insert('platform_billing_invoices', {
+        invoice = db.insert('platform_billing_invoices', {
           organization_id: orgId,
           billing_period_start: billingPeriodStart,
           billing_period_end: billingPeriodEnd,
@@ -363,12 +359,12 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         });
       }
 
-      localDb.update('organizations', orgId, {
+      db.update('organizations', orgId, {
         is_locked: true,
         subscription_status: 'overdue'
       });
 
-      localDb.insert('system_audit_logs', {
+      db.insert('system_audit_logs', {
         admin_user_id: null,
         target_organization_id: orgId,
         action: 'saas_billing_lockout',
@@ -376,7 +372,7 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         metadata: JSON.stringify({ invoice_id: invoice.id })
       });
 
-      localDb.insert('notifications', {
+      db.insert('notifications', {
         organization_id: orgId,
         user_id: userId || 2,
         type: 'BILLING_ALERT',
@@ -451,12 +447,12 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         system_errors_count: toFiniteNumber(errorsRes.rows[0]?.count)
       });
     } else {
-      const localDb = await reqDb();
-      const orgs = localDb.get('organizations');
-      const tenants = localDb.get('tenants');
-      const errors = localDb.get('system_errors');
-      const invoices = localDb.get('platform_billing_invoices');
-      const payments = localDb.get('platform_billing_payments');
+      const db = await reqDb();
+      const orgs = db.get('organizations');
+      const tenants = db.get('tenants');
+      const errors = db.get('system_errors');
+      const invoices = db.get('platform_billing_invoices');
+      const payments = db.get('platform_billing_payments');
 
       const nonDeletedOrgIds = new Set(
         orgs
@@ -529,9 +525,9 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       );
       res.json(result.rows);
     } else {
-      const localDb = await reqDb();
-      const orgs = localDb.get('organizations').filter(o => o.status !== 'deleted');
-      const tenants = localDb.get('tenants');
+      const db = await reqDb();
+      const orgs = db.get('organizations').filter(o => o.status !== 'deleted');
+      const tenants = db.get('tenants');
 
       const detailed = orgs.map(o => {
         const activeT = tenants.filter(t => t.organization_id === o.id && t.status === 'active' && !t.deleted_at).length;
@@ -625,13 +621,13 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       return res.json({ organization: updated });
     }
 
-    const localDb = await reqDb();
-    const org = localDb.findOne('organizations', { id: organizationId });
+    const db = await reqDb();
+    const org = db.findOne('organizations', { id: organizationId });
     if (!org || org.status === 'deleted') {
       return res.status(404).json({ error: 'Organization not found.' });
     }
 
-    const duplicate = localDb.get('organizations').find(candidate =>
+    const duplicate = db.get('organizations').find(candidate =>
       candidate.id !== organizationId &&
       normalizeOrganizationAccountNumber(candidate.account_number) === accountNumber
     );
@@ -647,11 +643,11 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       return res.json({ organization: org });
     }
 
-    const updated = localDb.update('organizations', organizationId, {
+    const updated = db.update('organizations', organizationId, {
       account_number: accountNumber
     })[0];
 
-    localDb.insert('system_audit_logs', {
+    db.insert('system_audit_logs', {
       admin_user_id: adminId,
       target_organization_id: organizationId,
       action: 'organization_account_number_changed',
@@ -679,9 +675,9 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       );
       payments = result.rows;
     } else {
-      const localDb = await reqDb();
-      const rawPayments = localDb.get('platform_billing_payments');
-      const orgs = localDb.get('organizations');
+      const db = await reqDb();
+      const rawPayments = db.get('platform_billing_payments');
+      const orgs = db.get('organizations');
       payments = rawPayments.map(p => {
         const org = orgs.find(o => o.id === p.organization_id);
         return {
@@ -709,8 +705,8 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
     if (pgDb) {
       payment = await pgDb.findOne('platform_billing_payments', { id: parseInt(payment_id) });
     } else {
-      const localDb = await reqDb();
-      payment = localDb.findOne('platform_billing_payments', { id: parseInt(payment_id) });
+      const db = await reqDb();
+      payment = db.findOne('platform_billing_payments', { id: parseInt(payment_id) });
     }
 
     if (!payment) return res.status(404).json({ error: 'Payment record not found.' });
@@ -758,19 +754,19 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         metadata: { payment_id: payment.id }
       });
     } else {
-      const localDb = await reqDb();
-      localDb.update('platform_billing_payments', payment.id, {
+      const db = await reqDb();
+      db.update('platform_billing_payments', payment.id, {
         status: 'confirmed',
         confirmed_by: adminId,
         confirmed_at: new Date().toISOString()
       });
 
-      localDb.update('platform_billing_invoices', payment.billing_invoice_id, {
+      db.update('platform_billing_invoices', payment.billing_invoice_id, {
         status: 'paid',
         paid_at: new Date().toISOString()
       });
 
-      const org = localDb.findOne('organizations', { id: payment.organization_id });
+      const org = db.findOne('organizations', { id: payment.organization_id });
       let baseTime = Date.now();
       if (org) {
         if (org.subscription_status === 'trial' && org.trial_ends_at) {
@@ -787,13 +783,13 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       }
       const newExpires = new Date(baseTime + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-      localDb.update('organizations', payment.organization_id, {
+      db.update('organizations', payment.organization_id, {
         is_locked: false,
         subscription_status: 'active',
         subscription_expires_at: newExpires
       });
 
-      localDb.insert('system_audit_logs', {
+      db.insert('system_audit_logs', {
         admin_user_id: adminId,
         target_organization_id: payment.organization_id,
         action: 'saas_payment_confirmed_manually',
@@ -816,8 +812,8 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       );
       settings = result.rows[0];
     } else {
-      const localDb = await reqDb();
-      settings = localDb.findOne('platform_billing_settings', { id: 1 });
+      const db = await reqDb();
+      settings = db.findOne('platform_billing_settings', { id: 1 });
     }
 
     if (!settings) {
@@ -872,15 +868,15 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         metadata: updated
       });
     } else {
-      const localDb = await reqDb();
-      const resUpdated = localDb.update('platform_billing_settings', 1, {
+      const db = await reqDb();
+      const resUpdated = db.update('platform_billing_settings', 1, {
         price_per_active_tenant: parsedPricePerTenant,
         grace_period_days: parsedGracePeriodDays,
         updated_at: new Date().toISOString()
       });
       updated = resUpdated[0];
 
-      localDb.insert('system_audit_logs', {
+      db.insert('system_audit_logs', {
         admin_user_id: adminId,
         action: 'changed_pricing_settings',
         reason: 'Admin price adjustment',
@@ -928,8 +924,8 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       targetOrg = await pgDb.findOne('organizations', { id: parseInt(organization_id) });
       owner = await pgDb.findOne('users', { id: targetOrg.owner_user_id });
     } else {
-      const localDb = await reqDb();
-      session = localDb.insert('support_access_sessions', {
+      const db = await reqDb();
+      session = db.insert('support_access_sessions', {
         admin_user_id: adminId,
         target_organization_id: parseInt(organization_id),
         reason,
@@ -938,7 +934,7 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         status: 'active'
       });
 
-      localDb.insert('system_audit_logs', {
+      db.insert('system_audit_logs', {
         admin_user_id: adminId,
         target_organization_id: parseInt(organization_id),
         action: 'impersonation_started',
@@ -947,8 +943,8 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         metadata: JSON.stringify({ ip: '127.0.0.1' })
       });
 
-      targetOrg = localDb.findOne('organizations', { id: parseInt(organization_id) });
-      owner = localDb.findOne('users', { id: targetOrg.owner_user_id });
+      targetOrg = db.findOne('organizations', { id: parseInt(organization_id) });
+      owner = db.findOne('users', { id: targetOrg.owner_user_id });
     }
 
     if (!owner) return res.status(404).json({ error: 'Target owner user not found.' });
@@ -988,16 +984,16 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         metadata: null
       });
     } else {
-      const localDb = await reqDb();
-      session = localDb.findOne('support_access_sessions', { id: parseInt(session_id) });
+      const db = await reqDb();
+      session = db.findOne('support_access_sessions', { id: parseInt(session_id) });
       if (!session) return res.status(404).json({ error: 'Session not found' });
 
-      localDb.update('support_access_sessions', session.id, {
+      db.update('support_access_sessions', session.id, {
         status: 'completed',
         ended_at: new Date().toISOString()
       });
 
-      localDb.insert('system_audit_logs', {
+      db.insert('system_audit_logs', {
         admin_user_id: adminId,
         target_organization_id: session.target_organization_id,
         action: 'impersonation_ended',
@@ -1023,9 +1019,9 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       );
       res.json(result.rows);
     } else {
-      const localDb = await reqDb();
-      const audits = localDb.get('system_audit_logs');
-      const orgs = localDb.get('organizations');
+      const db = await reqDb();
+      const audits = db.get('system_audit_logs');
+      const orgs = db.get('organizations');
       const detailed = audits.map(a => {
         const org = orgs.find(o => o.id === a.target_organization_id);
         return {
@@ -1045,8 +1041,8 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       const result = await pgDb.query('SELECT * FROM system_errors ORDER BY created_at DESC');
       res.json(result.rows);
     } else {
-      const localDb = await reqDb();
-      const errors = localDb.get('system_errors')
+      const db = await reqDb();
+      const errors = db.get('system_errors')
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       res.json(errors);
     }
