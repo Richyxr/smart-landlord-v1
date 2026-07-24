@@ -183,8 +183,8 @@ function requireAuthenticated(req, res, next) {
 
 function requireAnyRole(...allowedRoles) {
   return (req, res, next) => {
-    const role = getRequestRole(req);
-    if (role && allowedRoles.includes(role)) {
+    const role = req.auth?.role;
+    if (role === 'super_admin' || allowedRoles.includes(role)) {
       return next();
     }
 

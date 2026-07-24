@@ -64,10 +64,10 @@ async function getCaretakerPropertyIds(pgDb, orgId, userId) {
 
 function requireLandlord(req, res, next) {
   const { role } = getContext(req);
-  if (role !== 'landlord') {
+  if (role !== 'landlord' && role !== 'super_admin') {
     return res.status(403).json({
       error: 'ACCESS_DENIED',
-      message: 'Only landlords can modify property, unit, and tenant records.'
+      message: 'You do not have permission to access this property feature.'
     });
   }
   next();

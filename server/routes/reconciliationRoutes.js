@@ -48,10 +48,10 @@ function requireAuthenticatedContext(req, res, next) {
 
 function requireLandlord(req, res, next) {
   const { role } = getContext(req);
-  if (role !== 'landlord') {
+  if (role !== 'landlord' && role !== 'super_admin') {
     return res.status(403).json({
       error: 'ACCESS_DENIED',
-      message: 'You do not have permission to access this financial feature.'
+      message: 'You do not have permission to access reconciliation features.'
     });
   }
   next();
