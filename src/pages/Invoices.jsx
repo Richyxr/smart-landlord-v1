@@ -109,10 +109,22 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
         fetch('/api/units', { headers }),
         fetch('/api/payments', { headers })
       ]);
-      setInvoices(await resInvs.json());
-      setTenants(await resTenants.json());
-      setUnits(await resUnits.json());
-      setPayments(await resPayments.json());
+      if (resInvs.ok) {
+        const dataInvs = await resInvs.json();
+        if (Array.isArray(dataInvs)) setInvoices(dataInvs);
+      }
+      if (resTenants.ok) {
+        const dataTenants = await resTenants.json();
+        if (Array.isArray(dataTenants)) setTenants(dataTenants);
+      }
+      if (resUnits.ok) {
+        const dataUnits = await resUnits.json();
+        if (Array.isArray(dataUnits)) setUnits(dataUnits);
+      }
+      if (resPayments.ok) {
+        const dataPayments = await resPayments.json();
+        if (Array.isArray(dataPayments)) setPayments(dataPayments);
+      }
 
       // Source-of-truth for landlord rent collection instructions.
       // Caretakers may receive 403 on integrations endpoint, so we fail safely.

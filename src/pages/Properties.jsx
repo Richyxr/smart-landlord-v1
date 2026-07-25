@@ -91,17 +91,23 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
     try {
       if (activeTab === 'properties') {
         const res = await fetch('/api/properties', { headers });
-        const data = await res.json();
-        setProperties(data);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) setProperties(data);
+        }
       } else if (activeTab === 'units') {
         const [resUnits, resProps] = await Promise.all([
           fetch('/api/units', { headers }),
           fetch('/api/properties', { headers })
         ]);
-        const dataUnits = await resUnits.json();
-        const dataProps = await resProps.json();
-        setUnits(dataUnits);
-        setProperties(dataProps);
+        if (resUnits.ok) {
+          const dataUnits = await resUnits.json();
+          if (Array.isArray(dataUnits)) setUnits(dataUnits);
+        }
+        if (resProps.ok) {
+          const dataProps = await resProps.json();
+          if (Array.isArray(dataProps)) setProperties(dataProps);
+        }
       } else if (activeTab === 'tenants') {
         const [resTenants, resProps, resUnits, resInvoices] = await Promise.all([
           fetch('/api/tenants', { headers }),
@@ -109,20 +115,35 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
           fetch('/api/units', { headers }),
           fetch('/api/invoices', { headers })
         ]);
-        const dataTenants = await resTenants.json();
-        setTenants(dataTenants);
-        setProperties(await resProps.json());
-        setUnits(await resUnits.json());
+        if (resTenants.ok) {
+          const dataTenants = await resTenants.json();
+          if (Array.isArray(dataTenants)) setTenants(dataTenants);
+        }
+        if (resProps.ok) {
+          const dataProps = await resProps.json();
+          if (Array.isArray(dataProps)) setProperties(dataProps);
+        }
+        if (resUnits.ok) {
+          const dataUnits = await resUnits.json();
+          if (Array.isArray(dataUnits)) setUnits(dataUnits);
+        }
         if (resInvoices && resInvoices.ok) {
-          setInvoices(await resInvoices.json());
+          const dataInvoices = await resInvoices.json();
+          if (Array.isArray(dataInvoices)) setInvoices(dataInvoices);
         }
       } else if (activeTab === 'caretakers') {
         const [resProps, resCt] = await Promise.all([
           fetch('/api/properties', { headers }),
           fetch('/api/properties/caretakers', { headers })
         ]);
-        setProperties(await resProps.json());
-        setCaretakers(await resCt.json());
+        if (resProps.ok) {
+          const dataProps = await resProps.json();
+          if (Array.isArray(dataProps)) setProperties(dataProps);
+        }
+        if (resCt.ok) {
+          const dataCt = await resCt.json();
+          if (Array.isArray(dataCt)) setCaretakers(dataCt);
+        }
       }
     } catch (e) {
       setError('Failed to fetch data.');
@@ -608,6 +629,12 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
             className="btn btn-primary btn-sm"
             onClick={() => {
               setShowAddForm(true);
+              setEditId(null);
+              resetPropertyForm();
+              resetUnitForm();
+              resetTenantForm();
+              resetCaretakerForm();
+              setResetPinResult(null);
               setError('');
             }}
             style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
@@ -901,24 +928,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
         </div>
       )}
 
-      {/* QUICK ADD BUTTON */}
-      {!showAddForm && (
-        <button
-          className="btn btn-primary"
-          style={{ width: 'fit-content', display: 'flex', alignItems: 'center', gap: '6px' }}
-          onClick={() => {
-            setShowAddForm(true);
-            setEditId(null);
-            resetPropertyForm();
-            resetUnitForm();
-            resetTenantForm();
-            resetCaretakerForm();
-            setResetPinResult(null);
-          }}
-        >
-          <Plus size={14} /> {activeSection.actionLabel}
-        </button>
-      )}
+      {/* QUICK ADD BUTTON REMOVED (Duplicate) */}
 
       {/* RENDER LISTS */}
       {loading && <p style={{ textAlign: 'center' }}>Loading List...</p>}
