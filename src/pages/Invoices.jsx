@@ -462,7 +462,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
   };
 
   const formatCurrency = (val) => {
-    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: organization.billing_currency || 'KES', maximumFractionDigits: 0 }).format(safeNumber(val));
+    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: organization?.billing_currency || 'KES', maximumFractionDigits: 0 }).format(safeNumber(val));
   };
 
   // Utility Settings Save
@@ -739,8 +739,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
                 <div style={{ fontSize: '10px', color: '#555' }}>{printInvoice.invoice_number}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <h4 style={{ fontSize: '12px', fontWeight: 'bold' }}>{organization.name}</h4>
-                <div style={{ fontSize: '10px', color: '#555' }}>{organization.email}</div>
+                <h4 style={{ fontSize: '12px', fontWeight: 'bold' }}>{organization?.name}</h4>
+                <div style={{ fontSize: '10px', color: '#555' }}>{organization?.email}</div>
               </div>
             </div>
 
@@ -953,7 +953,7 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
         <SecurityPinModal
           isOpen={!!pinTargetId}
           onClose={() => setPinTargetId(null)}
-          organizationId={organization.id}
+          organizationId={organization?.id}
           onSuccess={handlePinSuccess}
         />
       )}
@@ -2278,8 +2278,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
             </div>
 
             {enableWater && (
-              <div className="form-group" style={{ marginLeft: '24px' }}>
-                <label className="form-label">Water Cost per m³ ({organization.billing_currency || 'KES'})</label>
+              <div className="form-group">
+                <label className="form-label">Water Cost per m³ ({organization?.billing_currency || 'KES'})</label>
                 <input
                   type="number"
                   required
@@ -2306,8 +2306,8 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
             </div>
 
             {enableElec && (
-              <div className="form-group" style={{ marginLeft: '24px' }}>
-                <label className="form-label">Electricity Cost per kWh ({organization.billing_currency || 'KES'})</label>
+              <div className="form-group">
+                <label className="form-label">Electricity Cost per kWh ({organization?.billing_currency || 'KES'})</label>
                 <input
                   type="number"
                   required

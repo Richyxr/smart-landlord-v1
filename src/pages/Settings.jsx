@@ -118,21 +118,23 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
 
   useEffect(() => {
     if (organization) {
-      const rawName = organization.name || '';
+      const rawName = organization?.name || '';
+      const fallbackBusiness = rawName ? `${rawName} Rentals` : '';
+      
       const parts = (rawName === 'Rental Org' ? '' : rawName).trim().split(/\s+/).filter(Boolean);
       setProfileFirstName(parts[0] || '');
       setProfileLastName(parts.slice(1).join(' ') || '');
-      setProfileIdNumber(organization.id_number || organization.registration_number || '');
-      setProfileEmail(organization.email || '');
-      setProfileCountry(organization.country || 'Kenya');
-      setProfileCurrency(organization.billing_currency || 'KES');
-      setProfileType(organization.type || 'individual');
-      setProfileBusinessName(organization.business_name || '');
-      setProfileRegNum(organization.registration_number || '');
-      setProfileTaxId(organization.tax_identifier || '');
+      setProfileIdNumber(organization?.id_number || organization?.registration_number || '');
+      setProfileEmail(organization?.email || '');
+      setProfileCountry(organization?.country || 'Kenya');
+      setProfileCurrency(organization?.billing_currency || 'KES');
+      setProfileType(organization?.type || 'individual');
+      setProfileBusinessName(organization?.business_name || fallbackBusiness);
+      setProfileRegNum(organization?.registration_number || '');
+      setProfileTaxId(organization?.tax_identifier || '');
       
-      setLocalPhone(stripPrefix(organization.phone_number || '', organization.country || 'Kenya'));
-      setLocalAltPhone(stripPrefix(organization.alt_phone_number || '', organization.country || 'Kenya'));
+      setLocalPhone(stripPrefix(organization?.phone_number || '', organization?.country || 'Kenya'));
+      setLocalAltPhone(stripPrefix(organization?.alt_phone_number || '', organization?.country || 'Kenya'));
     }
   }, [organization]);
 

@@ -510,7 +510,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
 
   // Helpers
   const formatCurrency = (val) => {
-    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: organization.billing_currency || 'KES', maximumFractionDigits: 0 }).format(val);
+    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: organization?.billing_currency || 'KES', maximumFractionDigits: 0 }).format(val);
   };
 
   const getVacantUnitsForProp = (propId) => {
