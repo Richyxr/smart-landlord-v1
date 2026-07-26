@@ -73,13 +73,14 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
         try {
           const res = await fetch(url, { headers });
           if (!res.ok) {
-            console.error(`API Error [${res.status}] on ${url}`);
+            const errText = await res.text().catch(() => '');
+            console.error(`Dashboard Tile Failure: [${res.status}] on ${url}`, errText);
             return { error: true, status: res.status, data: fallback };
           }
           const data = await res.json();
           return { error: false, status: res.status, data };
         } catch (err) {
-          console.error(`API Exception on ${url}:`, err.message);
+          console.error(`Dashboard Tile Failure: Exception on ${url}:`, err.message || err);
           return { error: true, status: 500, message: err.message, data: fallback };
         }
       };
@@ -131,51 +132,61 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
       const saas = saasRes.data || {};
       const readiness = readinessRes.data || {};
 
-      setStats({
-        propertiesCount: props.length,
-        unitsCount: unitCount,
-        occupiedCount,
-        vacantCount: (Array.isArray(units) ? units : []).length > 0
-          ? (Array.isArray(units) ? units : []).filter((u) => String(u.status || '').toLowerCase() === 'vacant').length
-          : Math.max(unitCount - occupiedCount, 0),
-        expectedRent: expected,
-        collectedRent: collected,
-        arrears: outstanding,
-        unmatchedCount: (Array.isArray(staging) ? staging : []).filter((r) => r.status === 'unmatched' || r.status === 'needs_review').length,
-        pendingReadingsCount: (Array.isArray(readings) ? readings : []).filter((r) => r.status === 'submitted').length,
-        saasLocked: !!saas.organization?.is_locked,
-        readinessStatus: readiness.is_ready !== false,
-        subscriptionStatus: saas.organization?.subscription_status || 'trial',
-        trialEndsAt: saas.organization?.trial_ends_at || null,
-        subscriptionExpiresAt: saas.organization?.subscription_expires_at || null,
+      setStats(prev => ({
+        ...prev,
+        propertiesCount: propsRes.error && prev.hasPropertiesData ? prev.propertiesCount : props.length,
+        unitsCount: unitsRes.error && prev.hasUnitsData ? prev.unitsCount : unitCount,
+        occupiedCount: unitsRes.error && prev.hasUnitsData ? prev.occupiedCount : occupiedCount,
+        vacantCount: unitsRes.error && prev.hasUnitsData ? prev.vacantCount : (
+          (Array.isArray(units) ? units : []).length > 0
+            ? (Array.isArray(units) ? units : []).filter((u) => String(u.status || '').toLowerCase() === 'vacant').length
+            : Math.max(unitCount - occupiedCount, 0)
+        ),
+        expectedRent: tenantsRes.error && prev.hasTenantsData ? prev.expectedRent : expected,
+        collectedRent: invoicesRes.error && prev.hasInvoicesData ? prev.collectedRent : collected,
+        arrears: tenantsRes.error && prev.hasTenantsData ? prev.arrears : outstanding,
+        unmatchedCount: stagingRes.error && prev.hasStagingData ? prev.unmatchedCount : (Array.isArray(staging) ? staging : []).filter((r) => r.status === 'unmatched' || r.status === 'needs_review').length,
+        pendingReadingsCount: readingsRes.error && prev.hasReadingsData ? prev.pendingReadingsCount : (Array.isArray(readings) ? readings : []).filter((r) => r.status === 'submitted').length,
+        saasLocked: saasRes.error && prev.hasSaasData ? prev.saasLocked : !!saas.organization?.is_locked,
+        readinessStatus: readinessRes.error && prev.hasReadinessData ? prev.readinessStatus : readiness.is_ready !== false,
+        subscriptionStatus: saasRes.error && prev.hasSaasData ? prev.subscriptionStatus : saas.organization?.subscription_status || 'trial',
+        trialEndsAt: saasRes.error && prev.hasSaasData ? prev.trialEndsAt : saas.organization?.trial_ends_at || null,
+        subscriptionExpiresAt: saasRes.error && prev.hasSaasData ? prev.subscriptionExpiresAt : saas.organization?.subscription_expires_at || null,
+        
         // Error tracking
-        propsError: propsRes.error,
+        propsError: prev.hasPropertiesData ? false : propsRes.error,
         propsStatus: propsRes.status,
-        unitsError: unitsRes.error,
+        unitsError: prev.hasUnitsData ? false : unitsRes.error,
         unitsStatus: unitsRes.status,
-        tenantsError: tenantsRes.error,
+        tenantsError: prev.hasTenantsData ? false : tenantsRes.error,
         tenantsStatus: tenantsRes.status,
-        invoicesError: invoicesRes.error,
+        invoicesError: prev.hasInvoicesData ? false : invoicesRes.error,
         invoicesStatus: invoicesRes.status,
-        paymentsError: paymentsRes.error,
+        paymentsError: prev.hasPaymentsData ? false : paymentsRes.error,
         paymentsStatus: paymentsRes.status,
-        stagingError: stagingRes.error,
+        stagingError: prev.hasStagingData ? false : stagingRes.error,
         stagingStatus: stagingRes.status,
-        readingsError: readingsRes.error,
+        readingsError: prev.hasReadingsData ? false : readingsRes.error,
         readingsStatus: readingsRes.status,
-        saasError: saasRes.error,
+        saasError: prev.hasSaasData ? false : saasRes.error,
         saasStatus: saasRes.status,
-        readinessError: readinessRes.error,
+        readinessError: prev.hasReadinessData ? false : readinessRes.error,
         readinessFetchStatus: readinessRes.status,
+        
         // Data presence flags
-        hasPropertiesData: !propsRes.error,
-        hasUnitsData: !unitsRes.error,
-        hasPaymentsData: !paymentsRes.error,
-        hasInvoicesData: !invoicesRes.error
-      });
+        hasPropertiesData: prev.hasPropertiesData || !propsRes.error,
+        hasUnitsData: prev.hasUnitsData || !unitsRes.error,
+        hasTenantsData: prev.hasTenantsData || !tenantsRes.error,
+        hasPaymentsData: prev.hasPaymentsData || !paymentsRes.error,
+        hasInvoicesData: prev.hasInvoicesData || !invoicesRes.error,
+        hasStagingData: prev.hasStagingData || !stagingRes.error,
+        hasReadingsData: prev.hasReadingsData || !readingsRes.error,
+        hasSaasData: prev.hasSaasData || !saasRes.error,
+        hasReadinessData: prev.hasReadinessData || !readinessRes.error
+      }));
 
-      setRecentPayments(payments.slice(0, 3));
-      setRecentInvoices(invoices.slice(0, 3));
+      setRecentPayments(prev => paymentsRes.error && prev.length > 0 ? prev : payments.slice(0, 3));
+      setRecentInvoices(prev => invoicesRes.error && prev.length > 0 ? prev : invoices.slice(0, 3));
     } catch (e) {
       console.error(e);
     } finally {

@@ -101,7 +101,7 @@ export function installAuthFetch() {
     }
 
     const headers = new Headers(init.headers || {});
-    if (!headers.has('Authorization')) {
+    if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
 
