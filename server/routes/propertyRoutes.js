@@ -411,17 +411,17 @@ export function createPropertyRoutes(pgDb) {
       [role === 'super_admin' ? null : orgId, propertyIds]
     );
 
-    const statsByPropertyId = new Map(stats.rows.map(row => [row.property_id, row]));
+    const statsByPropertyId = new Map(stats.rows.map(row => [Number(row.property_id), row]));
 
     res.json(properties.map(property => ({
       ...property,
-      total_units: statsByPropertyId.get(property.id)?.total_units || 0,
-      vacant_units: statsByPropertyId.get(property.id)?.vacant_units || 0,
-      occupied_units: statsByPropertyId.get(property.id)?.occupied_units || 0,
-      maintenance_units: statsByPropertyId.get(property.id)?.maintenance_units || 0,
-      expected_rent: Number(statsByPropertyId.get(property.id)?.expected_rent || 0),
-      collected_rent: Number(statsByPropertyId.get(property.id)?.collected_rent || 0),
-      arrears: Number(statsByPropertyId.get(property.id)?.arrears || 0)
+      total_units: statsByPropertyId.get(Number(property.id))?.total_units || 0,
+      vacant_units: statsByPropertyId.get(Number(property.id))?.vacant_units || 0,
+      occupied_units: statsByPropertyId.get(Number(property.id))?.occupied_units || 0,
+      maintenance_units: statsByPropertyId.get(Number(property.id))?.maintenance_units || 0,
+      expected_rent: Number(statsByPropertyId.get(Number(property.id))?.expected_rent || 0),
+      collected_rent: Number(statsByPropertyId.get(Number(property.id))?.collected_rent || 0),
+      arrears: Number(statsByPropertyId.get(Number(property.id))?.arrears || 0)
     })));
   }));
 
@@ -517,12 +517,12 @@ export function createPropertyRoutes(pgDb) {
       [role === 'super_admin' ? null : orgId, unitIds]
     );
 
-    const detailByUnitId = new Map(result.rows.map(row => [row.id, row]));
+    const detailByUnitId = new Map(result.rows.map(row => [Number(row.id), row]));
     res.json(units.map(unit => ({
       ...unit,
-      property_name: detailByUnitId.get(unit.id)?.property_name || 'Unknown Property',
-      tenant_name: detailByUnitId.get(unit.id)?.tenant_name || 'Vacant',
-      tenant_id: detailByUnitId.get(unit.id)?.tenant_id || null
+      property_name: detailByUnitId.get(Number(unit.id))?.property_name || 'Unknown Property',
+      tenant_name: detailByUnitId.get(Number(unit.id))?.tenant_name || 'Vacant',
+      tenant_id: detailByUnitId.get(Number(unit.id))?.tenant_id || null
     })));
   }));
 
@@ -585,8 +585,10 @@ export function createPropertyRoutes(pgDb) {
   }));
 
   router.get('/tenants', requireLandlord, asyncHandler(async (req, res) => {
-    const { orgId } = getContext(req);
-    const tenants = await pgDb.find('tenants', { organization_id: orgId, deleted_at: null });
+    const { orgId, role } = getContext(req);
+    const query = { deleted_at: null };
+    if (role !== 'super_admin') query.organization_id = orgId;
+    const tenants = await pgDb.find('tenants', query);
 
     if (tenants.length === 0) {
       return res.json([]);
@@ -641,16 +643,16 @@ export function createPropertyRoutes(pgDb) {
       [role === 'super_admin' ? null : orgId, tenantIds]
     );
 
-    const detailByTenantId = new Map(result.rows.map(row => [row.id, row]));
+    const detailByTenantId = new Map(result.rows.map(row => [Number(row.id), row]));
     res.json(tenants.map(tenant => ({
       ...tenant,
-      property_name: detailByTenantId.get(tenant.id)?.property_name || 'Unknown Property',
-      unit_code: detailByTenantId.get(tenant.id)?.unit_code || 'Unknown Unit',
-      balance: Number(detailByTenantId.get(tenant.id)?.balance || 0),
-      last_payment_amount: detailByTenantId.get(tenant.id)?.last_payment_amount || null,
-      last_payment_date: detailByTenantId.get(tenant.id)?.last_payment_date || null,
-      last_rent_invoice_date: detailByTenantId.get(tenant.id)?.last_rent_invoice_date || null,
-      last_rent_invoice_number: detailByTenantId.get(tenant.id)?.last_rent_invoice_number || null
+      property_name: detailByTenantId.get(Number(tenant.id))?.property_name || 'Unknown Property',
+      unit_code: detailByTenantId.get(Number(tenant.id))?.unit_code || 'Unknown Unit',
+      balance: Number(detailByTenantId.get(Number(tenant.id))?.balance || 0),
+      last_payment_amount: detailByTenantId.get(Number(tenant.id))?.last_payment_amount || null,
+      last_payment_date: detailByTenantId.get(Number(tenant.id))?.last_payment_date || null,
+      last_rent_invoice_date: detailByTenantId.get(Number(tenant.id))?.last_rent_invoice_date || null,
+      last_rent_invoice_number: detailByTenantId.get(Number(tenant.id))?.last_rent_invoice_number || null
     })));
   }));
 

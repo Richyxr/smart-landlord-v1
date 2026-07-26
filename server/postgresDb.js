@@ -88,7 +88,7 @@ function buildWhere(filterObj = {}, startIndex = 1) {
 
   for (const [key, value] of Object.entries(filterObj)) {
     const column = quoteIdent(key);
-    if (value === null) {
+    if (value === null || value === undefined) {
       clauses.push(`${column} IS NULL`);
       continue;
     }
