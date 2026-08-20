@@ -70,6 +70,66 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
     lobby: { name: 'Ground Lobby', target: 'Access PIN Entry Door', res: '1080p @ 30 FPS' }
   };
 
+  // Feature Tab State
+  const [activeFeature, setActiveFeature] = useState(0);
+  const features = [
+    {
+      icon: Zap,
+      label: 'M-Pesa Reconciliation',
+      headline: 'Payments match in under a second.',
+      body: 'Connect your Safaricom Paybill or Till number. Every incoming M-Pesa and bank transfer is automatically matched to a tenant unit, receipt issued, and arrears updated — with zero manual ledger work.',
+      badge: '0.3s Auto-Match',
+      badgeColor: '#10b981',
+      accentColor: '#10b981',
+      accentBg: 'rgba(16, 185, 129, 0.08)',
+      preview: 'mpesa'
+    },
+    {
+      icon: Smartphone,
+      label: 'Caretaker Field Portal',
+      headline: 'Meter reads. From any smartphone.',
+      body: 'Field staff log water and electricity meters via a secure 4-digit PIN mobile portal. Each entry is photo-verified and GPS-stamped, generating automatic utility invoices with no disputes.',
+      badge: 'Photo + GPS Verified',
+      badgeColor: '#38bdf8',
+      accentColor: '#38bdf8',
+      accentBg: 'rgba(56, 189, 248, 0.08)',
+      preview: 'caretaker'
+    },
+    {
+      icon: Receipt,
+      label: 'Automated Invoicing',
+      headline: '1 click. All invoices. All tenants.',
+      body: 'Generate consolidated rent rolls that bundle rent, water, electricity, and service charges. Branded PDF invoices are dispatched via automated SMS with an embedded M-Pesa STK Push payment link.',
+      badge: '1-Click Batch Run',
+      badgeColor: '#818cf8',
+      accentColor: '#818cf8',
+      accentBg: 'rgba(99, 102, 241, 0.08)',
+      preview: 'invoicing'
+    },
+    {
+      icon: Camera,
+      label: 'CCTV & Access Control',
+      headline: 'Live surveillance. Built into your dashboard.',
+      body: 'Stream RTSP IP cameras directly inside Smart Landlord. Monitor gates, parking bays, and corridors without any external NVR app. ANPR vehicle recognition at barriers comes standard.',
+      badge: 'RTSP / ONVIF Live',
+      badgeColor: '#f59e0b',
+      accentColor: '#f59e0b',
+      accentBg: 'rgba(245, 158, 11, 0.08)',
+      preview: 'cctv'
+    },
+    {
+      icon: Building2,
+      label: 'Portfolio & KRA Tax',
+      headline: 'Multi-estate. KRA-ready. Always.',
+      body: 'Manage unlimited properties under one login. Assign caretakers per block, track occupancy and arrears across estates, and export KRA eTIMS-validated withholding tax reports in one click.',
+      badge: '✓ KRA eTIMS Validated',
+      badgeColor: '#10b981',
+      accentColor: '#c084fc',
+      accentBg: 'rgba(192, 132, 252, 0.08)',
+      preview: 'portfolio'
+    }
+  ];
+
   // Dynamic Unit Rate based on calibrated boundaries
   const getUnitPrice = (units) => {
     if (units > (pricingConfig.growth_max_units || 70)) return Number(pricingConfig.portfolio_price_per_unit || 50);
@@ -419,382 +479,337 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
         </div>
       </section>
 
-      {/* 5. MAGIC UI ASYMMETRIC BENTO GRID */}
-      <section id="features" style={{ padding: '100px 20px', maxWidth: '1240px', margin: '0 auto' }}>
-        
+      {/* 5. ENTERPRISE TABBED FEATURE SHOWCASE */}
+      <section id="features" style={{ padding: '100px 20px', maxWidth: '1140px', margin: '0 auto' }}>
+
         {/* SECTION HEADER */}
-        <div style={{ textAlign: 'center', marginBottom: '56px' }}>
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            background: 'rgba(99, 102, 241, 0.12)',
-            border: '1px solid rgba(99, 102, 241, 0.3)',
-            borderRadius: '30px',
-            padding: '5px 18px',
-            fontSize: '11px',
-            fontWeight: '700',
-            textTransform: 'uppercase',
-            color: '#a5b4fc',
-            letterSpacing: '0.08em',
-            marginBottom: '16px'
-          }}>
-            <Sparkles size={13} style={{ color: '#818cf8' }} /> Next-Generation Platform
+        <div style={{ textAlign: 'center', marginBottom: '64px' }}>
+          <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', color: '#818cf8', letterSpacing: '0.1em', marginBottom: '12px' }}>
+            Platform Capabilities
           </div>
-          <h2 style={{ fontSize: 'clamp(28px, 4.5vw, 44px)', fontWeight: '800', margin: '0 0 14px 0', color: '#fff', letterSpacing: '-0.025em' }}>
-            Built for Elite Property Operators
+          <h2 style={{ fontSize: 'clamp(28px, 4vw, 42px)', fontWeight: '800', margin: '0 0 16px 0', color: '#fff', letterSpacing: '-0.03em', lineHeight: 1.1 }}>
+            Every tool you need.<br />Nothing you don't.
           </h2>
-          <p style={{ fontSize: '15px', color: '#94a3b8', maxWidth: '680px', margin: '0 auto', lineHeight: 1.6 }}>
-            Every component is engineered with real-time African financial rails, automated field telemetry, and institutional-grade oversight.
+          <p style={{ fontSize: '16px', color: '#64748b', maxWidth: '560px', margin: '0 auto', lineHeight: 1.65 }}>
+            Built for African landlords managing 1 to 10,000 units — with local payment rails, field operations, and institutional oversight baked in.
           </p>
         </div>
 
-        {/* 5-CARD MAGIC BENTO GRID */}
-        <div className="magic-bento-grid">
-          
-          {/* CARD 1: INSTANT M-PESA & BANK RECONCILIATION (SPAN 2) */}
-          <div className="magic-bento-card magic-span-2">
-            
-            {/* RICH TOP GRAPHICAL PREVIEW */}
-            <div className="magic-bg-graphic" style={{ height: '220px', padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', background: 'radial-gradient(ellipse at top left, rgba(16, 185, 129, 0.12), rgba(9, 13, 22, 0.95))' }}>
-              
-              {/* TOP TICKER HEADER */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.06)', paddingBottom: '10px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 10px #10b981' }} />
-                  <span style={{ fontSize: '11px', fontWeight: '700', color: '#fff', letterSpacing: '0.02em' }}>LIVE DARAJA C2B & BANK INGESTION</span>
-                </div>
-                <span style={{ fontSize: '10px', fontWeight: '700', color: '#10b981', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                  0.3s Match Speed
-                </span>
-              </div>
+        {/* TABBED LAYOUT */}
+        <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '32px', alignItems: 'start' }}>
 
-              {/* FLOATING TRANSACTIONS STREAM */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', margin: '6px 0' }}>
-                
-                <div className="float-tx-anim" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: '8px', padding: '8px 12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#10b981', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '800' }}>M</div>
-                    <div>
-                      <div style={{ color: '#fff', fontSize: '11px', fontWeight: '700' }}>Jane Wambui • Unit 4B</div>
-                      <div style={{ color: '#64748b', fontSize: '9px', fontFamily: 'monospace' }}>Ref: QK8291KL0P • Paybill 882910</div>
+          {/* LEFT: TAB LIST */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {features.map((f, i) => {
+              const Icon = f.icon;
+              const isActive = i === activeFeature;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setActiveFeature(i)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '14px 16px',
+                    borderRadius: '10px',
+                    border: isActive ? `1px solid ${f.accentColor}30` : '1px solid transparent',
+                    background: isActive ? f.accentBg : 'transparent',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.2s ease'
+                  }}
+                >
+                  <div style={{
+                    width: '34px',
+                    height: '34px',
+                    borderRadius: '8px',
+                    background: isActive ? `${f.accentColor}20` : 'rgba(255,255,255,0.04)',
+                    border: `1px solid ${isActive ? f.accentColor + '40' : 'rgba(255,255,255,0.06)'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: isActive ? f.accentColor : '#475569',
+                    flexShrink: 0,
+                    transition: 'all 0.2s ease'
+                  }}>
+                    <Icon size={16} />
+                  </div>
+                  <span style={{
+                    fontSize: '13px',
+                    fontWeight: isActive ? '600' : '500',
+                    color: isActive ? '#fff' : '#64748b',
+                    transition: 'color 0.2s ease'
+                  }}>
+                    {f.label}
+                  </span>
+                  {isActive && (
+                    <ArrowRight size={14} style={{ color: f.accentColor, marginLeft: 'auto', flexShrink: 0 }} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* RIGHT: PREVIEW PANEL */}
+          {(() => {
+            const f = features[activeFeature];
+            return (
+              <div style={{
+                background: 'rgba(15, 23, 42, 0.6)',
+                border: '1px solid rgba(255, 255, 255, 0.07)',
+                borderRadius: '16px',
+                overflow: 'hidden'
+              }}>
+
+                {/* PANEL HEADER BAR */}
+                <div style={{
+                  padding: '12px 20px',
+                  borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: 'rgba(255, 255, 255, 0.02)'
+                }}>
+                  <div style={{ display: 'flex', gap: '5px' }}>
+                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444', display: 'inline-block', opacity: 0.6 }} />
+                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#f59e0b', display: 'inline-block', opacity: 0.6 }} />
+                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#10b981', display: 'inline-block', opacity: 0.6 }} />
+                  </div>
+                  <span style={{ fontSize: '11px', color: '#475569', marginLeft: '4px', fontFamily: 'monospace' }}>smart-landlord.app / {f.preview}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: '10px', fontWeight: '700', color: f.badgeColor, background: `${f.badgeColor}18`, border: `1px solid ${f.badgeColor}30`, padding: '2px 8px', borderRadius: '20px' }}>
+                    {f.badge}
+                  </span>
+                </div>
+
+                {/* PANEL CONTENT GRAPHIC */}
+                <div style={{ padding: '32px 28px' }}>
+
+                  {/* M-PESA RECONCILIATION PREVIEW */}
+                  {f.preview === 'mpesa' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div>
+                          <div style={{ fontSize: '11px', color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Live Ingestion Feed</div>
+                          <div style={{ fontSize: '22px', fontWeight: '800', color: '#10b981', marginTop: '2px' }}>KES 478,000</div>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>Reconciled today · 0 exceptions</div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: '700', color: '#10b981' }}>
+                          <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 8px #10b981' }} />
+                          Live
+                        </div>
+                      </div>
+                      {[
+                        { tenant: 'Jane Wambui', unit: 'Unit 4B', ref: 'QK8291KL0P', amount: 'KES 35,000', source: 'M-Pesa Paybill', color: '#10b981', abbr: 'M' },
+                        { tenant: 'David Ochieng', unit: 'Unit 2A', ref: 'FT262309', amount: 'KES 28,000', source: 'Equity Bank Direct', color: '#38bdf8', abbr: 'B' },
+                        { tenant: 'Sarah Njoki', unit: 'Unit 7C', ref: 'QK9012AB3C', amount: 'KES 45,000', source: 'M-Pesa Till', color: '#10b981', abbr: 'M' }
+                      ].map((tx, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: `${tx.color}20`, border: `1px solid ${tx.color}40`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '800', color: tx.color }}>
+                              {tx.abbr}
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '13px', fontWeight: '600', color: '#e2e8f0' }}>{tx.tenant} <span style={{ color: '#475569', fontWeight: '400' }}>· {tx.unit}</span></div>
+                              <div style={{ fontSize: '10px', color: '#475569', fontFamily: 'monospace', marginTop: '1px' }}>Ref: {tx.ref} · {tx.source}</div>
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '14px', fontWeight: '700', color: '#10b981' }}>{tx.amount}</div>
+                            <div style={{ fontSize: '9px', color: '#10b981', fontWeight: '600', marginTop: '2px' }}>Auto-matched ✓</div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ color: '#10b981', fontSize: '12px', fontWeight: '800' }}>+KES 35,000</div>
-                    <span style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981', fontSize: '9px', fontWeight: '700', padding: '1px 5px', borderRadius: '4px' }}>Auto-Matched</span>
-                  </div>
-                </div>
+                  )}
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '8px', padding: '8px 12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#0284c7', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '800' }}>B</div>
-                    <div>
-                      <div style={{ color: '#fff', fontSize: '11px', fontWeight: '700' }}>David Ochieng • Unit 2A</div>
-                      <div style={{ color: '#64748b', fontSize: '9px', fontFamily: 'monospace' }}>Ref: FT262309 • Equity Direct</div>
+                  {/* CARETAKER PREVIEW */}
+                  {f.preview === 'caretaker' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div>
+                          <div style={{ fontSize: '11px', color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Field Entry — Kilimani Heights</div>
+                          <div style={{ fontSize: '22px', fontWeight: '800', color: '#38bdf8', marginTop: '2px' }}>24 / 36 Logged</div>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>Caretaker: J. Mwangi · Today 09:14 AM</div>
+                        </div>
+                        <div style={{ fontSize: '11px', fontWeight: '600', background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.2)', padding: '4px 10px', borderRadius: '20px', color: '#38bdf8' }}>
+                          GPS Verified
+                        </div>
+                      </div>
+                      {[
+                        { unit: 'Unit B-04', prev: '340.5', curr: '358.2', usage: '17.7 m³', bill: 'KES 2,655', verified: true },
+                        { unit: 'Unit B-05', prev: '221.0', curr: '234.3', usage: '13.3 m³', bill: 'KES 1,995', verified: true },
+                        { unit: 'Unit B-06', prev: '189.2', curr: '201.8', usage: '12.6 m³', bill: 'KES 1,890', verified: false }
+                      ].map((r, i) => (
+                        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '12px', alignItems: 'center', padding: '12px 14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                          <div>
+                            <div style={{ fontSize: '12px', fontWeight: '600', color: '#e2e8f0' }}>{r.unit}</div>
+                            <div style={{ fontSize: '10px', color: '#475569' }}>Water</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '10px', color: '#475569' }}>Previous</div>
+                            <div style={{ fontSize: '12px', color: '#94a3b8', fontFamily: 'monospace' }}>{r.prev} m³</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '10px', color: '#475569' }}>Current</div>
+                            <div style={{ fontSize: '12px', color: '#38bdf8', fontFamily: 'monospace', fontWeight: '700' }}>{r.curr} m³</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: '10px', color: '#475569' }}>Charge</div>
+                            <div style={{ fontSize: '12px', color: '#10b981', fontWeight: '700' }}>{r.bill}</div>
+                          </div>
+                          <div style={{ fontSize: '10px', color: r.verified ? '#10b981' : '#f59e0b', fontWeight: '700' }}>
+                            {r.verified ? '✓' : '⏳'}
+                          </div>
+                        </div>
+                      ))}
                     </div>
+                  )}
+
+                  {/* INVOICING PREVIEW */}
+                  {f.preview === 'invoicing' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div>
+                          <div style={{ fontSize: '11px', color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em' }}>August 2026 Rent Roll</div>
+                          <div style={{ fontSize: '22px', fontWeight: '800', color: '#818cf8', marginTop: '2px' }}>36 Invoices</div>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>Dispatched via SMS · Total KES 1,622,400</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '11px', color: '#10b981', fontWeight: '700' }}>100% Sent ✓</div>
+                          <div style={{ fontSize: '10px', color: '#475569', marginTop: '2px' }}>Includes STK Push link</div>
+                        </div>
+                      </div>
+                      {[
+                        { unit: 'Unit 101', tenant: 'Peter Kamau', rent: 25000, water: 3200, garbage: 500, total: 28700 },
+                        { unit: 'Unit 102', tenant: 'Sarah Muthoni', rent: 38000, water: 2100, garbage: 500, total: 40600 },
+                        { unit: 'Unit 103', tenant: 'Brian Omondi', rent: 42000, water: 4100, garbage: 500, total: 46600 }
+                      ].map((inv, i) => (
+                        <div key={i} style={{ padding: '14px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <div style={{ fontSize: '13px', fontWeight: '600', color: '#e2e8f0' }}>{inv.unit} · {inv.tenant}</div>
+                            <div style={{ fontSize: '14px', fontWeight: '800', color: '#818cf8' }}>KES {inv.total.toLocaleString()}</div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: '#475569' }}>
+                            <span>Rent <span style={{ color: '#94a3b8' }}>KES {inv.rent.toLocaleString()}</span></span>
+                            <span>Water <span style={{ color: '#94a3b8' }}>KES {inv.water.toLocaleString()}</span></span>
+                            <span>Garbage <span style={{ color: '#94a3b8' }}>KES {inv.garbage}</span></span>
+                            <span style={{ marginLeft: 'auto', color: '#10b981', fontWeight: '600' }}>SMS ✓</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* CCTV PREVIEW */}
+                  {f.preview === 'cctv' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div>
+                          <div style={{ fontSize: '11px', color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Security Feeds — Live</div>
+                          <div style={{ fontSize: '22px', fontWeight: '800', color: '#f59e0b', marginTop: '2px' }}>3 Cameras</div>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>Kilimani Heights · All streams healthy</div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', fontWeight: '700', color: '#ef4444' }}>
+                          <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                          REC
+                        </div>
+                      </div>
+                      {[
+                        { name: 'Main Gate 01', zone: 'Vehicle Barrier & ANPR', res: '1080p', status: 'ANPR Active', statusColor: '#f59e0b' },
+                        { name: 'Parking Bay A', zone: '28 / 30 Slots Occupied', res: '1080p', status: 'Recording', statusColor: '#10b981' },
+                        { name: 'Ground Lobby', zone: 'Access PIN Door · 3 entries/hr', res: '1080p', status: 'Recording', statusColor: '#10b981' }
+                      ].map((cam, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '14px', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px' }}>
+                          <div style={{ width: '64px', height: '44px', borderRadius: '6px', background: '#000', border: '1px solid rgba(245,158,11,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Camera size={18} style={{ color: '#f59e0b', opacity: 0.7 }} />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '13px', fontWeight: '600', color: '#e2e8f0' }}>{cam.name}</div>
+                            <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px' }}>{cam.zone} · {cam.res}</div>
+                          </div>
+                          <div style={{ fontSize: '10px', fontWeight: '700', color: cam.statusColor, background: `${cam.statusColor}15`, border: `1px solid ${cam.statusColor}30`, padding: '2px 8px', borderRadius: '20px', flexShrink: 0 }}>
+                            {cam.status}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* PORTFOLIO PREVIEW */}
+                  {f.preview === 'portfolio' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div>
+                          <div style={{ fontSize: '11px', color: '#475569', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Portfolio Overview</div>
+                          <div style={{ fontSize: '22px', fontWeight: '800', color: '#c084fc', marginTop: '2px' }}>KES 4,772,000</div>
+                          <div style={{ fontSize: '11px', color: '#64748b' }}>August net collected · 2 estates · 84 units</div>
+                        </div>
+                        <div style={{ fontSize: '10px', fontWeight: '700', color: '#10b981', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', padding: '3px 10px', borderRadius: '20px' }}>
+                          ✓ KRA eTIMS Validated
+                        </div>
+                      </div>
+                      {[
+                        { name: 'Kilimani Heights', units: 36, occupied: 36, collected: 'KES 1,622,400', rate: 100, caretaker: 'J. Mwangi', color: '#10b981' },
+                        { name: 'Westlands Square', units: 48, occupied: 46, collected: 'KES 3,149,600', rate: 96, caretaker: 'E. Kimani', color: '#38bdf8' }
+                      ].map((estate, i) => (
+                        <div key={i} style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                            <div>
+                              <div style={{ fontSize: '14px', fontWeight: '600', color: '#e2e8f0' }}>{estate.name}</div>
+                              <div style={{ fontSize: '11px', color: '#475569', marginTop: '2px' }}>Caretaker: {estate.caretaker} · {estate.occupied}/{estate.units} occupied</div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: '13px', fontWeight: '700', color: '#c084fc' }}>{estate.collected}</div>
+                              <div style={{ fontSize: '11px', color: estate.color, fontWeight: '600' }}>{estate.rate}% collected</div>
+                            </div>
+                          </div>
+                          <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', overflow: 'hidden' }}>
+                            <div style={{ width: `${estate.rate}%`, height: '100%', background: estate.color, borderRadius: '2px', transition: 'width 0.6s ease' }} />
+                          </div>
+                        </div>
+                      ))}
+                      <div style={{ display: 'flex', gap: '8px', paddingTop: '4px' }}>
+                        {['PDF Report', 'Excel Ledger', 'KRA eTIMS Export'].map((btn, i) => (
+                          <div key={i} style={{ padding: '6px 14px', fontSize: '11px', fontWeight: '600', borderRadius: '6px', background: i === 2 ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.04)', color: i === 2 ? '#10b981' : '#64748b', border: `1px solid ${i === 2 ? 'rgba(16,185,129,0.25)' : 'rgba(255,255,255,0.06)'}`, cursor: 'pointer' }}>
+                            {btn}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+
+                {/* PANEL FOOTER */}
+                <div style={{
+                  padding: '16px 28px',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                  background: 'rgba(255, 255, 255, 0.01)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <div>
+                    <div style={{ fontSize: '15px', fontWeight: '700', color: '#fff' }}>{features[activeFeature].headline}</div>
+                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px', maxWidth: '480px', lineHeight: 1.5 }}>{features[activeFeature].body}</div>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ color: '#38bdf8', fontSize: '12px', fontWeight: '800' }}>+KES 28,000</div>
-                    <span style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', fontSize: '9px', fontWeight: '700', padding: '1px 5px', borderRadius: '4px' }}>Auto-Matched</span>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* BOTTOM METRIC */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10px', color: '#94a3b8', borderTop: '1px solid rgba(255, 255, 255, 0.04)', paddingTop: '6px' }}>
-                <span>Reconciled Today: <strong style={{ color: '#fff' }}>KES 478,000</strong></span>
-                <span style={{ color: '#10b981', fontWeight: '700' }}>✓ Zero Manual Statements</span>
-              </div>
-            </div>
-
-            {/* BOTTOM CARD CONTENT */}
-            <div style={{ marginTop: '20px' }}>
-              <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', marginBottom: '14px' }}>
-                <Zap size={22} />
-              </div>
-              <h3 style={{ fontSize: '19px', fontWeight: '700', color: '#fff', margin: '0 0 6px 0' }}>Instant M-Pesa & Bank Reconciliation</h3>
-              <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.5, margin: '0 0 12px 0' }}>
-                Connect Safaricom Paybill, Till, or Bank feeds. Payments match instantly to tenant units, issue automated receipts, and update arrears in real time.
-              </p>
-              <div className="magic-cta" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: '#818cf8', cursor: 'pointer' }}>
-                <span>Explore Daraja webhooks</span>
-                <ArrowRight size={14} />
-              </div>
-            </div>
-
-          </div>
-
-          {/* CARD 2: CARETAKER FIELD PORTAL & CAMERA (SPAN 1) */}
-          <div className="magic-bento-card magic-span-1">
-            
-            {/* RICH TOP GRAPHICAL PREVIEW */}
-            <div className="magic-bg-graphic" style={{ height: '220px', padding: '14px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', background: 'radial-gradient(ellipse at top right, rgba(56, 189, 248, 0.15), rgba(9, 13, 22, 0.95))' }}>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '10px', color: '#38bdf8', fontWeight: '700', background: 'rgba(56, 189, 248, 0.12)', padding: '2px 8px', borderRadius: '10px' }}>CAMERA OCR</span>
-                <span style={{ fontSize: '9px', color: '#64748b', fontFamily: 'monospace' }}>GPS: -1.2921, 36.8219</span>
-              </div>
-
-              {/* CAMERA VIEWFINDER FRAME */}
-              <div style={{ position: 'relative', border: '1px dashed rgba(56, 189, 248, 0.4)', borderRadius: '8px', padding: '10px', background: 'rgba(0, 0, 0, 0.5)', overflow: 'hidden' }}>
-                <div className="scan-line-anim" />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '9px', color: '#94a3b8' }}>Unit B-04 Water Dial</span>
-                  <span style={{ fontSize: '9px', color: '#10b981', fontWeight: '700' }}>99.4% Validated</span>
-                </div>
-                <div style={{ fontSize: '18px', fontWeight: '800', fontFamily: 'monospace', color: '#38bdf8', letterSpacing: '0.1em', textAlign: 'center', margin: '4px 0' }}>
-                  0 3 5 8 . 2 <span style={{ fontSize: '11px', color: '#94a3b8' }}>m³</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#cbd5e1', background: 'rgba(255, 255, 255, 0.05)', padding: '4px 6px', borderRadius: '4px' }}>
-                  <span>Prev: 340.5 m³</span>
-                  <span style={{ color: '#10b981', fontWeight: '700' }}>+17.7 m³ (+KES 2,655)</span>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '9px', color: '#94a3b8' }}>
-                <Camera size={11} style={{ color: '#38bdf8' }} />
-                <span>Photo & GPS locked to tenant invoice</span>
-              </div>
-            </div>
-
-            {/* BOTTOM CARD CONTENT */}
-            <div style={{ marginTop: '20px' }}>
-              <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(56, 189, 248, 0.15)', border: '1px solid rgba(56, 189, 248, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#38bdf8', marginBottom: '14px' }}>
-                <Smartphone size={22} />
-              </div>
-              <h3 style={{ fontSize: '19px', fontWeight: '700', color: '#fff', margin: '0 0 6px 0' }}>Caretaker Field Portal</h3>
-              <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.5, margin: '0 0 12px 0' }}>
-                Field staff log water and electricity meters via secure mobile PIN with photo proof and automatic tariff calculations.
-              </p>
-              <div className="magic-cta" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: '#818cf8', cursor: 'pointer' }}>
-                <span>See mobile field demo</span>
-                <ArrowRight size={14} />
-              </div>
-            </div>
-
-          </div>
-
-          {/* CARD 3: LIVE CCTV SURVEILLANCE & SMART GATE (SPAN 1) */}
-          <div className="magic-bento-card magic-span-1">
-            
-            {/* RICH TOP GRAPHICAL PREVIEW */}
-            <div className="magic-bg-graphic" style={{ height: '220px', padding: '14px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', background: 'radial-gradient(ellipse at top right, rgba(245, 158, 11, 0.15), rgba(9, 13, 22, 0.95))' }}>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444', fontWeight: '700', fontSize: '10px' }}>
-                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
-                  REC • {cctvFeeds[activeCctvFeed]?.name}
-                </div>
-                <span style={{ fontSize: '9px', color: '#64748b' }}>{cctvFeeds[activeCctvFeed]?.res}</span>
-              </div>
-
-              {/* ANPR HUD OVERLAY */}
-              <div style={{ background: '#000', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '8px', padding: '10px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '9px', color: '#64748b' }}>ACTIVE TARGET</span>
-                  <span style={{ fontSize: '8px', color: '#10b981', fontWeight: '700', background: 'rgba(16, 185, 129, 0.15)', padding: '1px 5px', borderRadius: '3px' }}>● LIVE</span>
-                </div>
-                <div style={{ fontSize: '11px', fontWeight: '700', color: '#fff', marginBottom: '2px' }}>{cctvFeeds[activeCctvFeed]?.target}</div>
-                <div style={{ fontSize: '9px', color: '#f59e0b', fontFamily: 'monospace' }}>RTSP://192.168.1.120:554/ch1</div>
-              </div>
-
-              {/* SWITCHER CHIPS */}
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button
-                  type="button"
-                  onClick={() => setActiveCctvFeed('gate')}
-                  style={{ flex: 1, padding: '4px', borderRadius: '4px', fontSize: '9px', fontWeight: '700', border: 'none', cursor: 'pointer', background: activeCctvFeed === 'gate' ? '#f59e0b' : 'rgba(255,255,255,0.04)', color: activeCctvFeed === 'gate' ? '#000' : '#94a3b8' }}
-                >
-                  Gate 01
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveCctvFeed('parking')}
-                  style={{ flex: 1, padding: '4px', borderRadius: '4px', fontSize: '9px', fontWeight: '700', border: 'none', cursor: 'pointer', background: activeCctvFeed === 'parking' ? '#f59e0b' : 'rgba(255,255,255,0.04)', color: activeCctvFeed === 'parking' ? '#000' : '#94a3b8' }}
-                >
-                  Parking A
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveCctvFeed('lobby')}
-                  style={{ flex: 1, padding: '4px', borderRadius: '4px', fontSize: '9px', fontWeight: '700', border: 'none', cursor: 'pointer', background: activeCctvFeed === 'lobby' ? '#f59e0b' : 'rgba(255,255,255,0.04)', color: activeCctvFeed === 'lobby' ? '#000' : '#94a3b8' }}
-                >
-                  Lobby
-                </button>
-              </div>
-            </div>
-
-            {/* BOTTOM CARD CONTENT */}
-            <div style={{ marginTop: '20px' }}>
-              <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b', marginBottom: '14px' }}>
-                <Camera size={22} />
-              </div>
-              <h3 style={{ fontSize: '19px', fontWeight: '700', color: '#fff', margin: '0 0 6px 0' }}>Live CCTV Security Oversight</h3>
-              <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.5, margin: '0 0 12px 0' }}>
-                Stream RTSP camera feeds and monitor barrier access directly from your landlord dashboard with zero NVR port forwarding.
-              </p>
-              <div className="magic-cta" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: '#818cf8', cursor: 'pointer' }}>
-                <span>Configure IP cameras</span>
-                <ArrowRight size={14} />
-              </div>
-            </div>
-
-          </div>
-
-          {/* CARD 4: AUTOMATED RENT ROLLS & SMS DISPATCH (SPAN 2) */}
-          <div className="magic-bento-card magic-span-2">
-            
-            {/* RICH TOP GRAPHICAL PREVIEW */}
-            <div className="magic-bg-graphic" style={{ height: '220px', padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', background: 'radial-gradient(ellipse at top left, rgba(99, 102, 241, 0.15), rgba(9, 13, 22, 0.95))' }}>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.06)', paddingBottom: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Receipt size={14} style={{ color: '#818cf8' }} />
-                  <span style={{ fontSize: '11px', fontWeight: '700', color: '#fff' }}>BATCH RENT ROLL & SMS ENGINE</span>
-                </div>
-                <span style={{ fontSize: '10px', color: '#10b981', fontWeight: '700', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '10px' }}>
-                  36 / 36 Dispatched (100%)
-                </span>
-              </div>
-
-              {/* DISPATCH ROWS */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', margin: '8px 0' }}>
-                
-                <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '10px' }}>
-                  <div style={{ fontSize: '10px', color: '#94a3b8' }}>Unit 101 • Peter K.</div>
-                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#fff', margin: '2px 0' }}>KES 31,200</div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8px', color: '#10b981', fontWeight: '700' }}>
-                    <span>Rent+Water</span>
-                    <span>SMS Sent ✓</span>
-                  </div>
-                </div>
-
-                <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '10px' }}>
-                  <div style={{ fontSize: '10px', color: '#94a3b8' }}>Unit 102 • Sarah M.</div>
-                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#fff', margin: '2px 0' }}>KES 47,100</div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8px', color: '#10b981', fontWeight: '700' }}>
-                    <span>Rent+Water</span>
-                    <span>SMS Sent ✓</span>
-                  </div>
-                </div>
-
-                <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '10px' }}>
-                  <div style={{ fontSize: '10px', color: '#94a3b8' }}>Unit 103 • Brian O.</div>
-                  <div style={{ fontSize: '13px', fontWeight: '800', color: '#fff', margin: '2px 0' }}>KES 56,800</div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8px', color: '#10b981', fontWeight: '700' }}>
-                    <span>Rent+Water</span>
-                    <span>SMS Sent ✓</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '600', color: features[activeFeature].accentColor, flexShrink: 0, marginLeft: '24px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    Learn more <ArrowRight size={13} />
                   </div>
                 </div>
 
               </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10px', color: '#94a3b8', borderTop: '1px solid rgba(255, 255, 255, 0.04)', paddingTop: '6px' }}>
-                <span>Scheduled 1st of Month Auto-Run</span>
-                <span style={{ color: '#818cf8', fontWeight: '700' }}>Includes M-Pesa STK Push Link</span>
-              </div>
-            </div>
-
-            {/* BOTTOM CARD CONTENT */}
-            <div style={{ marginTop: '20px' }}>
-              <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.15)', border: '1px solid rgba(99, 102, 241, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#818cf8', marginBottom: '14px' }}>
-                <Receipt size={22} />
-              </div>
-              <h3 style={{ fontSize: '19px', fontWeight: '700', color: '#fff', margin: '0 0 6px 0' }}>Automated Rent Rolls & SMS Dispatch</h3>
-              <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.5, margin: '0 0 12px 0' }}>
-                Generate consolidated rent, water, and service charge rolls in 1 click. Branded PDF invoices and payment links are dispatched automatically via SMS.
-              </p>
-              <div className="magic-cta" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: '#818cf8', cursor: 'pointer' }}>
-                <span>View sample invoice</span>
-                <ArrowRight size={14} />
-              </div>
-            </div>
-
-          </div>
-
-          {/* CARD 5: MULTI-ESTATE CRM & KRA TAX AUDITS (SPAN 3) */}
-          <div className="magic-bento-card magic-span-3">
-            
-            {/* RICH TOP GRAPHICAL PREVIEW */}
-            <div className="magic-bg-graphic" style={{ height: '180px', padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', background: 'radial-gradient(ellipse at center, rgba(192, 132, 252, 0.12), rgba(9, 13, 22, 0.95))' }}>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.06)', paddingBottom: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Building2 size={15} style={{ color: '#c084fc' }} />
-                  <span style={{ fontSize: '11px', fontWeight: '700', color: '#fff' }}>MULTI-ESTATE CRM & KRA TAX DECLARATION SUITE</span>
-                </div>
-                <span style={{ fontSize: '10px', color: '#10b981', fontWeight: '700', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: '10px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
-                  ✓ KRA eTIMS Validated
-                </span>
-              </div>
-
-              {/* 3-COLUMN PORTFOLIO STATS */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-                
-                <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#fff', fontWeight: '700' }}>
-                    <span>Kilimani Heights</span>
-                    <span style={{ color: '#10b981' }}>100%</span>
-                  </div>
-                  <div style={{ fontSize: '10px', color: '#94a3b8', margin: '2px 0' }}>36 Units • Caretaker: J. Mwangi</div>
-                  <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', overflow: 'hidden' }}>
-                    <div style={{ width: '100%', height: '100%', background: '#10b981' }} />
-                  </div>
-                </div>
-
-                <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#fff', fontWeight: '700' }}>
-                    <span>Westlands Square</span>
-                    <span style={{ color: '#38bdf8' }}>96%</span>
-                  </div>
-                  <div style={{ fontSize: '10px', color: '#94a3b8', margin: '2px 0' }}>48 Units • Caretaker: E. Kimani</div>
-                  <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', overflow: 'hidden' }}>
-                    <div style={{ width: '96%', height: '100%', background: '#38bdf8' }} />
-                  </div>
-                </div>
-
-                <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '8px', padding: '10px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                  <div style={{ fontSize: '10px', color: '#94a3b8' }}>August Net Rent Collected</div>
-                  <div style={{ fontSize: '14px', fontWeight: '800', color: '#10b981' }}>KES 4,772,000</div>
-                  <div style={{ fontSize: '9px', color: '#64748b' }}>Withholding Tax: KES 357,900</div>
-                </div>
-
-              </div>
-
-              {/* ACTION PILLS */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '10px' }}>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <span style={{ background: 'rgba(255, 255, 255, 0.06)', color: '#cbd5e1', padding: '3px 8px', borderRadius: '4px' }}>PDF Summary</span>
-                  <span style={{ background: 'rgba(255, 255, 255, 0.06)', color: '#cbd5e1', padding: '3px 8px', borderRadius: '4px' }}>Excel Ledger</span>
-                </div>
-                <span style={{ color: '#c084fc', fontWeight: '700' }}>1-Click eTIMS Fiscal Export</span>
-              </div>
-            </div>
-
-            {/* BOTTOM CARD CONTENT */}
-            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px' }}>
-              <div style={{ maxWidth: '780px' }}>
-                <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: 'rgba(192, 132, 252, 0.15)', border: '1px solid rgba(192, 132, 252, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#c084fc', marginBottom: '14px' }}>
-                  <Building2 size={22} />
-                </div>
-                <h3 style={{ fontSize: '19px', fontWeight: '700', color: '#fff', margin: '0 0 6px 0' }}>Multi-Property Portfolio & KRA Tax Compliance</h3>
-                <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.5, margin: 0 }}>
-                  Manage multiple estates, assign caretakers with individual permissions, track tenant turnover, and export auditor-approved P&L and KRA withholding tax reports.
-                </p>
-              </div>
-              <div className="magic-cta" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: '700', color: '#818cf8', cursor: 'pointer', flexShrink: 0 }}>
-                <span>Explore portfolio tools</span>
-                <ArrowRight size={14} />
-              </div>
-            </div>
-
-          </div>
+            );
+          })()}
 
         </div>
 
       </section>
+
+
+
 
       {/* 6. INTERACTIVE ROI CALCULATOR */}
       <section id="calculator" style={{ padding: '80px 20px', background: 'rgba(15, 23, 42, 0.6)', borderTop: '1px solid rgba(255, 255, 255, 0.06)', borderBottom: '1px solid rgba(255, 255, 255, 0.06)' }}>
@@ -1324,3 +1339,4 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
     </div>
   );
 }
+
