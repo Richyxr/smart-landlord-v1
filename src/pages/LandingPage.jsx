@@ -62,6 +62,22 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
   // FAQ Accordion State
   const [openFaqIndex, setOpenFaqIndex] = useState(0);
 
+  // Interactive Bento Grid State
+  const [activeCctvFeed, setActiveCctvFeed] = useState('gate');
+  const [activePortfolioProperty, setActivePortfolioProperty] = useState('kilimani');
+
+  const cctvFeeds = {
+    gate: { name: 'Main Gate Cam 01', zone: 'BARRIER AUTO-LOG & ANPR', fps: '25 FPS', res: '1080p', activeStatus: 'Vehicle Inbound' },
+    parking: { name: 'Basement Parking Cam 04', zone: 'SLOT DETECTION (28/30 SLOTS)', fps: '25 FPS', res: '1080p', activeStatus: 'Clear & Monitored' },
+    lobby: { name: 'Ground Lobby Cam 02', zone: 'ACCESS PIN VERIFICATION', fps: '30 FPS', res: '1080p', activeStatus: 'Guard On-Duty' }
+  };
+
+  const portfolioProperties = {
+    kilimani: { name: 'Kilimani Heights', units: '36 Units', occupied: '36 Occupied (100%)', monthlyRent: 'KES 1,620,000', collectionRate: '100%' },
+    westlands: { name: 'Westlands Commercial Hub', units: '24 Units', occupied: '23 Occupied (96%)', monthlyRent: 'KES 2,180,000', collectionRate: '98.5%' },
+    lavington: { name: 'Lavington Luxury Villas', units: '12 Units', occupied: '12 Occupied (100%)', monthlyRent: 'KES 2,400,000', collectionRate: '100%' }
+  };
+
   // Dynamic Unit Rate based on calibrated boundaries
   const getUnitPrice = (units) => {
     if (units > (pricingConfig.growth_max_units || 70)) return Number(pricingConfig.portfolio_price_per_unit || 50);
@@ -439,256 +455,361 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
           </p>
         </div>
 
-        {/* BENTO GRID */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '24px' }}>
+        {/* ASYMMETRIC INTERACTIVE BENTO GRID */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '24px' }}>
           
-          {/* BENTO 1: HERO FEATURE - INSTANT M-PESA & DARAJA MATCHING (2 COL SPAN ON WIDE SCREENS) */}
+          {/* BENTO 1: HERO FEATURE - INSTANT M-PESA & DARAJA MATCHING */}
           <div style={{
-            gridColumn: 'span 1',
-            background: 'linear-gradient(145deg, rgba(16, 185, 129, 0.08) 0%, rgba(15, 23, 42, 0.8) 100%)',
-            padding: '32px',
+            background: 'linear-gradient(145deg, rgba(16, 185, 129, 0.1) 0%, rgba(15, 23, 42, 0.85) 100%)',
+            padding: '34px',
             borderRadius: '20px',
-            border: '1px solid rgba(16, 185, 129, 0.25)',
+            border: '1px solid rgba(16, 185, 129, 0.3)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            boxShadow: '0 15px 35px rgba(0, 0, 0, 0.4)',
-            position: 'relative',
-            overflow: 'hidden'
+            boxShadow: '0 15px 35px rgba(0, 0, 0, 0.45)',
+            position: 'relative'
           }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div style={{ width: '46px', height: '46px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981' }}>
-                  <Zap size={24} />
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)' }}>
+                  <Zap size={26} />
                 </div>
-                <span style={{ fontSize: '11px', fontWeight: '700', color: '#10b981', background: 'rgba(16, 185, 129, 0.15)', padding: '4px 12px', borderRadius: '20px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#10b981', background: 'rgba(16, 185, 129, 0.15)', padding: '5px 14px', borderRadius: '20px', border: '1px solid rgba(16, 185, 129, 0.35)' }}>
                   Daraja C2B / Till API
                 </span>
               </div>
-              <h3 style={{ fontSize: '20px', fontWeight: '800', margin: '0 0 10px 0', color: '#fff' }}>Instant M-Pesa & Bank Reconciliation</h3>
+              <h3 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 10px 0', color: '#fff' }}>Instant M-Pesa & Bank Reconciliation</h3>
               <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.6, margin: '0 0 24px 0' }}>
-                Payments sent to your Paybill or Till are instantly matched to tenant unit codes. Zero manual copy-pasting of transaction SMS codes.
+                Direct integration with Safaricom Daraja API. Rent payments sent to your Paybill or Till are automatically credited to tenant balances in less than 1 second.
               </p>
             </div>
 
             {/* LIVE UI PREVIEW TAPE */}
-            <div style={{ background: 'rgba(11, 15, 25, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '14px', fontSize: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px solid rgba(255, 255, 255, 0.06)', paddingBottom: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#10b981', fontWeight: '700' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 8px #10b981' }} />
-                  Live Safaricom Hook
+            <div style={{ background: 'rgba(11, 15, 25, 0.85)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '14px', padding: '16px', fontSize: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: '700' }}>
+                  <span style={{ width: '9px', height: '9px', borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 10px #10b981' }} />
+                  Live Safaricom Webhook
                 </div>
-                <span style={{ color: '#64748b', fontSize: '11px' }}>Processed in 0.8s</span>
+                <span style={{ color: '#64748b', fontSize: '11px', fontWeight: '600' }}>Verified in 0.8s</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              
+              {/* FLOW DIAGRAM */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: '10px', background: 'rgba(255, 255, 255, 0.02)', padding: '10px', borderRadius: '8px' }}>
                 <div>
-                  <div style={{ color: '#fff', fontWeight: '600' }}>Unit 4B • Tenant #1042</div>
-                  <div style={{ color: '#64748b', fontSize: '11px' }}>REF: QK8291KL0P • Paybill 247247</div>
+                  <div style={{ color: '#94a3b8', fontSize: '10px', textTransform: 'uppercase' }}>Incoming STK</div>
+                  <div style={{ color: '#fff', fontWeight: '700' }}>Unit 4B (Tenant #1042)</div>
+                  <div style={{ color: '#64748b', fontSize: '10px' }}>Paybill 247247</div>
                 </div>
+                <div style={{ color: '#10b981', fontWeight: '800', fontSize: '14px' }}>➔</div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ color: '#10b981', fontWeight: '800' }}>+ KES 35,000</div>
-                  <div style={{ color: '#38bdf8', fontSize: '10px', fontWeight: '600' }}>✓ Auto Receipt Sent</div>
+                  <div style={{ color: '#94a3b8', fontSize: '10px', textTransform: 'uppercase' }}>Auto Credited</div>
+                  <div style={{ color: '#10b981', fontWeight: '800', fontSize: '15px' }}>+ KES 35,000</div>
+                  <div style={{ color: '#38bdf8', fontSize: '10px', fontWeight: '600' }}>✓ SMS Receipt Sent</div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* BENTO 2: CARETAKER SMARTPHONE PORTAL & PHOTO PROOF */}
+          {/* BENTO 2: INTERACTIVE LIVE CCTV MULTI-STREAM OVERSIGHT */}
           <div style={{
-            background: 'linear-gradient(145deg, rgba(56, 189, 248, 0.08) 0%, rgba(15, 23, 42, 0.8) 100%)',
-            padding: '32px',
+            background: 'linear-gradient(145deg, rgba(245, 158, 11, 0.1) 0%, rgba(15, 23, 42, 0.85) 100%)',
+            padding: '34px',
             borderRadius: '20px',
-            border: '1px solid rgba(56, 189, 248, 0.25)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            boxShadow: '0 15px 35px rgba(0, 0, 0, 0.4)'
+            boxShadow: '0 15px 35px rgba(0, 0, 0, 0.45)'
           }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div style={{ width: '46px', height: '46px', borderRadius: '12px', background: 'rgba(56, 189, 248, 0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#38bdf8' }}>
-                  <Smartphone size={24} />
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b', boxShadow: '0 4px 14px rgba(245, 158, 11, 0.3)' }}>
+                  <Camera size={26} />
                 </div>
-                <span style={{ fontSize: '11px', fontWeight: '700', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.15)', padding: '4px 12px', borderRadius: '20px', border: '1px solid rgba(56, 189, 248, 0.3)' }}>
-                  Mobile 4-Digit PIN
-                </span>
-              </div>
-              <h3 style={{ fontSize: '20px', fontWeight: '800', margin: '0 0 10px 0', color: '#fff' }}>Caretaker Field Portal & Meter Snap</h3>
-              <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.6, margin: '0 0 24px 0' }}>
-                Caretakers log water and electricity meters from their phone. High-resolution photo proof is auto-attached to prevent billing disputes.
-              </p>
-            </div>
-
-            {/* LIVE UI PREVIEW */}
-            <div style={{ background: 'rgba(11, 15, 25, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '14px', fontSize: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ color: '#fff', fontWeight: '600' }}>Water Meter #A-12</span>
-                <span style={{ color: '#38bdf8', fontWeight: '700' }}>412.8 m³</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(56, 189, 248, 0.1)', padding: '6px 10px', borderRadius: '6px', border: '1px dashed rgba(56, 189, 248, 0.3)' }}>
-                <Camera size={14} style={{ color: '#38bdf8' }} />
-                <span style={{ color: '#cbd5e1', fontSize: '11px' }}>meter_photo_verified.jpg (GPS Tagged)</span>
-              </div>
-            </div>
-          </div>
-
-          {/* BENTO 3: LIVE CCTV MULTI-STREAM OVERSIGHT */}
-          <div style={{
-            background: 'linear-gradient(145deg, rgba(245, 158, 11, 0.08) 0%, rgba(15, 23, 42, 0.8) 100%)',
-            padding: '32px',
-            borderRadius: '20px',
-            border: '1px solid rgba(245, 158, 11, 0.25)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-            boxShadow: '0 15px 35px rgba(0, 0, 0, 0.4)'
-          }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div style={{ width: '46px', height: '46px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b' }}>
-                  <Camera size={24} />
-                </div>
-                <span style={{ fontSize: '11px', fontWeight: '700', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.15)', padding: '4px 12px', borderRadius: '20px', border: '1px solid rgba(245, 158, 11, 0.3)' }}>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#f59e0b', background: 'rgba(245, 158, 11, 0.15)', padding: '5px 14px', borderRadius: '20px', border: '1px solid rgba(245, 158, 11, 0.35)' }}>
                   Hikvision & Dahua RTSP
                 </span>
               </div>
-              <h3 style={{ fontSize: '20px', fontWeight: '800', margin: '0 0 10px 0', color: '#fff' }}>Live CCTV Security Feeds</h3>
+              <h3 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 10px 0', color: '#fff' }}>Live CCTV Security Oversight</h3>
               <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.6, margin: '0 0 24px 0' }}>
-                Embed live RTSP/ONVIF security feeds from your main gates, parking bays, and corridors directly inside your landlord dashboard.
+                Monitor gate barriers, lobbies, and parking areas in real time. Switch between multiple camera angles directly from your landlord portal.
               </p>
             </div>
 
-            {/* LIVE UI PREVIEW */}
-            <div style={{ background: 'rgba(11, 15, 25, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '14px', fontSize: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444', fontWeight: '700' }}>
+            {/* INTERACTIVE CCTV MONITOR CONSOLE */}
+            <div style={{ background: 'rgba(11, 15, 25, 0.85)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '14px', padding: '16px', fontSize: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444', fontWeight: '700', fontSize: '11px' }}>
                   <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block', boxShadow: '0 0 8px #ef4444' }} />
-                  LIVE • Main Gate Cam 01
+                  LIVE • {cctvFeeds[activeCctvFeed]?.name}
                 </div>
-                <span style={{ color: '#94a3b8', fontSize: '10px' }}>1080p • 25 FPS</span>
+                <span style={{ color: '#94a3b8', fontSize: '10px' }}>{cctvFeeds[activeCctvFeed]?.res} • {cctvFeeds[activeCctvFeed]?.fps}</span>
               </div>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '3px 8px', borderRadius: '4px', fontSize: '10px', color: '#fff' }}>Gate 1</span>
-                <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '3px 8px', borderRadius: '4px', fontSize: '10px', color: '#94a3b8' }}>Parking</span>
-                <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '3px 8px', borderRadius: '4px', fontSize: '10px', color: '#94a3b8' }}>Lobby</span>
+
+              {/* SIMULATED CAMERA SCREEN */}
+              <div style={{
+                background: 'rgba(0, 0, 0, 0.6)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '8px',
+                padding: '12px',
+                marginBottom: '10px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <div>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>ZONE TARGET</div>
+                  <div style={{ color: '#fff', fontWeight: '700', fontSize: '11px' }}>{cctvFeeds[activeCctvFeed]?.zone}</div>
+                </div>
+                <span style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: '700' }}>
+                  ● {cctvFeeds[activeCctvFeed]?.activeStatus}
+                </span>
+              </div>
+
+              {/* CLICKABLE CAM TABS */}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveCctvFeed('gate')}
+                  style={{
+                    flex: 1,
+                    padding: '6px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: '700',
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: activeCctvFeed === 'gate' ? '#f59e0b' : 'rgba(255, 255, 255, 0.06)',
+                    color: activeCctvFeed === 'gate' ? '#000' : '#94a3b8'
+                  }}
+                >
+                  Gate 1
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveCctvFeed('parking')}
+                  style={{
+                    flex: 1,
+                    padding: '6px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: '700',
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: activeCctvFeed === 'parking' ? '#f59e0b' : 'rgba(255, 255, 255, 0.06)',
+                    color: activeCctvFeed === 'parking' ? '#000' : '#94a3b8'
+                  }}
+                >
+                  Parking A
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveCctvFeed('lobby')}
+                  style={{
+                    flex: 1,
+                    padding: '6px',
+                    borderRadius: '6px',
+                    fontSize: '11px',
+                    fontWeight: '700',
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: activeCctvFeed === 'lobby' ? '#f59e0b' : 'rgba(255, 255, 255, 0.06)',
+                    color: activeCctvFeed === 'lobby' ? '#000' : '#94a3b8'
+                  }}
+                >
+                  Lobby
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* BENTO 3: CARETAKER SMARTPHONE FIELD PORTAL */}
+          <div style={{
+            background: 'linear-gradient(145deg, rgba(56, 189, 248, 0.1) 0%, rgba(15, 23, 42, 0.85) 100%)',
+            padding: '34px',
+            borderRadius: '20px',
+            border: '1px solid rgba(56, 189, 248, 0.3)',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            boxShadow: '0 15px 35px rgba(0, 0, 0, 0.45)'
+          }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(56, 189, 248, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#38bdf8', boxShadow: '0 4px 14px rgba(56, 189, 248, 0.3)' }}>
+                  <Smartphone size={26} />
+                </div>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.15)', padding: '5px 14px', borderRadius: '20px', border: '1px solid rgba(56, 189, 248, 0.35)' }}>
+                  Mobile 4-Digit PIN
+                </span>
+              </div>
+              <h3 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 10px 0', color: '#fff' }}>Caretaker Field Meter Snap</h3>
+              <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.6, margin: '0 0 24px 0' }}>
+                Caretakers log water and power meters from their smartphones. Attached high-resolution photos with GPS verification eliminate utility billing disputes.
+              </p>
+            </div>
+
+            {/* SMARTPHONE FRAME MOCKUP */}
+            <div style={{ background: 'rgba(11, 15, 25, 0.85)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '14px', padding: '16px', fontSize: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <span style={{ color: '#fff', fontWeight: '700' }}>Water Meter #A-12</span>
+                <span style={{ color: '#38bdf8', fontWeight: '800', fontSize: '14px' }}>412.8 m³</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(56, 189, 248, 0.1)', padding: '8px 12px', borderRadius: '8px', border: '1px dashed rgba(56, 189, 248, 0.35)', marginBottom: '8px' }}>
+                <Camera size={15} style={{ color: '#38bdf8' }} />
+                <span style={{ color: '#cbd5e1', fontSize: '11px' }}>meter_photo_verified.jpg (GPS Verified)</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b' }}>
+                <span>Auto Utility: KES 2,450</span>
+                <span style={{ color: '#10b981', fontWeight: '700' }}>✓ Added to Rent Invoice</span>
               </div>
             </div>
           </div>
 
           {/* BENTO 4: AUTOMATED 1-CLICK INVOICING & RENT ROLLS */}
           <div style={{
-            background: 'linear-gradient(145deg, rgba(99, 102, 241, 0.08) 0%, rgba(15, 23, 42, 0.8) 100%)',
-            padding: '32px',
+            background: 'linear-gradient(145deg, rgba(99, 102, 241, 0.1) 0%, rgba(15, 23, 42, 0.85) 100%)',
+            padding: '34px',
             borderRadius: '20px',
-            border: '1px solid rgba(99, 102, 241, 0.25)',
+            border: '1px solid rgba(99, 102, 241, 0.3)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            boxShadow: '0 15px 35px rgba(0, 0, 0, 0.4)'
+            boxShadow: '0 15px 35px rgba(0, 0, 0, 0.45)'
           }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div style={{ width: '46px', height: '46px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#818cf8' }}>
-                  <Receipt size={24} />
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#818cf8', boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)' }}>
+                  <Receipt size={26} />
                 </div>
-                <span style={{ fontSize: '11px', fontWeight: '700', color: '#818cf8', background: 'rgba(99, 102, 241, 0.15)', padding: '4px 12px', borderRadius: '20px', border: '1px solid rgba(99, 102, 241, 0.3)' }}>
-                  Automated Batches
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#818cf8', background: 'rgba(99, 102, 241, 0.15)', padding: '5px 14px', borderRadius: '20px', border: '1px solid rgba(99, 102, 241, 0.35)' }}>
+                  Automated Rent Runs
                 </span>
               </div>
-              <h3 style={{ fontSize: '20px', fontWeight: '800', margin: '0 0 10px 0', color: '#fff' }}>Automated Invoicing & SMS Dispatches</h3>
+              <h3 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 10px 0', color: '#fff' }}>Automated Invoicing & SMS Dispatch</h3>
               <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.6, margin: '0 0 24px 0' }}>
-                Generate monthly rent, water, and trash rolls in 1 click. Branded PDF invoices and payment links are dispatched via automated SMS and Email.
+                Generate monthly rent rolls, water tariffs, and garbage fees in 1 click. Professional PDF invoices with payment links are sent via automated SMS.
               </p>
             </div>
 
-            {/* LIVE UI PREVIEW */}
-            <div style={{ background: 'rgba(11, 15, 25, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '14px', fontSize: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ color: '#fff', fontWeight: '700' }}>Invoice #INV-2026-08</span>
-                <span style={{ color: '#818cf8', fontWeight: '800' }}>KES 46,200</span>
+            {/* LIVE INVOICE PREVIEW */}
+            <div style={{ background: 'rgba(11, 15, 25, 0.85)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '14px', padding: '16px', fontSize: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div>
+                  <span style={{ color: '#fff', fontWeight: '700' }}>Invoice #INV-2026-08</span>
+                  <div style={{ fontSize: '10px', color: '#64748b' }}>Due: 5th of the month</div>
+                </div>
+                <span style={{ color: '#818cf8', fontWeight: '800', fontSize: '15px' }}>KES 46,700</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontSize: '11px' }}>
-                <span>Rent: KES 45,000 • Water: KES 1,200</span>
-                <span style={{ color: '#10b981' }}>✓ SMS Dispatched</span>
+              <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '8px 10px', borderRadius: '6px', fontSize: '11px', color: '#94a3b8', marginBottom: '6px' }}>
+                Rent: KES 45,000 • Water: KES 1,200 • Garbage: KES 500
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#10b981', fontWeight: '700', fontSize: '11px' }}>
+                <span>✓ Branded PDF Generated</span>
+                <span>✓ SMS Link Dispatched</span>
               </div>
             </div>
           </div>
 
-          {/* BENTO 5: MULTI-PROPERTY & TENANT CRM */}
+          {/* BENTO 5: INTERACTIVE MULTI-PROPERTY & TENANT CRM */}
           <div style={{
-            background: 'linear-gradient(145deg, rgba(192, 132, 252, 0.08) 0%, rgba(15, 23, 42, 0.8) 100%)',
-            padding: '32px',
+            background: 'linear-gradient(145deg, rgba(192, 132, 252, 0.1) 0%, rgba(15, 23, 42, 0.85) 100%)',
+            padding: '34px',
             borderRadius: '20px',
-            border: '1px solid rgba(192, 132, 252, 0.25)',
+            border: '1px solid rgba(192, 132, 252, 0.3)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            boxShadow: '0 15px 35px rgba(0, 0, 0, 0.4)'
+            boxShadow: '0 15px 35px rgba(0, 0, 0, 0.45)'
           }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div style={{ width: '46px', height: '46px', borderRadius: '12px', background: 'rgba(192, 132, 252, 0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#c084fc' }}>
-                  <Building2 size={24} />
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(192, 132, 252, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#c084fc', boxShadow: '0 4px 14px rgba(192, 132, 252, 0.3)' }}>
+                  <Building2 size={26} />
                 </div>
-                <span style={{ fontSize: '11px', fontWeight: '700', color: '#c084fc', background: 'rgba(192, 132, 252, 0.15)', padding: '4px 12px', borderRadius: '20px', border: '1px solid rgba(192, 132, 252, 0.3)' }}>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#c084fc', background: 'rgba(192, 132, 252, 0.15)', padding: '5px 14px', borderRadius: '20px', border: '1px solid rgba(192, 132, 252, 0.35)' }}>
                   Multi-Estate CRM
                 </span>
               </div>
-              <h3 style={{ fontSize: '20px', fontWeight: '800', margin: '0 0 10px 0', color: '#fff' }}>Multi-Property & Tenant Portfolio</h3>
+              <h3 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 10px 0', color: '#fff' }}>Multi-Property & Estate Portfolio</h3>
               <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.6, margin: '0 0 24px 0' }}>
-                Group properties by estate, assign caretakers to specific blocks, manage lease agreements, and handle tenant onboarding seamlessly.
+                Group units by estate, assign caretakers to specific premises, and manage leases with 0 vacancy fees on unoccupied units.
               </p>
             </div>
 
-            {/* LIVE UI PREVIEW */}
-            <div style={{ background: 'rgba(11, 15, 25, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '14px', fontSize: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ color: '#fff', fontWeight: '700' }}>Kilimani Heights</span>
-                <span style={{ color: '#10b981', fontWeight: '700', fontSize: '11px' }}>36 / 36 Occupied (100%)</span>
+            {/* INTERACTIVE PROPERTY SWITCHER */}
+            <div style={{ background: 'rgba(11, 15, 25, 0.85)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '14px', padding: '16px', fontSize: '12px' }}>
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+                {Object.keys(portfolioProperties).map(key => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setActivePortfolioProperty(key)}
+                    style={{
+                      flex: 1,
+                      padding: '5px 8px',
+                      borderRadius: '6px',
+                      fontSize: '10px',
+                      fontWeight: '700',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: activePortfolioProperty === key ? '#c084fc' : 'rgba(255, 255, 255, 0.06)',
+                      color: activePortfolioProperty === key ? '#000' : '#94a3b8'
+                    }}
+                  >
+                    {key.charAt(0).toUpperCase() + key.slice(1)}
+                  </button>
+                ))}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748b', fontSize: '11px' }}>
-                <span>Westlands Plaza</span>
-                <span style={{ color: '#38bdf8', fontWeight: '700' }}>18 / 20 Occupied</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <span style={{ color: '#fff', fontWeight: '700' }}>{portfolioProperties[activePortfolioProperty]?.name}</span>
+                <span style={{ color: '#10b981', fontWeight: '800' }}>{portfolioProperties[activePortfolioProperty]?.occupied}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '11px' }}>
+                <span>Monthly Rent Roll: {portfolioProperties[activePortfolioProperty]?.monthlyRent}</span>
+                <span style={{ color: '#38bdf8', fontWeight: '700' }}>{portfolioProperties[activePortfolioProperty]?.collectionRate}</span>
               </div>
             </div>
           </div>
 
-          {/* BENTO 6: FINANCIAL REPORTS & KRA TAX COMPLIANCE */}
+          {/* BENTO 6: FINANCIAL REPORTS & KRA TAX AUDIT */}
           <div style={{
-            background: 'linear-gradient(145deg, rgba(239, 68, 68, 0.08) 0%, rgba(15, 23, 42, 0.8) 100%)',
-            padding: '32px',
+            background: 'linear-gradient(145deg, rgba(239, 68, 68, 0.1) 0%, rgba(15, 23, 42, 0.85) 100%)',
+            padding: '34px',
             borderRadius: '20px',
-            border: '1px solid rgba(239, 68, 68, 0.25)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'space-between',
-            boxShadow: '0 15px 35px rgba(0, 0, 0, 0.4)'
+            boxShadow: '0 15px 35px rgba(0, 0, 0, 0.45)'
           }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div style={{ width: '46px', height: '46px', borderRadius: '12px', background: 'rgba(239, 68, 68, 0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444' }}>
-                  <BarChart3 size={24} />
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(239, 68, 68, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', boxShadow: '0 4px 14px rgba(239, 68, 68, 0.3)' }}>
+                  <BarChart3 size={26} />
                 </div>
-                <span style={{ fontSize: '11px', fontWeight: '700', color: '#ef4444', background: 'rgba(239, 68, 68, 0.15)', padding: '4px 12px', borderRadius: '20px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                <span style={{ fontSize: '11px', fontWeight: '700', color: '#ef4444', background: 'rgba(239, 68, 68, 0.15)', padding: '5px 14px', borderRadius: '20px', border: '1px solid rgba(239, 68, 68, 0.35)' }}>
                   Audit & KRA Ready
                 </span>
               </div>
-              <h3 style={{ fontSize: '20px', fontWeight: '800', margin: '0 0 10px 0', color: '#fff' }}>Financial Reports & Tax Statements</h3>
+              <h3 style={{ fontSize: '22px', fontWeight: '800', margin: '0 0 10px 0', color: '#fff' }}>Financial Audits & Tax Statements</h3>
               <p style={{ fontSize: '13px', color: '#94a3b8', lineHeight: 1.6, margin: '0 0 24px 0' }}>
-                Export accountant-ready balance sheets, rent arrears age analysis, net operating income, and withholding tax statements in 1 click.
+                Export complete general ledgers, rent arrears aging reports, and withholding tax declarations ready for KRA eTIMS filing in seconds.
               </p>
             </div>
 
-            {/* LIVE UI PREVIEW */}
-            <div style={{ background: 'rgba(11, 15, 25, 0.8)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '14px', fontSize: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            {/* FINANCIAL EXPORT PREVIEW */}
+            <div style={{ background: 'rgba(11, 15, 25, 0.85)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '14px', padding: '16px', fontSize: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <span style={{ color: '#fff', fontWeight: '700' }}>August 2026 Profit & Loss</span>
-                <span style={{ color: '#10b981', fontWeight: '800' }}>98.2% Collection</span>
+                <span style={{ color: '#10b981', fontWeight: '800' }}>98.4% Collection</span>
               </div>
-              <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-                <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', color: '#cbd5e1' }}>PDF Export</span>
-                <span style={{ background: 'rgba(255, 255, 255, 0.06)', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', color: '#cbd5e1' }}>Excel / CSV</span>
-                <span style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '2px 8px', borderRadius: '4px', fontSize: '10px' }}>✓ eTIMS Ready</span>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <span style={{ background: 'rgba(255, 255, 255, 0.08)', padding: '4px 10px', borderRadius: '6px', fontSize: '10px', color: '#cbd5e1', fontWeight: '600' }}>PDF Export</span>
+                <span style={{ background: 'rgba(255, 255, 255, 0.08)', padding: '4px 10px', borderRadius: '6px', fontSize: '10px', color: '#cbd5e1', fontWeight: '600' }}>Excel / CSV</span>
+                <span style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', padding: '4px 10px', borderRadius: '6px', fontSize: '10px', fontWeight: '700' }}>✓ KRA eTIMS Validated</span>
               </div>
             </div>
           </div>
