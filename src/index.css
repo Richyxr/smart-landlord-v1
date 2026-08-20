@@ -5755,3 +5755,9 @@ html[data-theme="light"] .skeleton-line::after {
   animation: float-tx 4s ease-in-out infinite;
 }
 
+
+/* Feature tab auto-cycle progress sweep */
+@keyframes featureSweep {
+  from { width: 0%; }
+  to   { width: 100%; }
+}
