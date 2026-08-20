@@ -5640,4 +5640,55 @@ html[data-theme="light"] .skeleton-line::after {
   .bento-span-6 {
     grid-column: span 6 / span 6 !important;
   }
+  .bento-span-4 {
+    grid-column: span 4 / span 4 !important;
+  }
 }
+
+/* Animated Beam & Node Flow */
+@keyframes beam-flow {
+  0% {
+    stroke-dashoffset: 40;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes hub-pulse {
+  0%, 100% {
+    box-shadow: 0 0 25px rgba(99, 102, 241, 0.25), inset 0 0 15px rgba(99, 102, 241, 0.15);
+    border-color: rgba(99, 102, 241, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 45px rgba(99, 102, 241, 0.5), inset 0 0 25px rgba(99, 102, 241, 0.3);
+    border-color: rgba(165, 180, 252, 0.7);
+  }
+}
+
+.animated-beam {
+  stroke-dasharray: 6 6;
+  animation: beam-flow 1.5s linear infinite;
+}
+
+.hub-glow {
+  animation: hub-pulse 3.5s ease-in-out infinite;
+}
+
+.integration-node {
+  transition: all 0.2s ease;
+}
+.integration-node:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+.feature-pillar-card {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.feature-pillar-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5) !important;
+}
+
