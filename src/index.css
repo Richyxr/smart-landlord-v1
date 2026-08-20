@@ -5619,5 +5619,24 @@ html[data-theme="light"] .skeleton-line::after {
   }
 }
 
+/* Premium Bento Grid Utilities */
+.bento-grid-container {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
 
-
+@media (min-width: 992px) {
+  .bento-grid-container {
+    grid-template-columns: repeat(12, 1fr);
+  }
+  .bento-span-7 {
+    grid-column: span 7 !important;
+  }
+  .bento-span-5 {
+    grid-column: span 5 !important;
+  }
+  .bento-span-6 {
+    grid-column: span 6 !important;
+  }
+}

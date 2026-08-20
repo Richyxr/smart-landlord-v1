@@ -440,12 +440,10 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
         </div>
 
         {/* SIMPLE & PREMIUM ASYMMETRIC BENTO GRID */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '24px' }}>
+        <div className="bento-grid-container">
           
           {/* 1. M-PESA & BANK RECONCILIATION (7 COLS) */}
-          <div style={{
-            gridColumn: 'span 12',
-            '@media (min-width: 992px)': { gridColumn: 'span 7' },
+          <div className="bento-span-7" style={{
             background: 'rgba(15, 23, 42, 0.7)',
             border: '1px solid rgba(255, 255, 255, 0.08)',
             borderRadius: '16px',
@@ -500,9 +498,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
           </div>
 
           {/* 2. CARETAKER METER PORTAL (5 COLS) */}
-          <div style={{
-            gridColumn: 'span 12',
-            '@media (min-width: 992px)': { gridColumn: 'span 5' },
+          <div className="bento-span-5" style={{
             background: 'rgba(15, 23, 42, 0.7)',
             border: '1px solid rgba(255, 255, 255, 0.08)',
             borderRadius: '16px',
@@ -554,9 +550,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
           </div>
 
           {/* 3. LIVE CCTV SECURITY OVERSIGHT (5 COLS) */}
-          <div style={{
-            gridColumn: 'span 12',
-            '@media (min-width: 992px)': { gridColumn: 'span 5' },
+          <div className="bento-span-5" style={{
             background: 'rgba(15, 23, 42, 0.7)',
             border: '1px solid rgba(255, 255, 255, 0.08)',
             borderRadius: '16px',
@@ -606,9 +600,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
           </div>
 
           {/* 4. AUTOMATED RENT ROLLS & INVOICES (7 COLS) */}
-          <div style={{
-            gridColumn: 'span 12',
-            '@media (min-width: 992px)': { gridColumn: 'span 7' },
+          <div className="bento-span-7" style={{
             background: 'rgba(15, 23, 42, 0.7)',
             border: '1px solid rgba(255, 255, 255, 0.08)',
             borderRadius: '16px',
@@ -663,9 +655,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
           </div>
 
           {/* 5. MULTI-PROPERTY ESTATE CRM (6 COLS) */}
-          <div style={{
-            gridColumn: 'span 12',
-            '@media (min-width: 992px)': { gridColumn: 'span 6' },
+          <div className="bento-span-6" style={{
             background: 'rgba(15, 23, 42, 0.7)',
             border: '1px solid rgba(255, 255, 255, 0.08)',
             borderRadius: '16px',
@@ -707,9 +697,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
           </div>
 
           {/* 6. FINANCIAL AUDITS & KRA TAX STATEMENTS (6 COLS) */}
-          <div style={{
-            gridColumn: 'span 12',
-            '@media (min-width: 992px)': { gridColumn: 'span 6' },
+          <div className="bento-span-6" style={{
             background: 'rgba(15, 23, 42, 0.7)',
             border: '1px solid rgba(255, 255, 255, 0.08)',
             borderRadius: '16px',
