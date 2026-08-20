@@ -5761,3 +5761,70 @@ html[data-theme="light"] .skeleton-line::after {
   from { width: 0%; }
   to   { width: 100%; }
 }
+
+/* ========== FEATURES SECTION RESPONSIVE ========== */
+.features-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
+.features-tab-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+@media (max-width: 768px) {
+  .features-layout {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .features-tab-list {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 16px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .features-tab-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .features-tab-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 10px 14px !important;
+  }
+
+  .features-tab-btn .tab-label {
+    display: none;
+  }
+
+  .features-panel {
+    border-radius: 12px !important;
+  }
+
+  .features-panel-body {
+    padding: 20px 16px !important;
+  }
+
+  .features-panel-footer {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
+    padding: 16px !important;
+  }
+}
+
+/* Section responsive padding */
+@media (max-width: 768px) {
+  section[id='features'],
+  .features-section {
+    padding: 60px 16px !important;
+  }
+}

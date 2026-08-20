@@ -508,13 +508,14 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
 
         {/* TABBED LAYOUT */}
         <div
-          style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: '32px', alignItems: 'start' }}
+          className="features-layout"
+          style={{ alignItems: 'start' }}
           onMouseEnter={() => setFeaturesPaused(true)}
           onMouseLeave={() => setFeaturesPaused(false)}
         >
 
           {/* LEFT: TAB LIST */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div className="features-tab-list">
             {features.map((f, i) => {
               const Icon = f.icon;
               const isActive = i === activeFeature;
@@ -527,6 +528,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
                     setFeaturesPaused(true);
                     setTimeout(() => setFeaturesPaused(false), 8000);
                   }}
+                  className="features-tab-btn"
                   style={{
                     position: 'relative',
                     display: 'flex',
@@ -557,7 +559,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
                   }}>
                     <Icon size={16} />
                   </div>
-                  <span style={{
+                  <span className="tab-label" style={{
                     fontSize: '13px',
                     fontWeight: isActive ? '600' : '500',
                     color: isActive ? '#fff' : '#64748b',
@@ -590,7 +592,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
           {(() => {
             const f = features[activeFeature];
             return (
-              <div style={{
+              <div className="features-panel" style={{
                 background: 'rgba(15, 23, 42, 0.6)',
                 border: '1px solid rgba(255, 255, 255, 0.07)',
                 borderRadius: '16px',
@@ -618,7 +620,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
                 </div>
 
                 {/* PANEL CONTENT GRAPHIC */}
-                <div style={{ padding: '32px 28px' }}>
+                <div className="features-panel-body" style={{ padding: '32px 28px' }}>
 
                   {/* M-PESA RECONCILIATION PREVIEW */}
                   {f.preview === 'mpesa' && (
@@ -817,7 +819,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
                 </div>
 
                 {/* PANEL FOOTER */}
-                <div style={{
+                <div className="features-panel-footer" style={{
                   padding: '16px 28px',
                   borderTop: '1px solid rgba(255, 255, 255, 0.06)',
                   background: 'rgba(255, 255, 255, 0.01)',
