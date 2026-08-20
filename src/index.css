@@ -5762,6 +5762,22 @@ html[data-theme="light"] .skeleton-line::after {
   to   { width: 100%; }
 }
 
+/* Feature tab panel smooth GPU-accelerated transition */
+@keyframes panelFadeIn {
+  0% {
+    opacity: 0.65;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.features-panel-transition {
+  animation: panelFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 /* Animated Beam & Node Flow for Unified Integration Hub */
 @keyframes beam-flow {
   0% {
@@ -5793,11 +5809,25 @@ html[data-theme="light"] .skeleton-line::after {
 }
 
 .integration-node {
-  transition: all 0.2s ease;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(12px);
 }
 .integration-node:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 102, 241, 0.2) !important;
   border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+/* Luxury Architectural Dark Backdrop */
+.landing-page-root {
+  background-color: #080c14 !important;
+  background-image: 
+    radial-gradient(at 15% 15%, rgba(99, 102, 241, 0.08) 0px, transparent 45%),
+    radial-gradient(at 85% 25%, rgba(16, 185, 129, 0.06) 0px, transparent 45%),
+    radial-gradient(at 50% 55%, rgba(56, 189, 248, 0.05) 0px, transparent 45%),
+    radial-gradient(at 80% 85%, rgba(245, 158, 11, 0.04) 0px, transparent 45%),
+    radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px) !important;
+  background-size: 100% 100%, 100% 100%, 100% 100%, 100% 100%, 32px 32px !important;
 }
 
 /* ========== FEATURES SECTION RESPONSIVE ========== */

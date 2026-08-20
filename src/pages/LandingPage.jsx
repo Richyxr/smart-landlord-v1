@@ -711,7 +711,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
           {(() => {
             const f = features[activeFeature];
             return (
-              <div className="features-panel" style={{
+              <div key={activeFeature} className="features-panel features-panel-transition" style={{
                 background: 'rgba(15, 23, 42, 0.6)',
                 border: '1px solid rgba(255, 255, 255, 0.07)',
                 borderRadius: '16px',
