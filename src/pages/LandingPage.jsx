@@ -62,6 +62,14 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
   // FAQ Accordion State
   const [openFaqIndex, setOpenFaqIndex] = useState(0);
 
+  // CCTV Feed Switcher State
+  const [activeCctvFeed, setActiveCctvFeed] = useState('gate');
+  const cctvFeeds = {
+    gate: { name: 'Main Gate 01', target: 'Vehicle Barrier & ANPR', res: '1080p @ 25 FPS' },
+    parking: { name: 'Parking Bay A', target: '28/30 Slots Occupied', res: '1080p @ 25 FPS' },
+    lobby: { name: 'Ground Lobby', target: 'Access PIN Entry Door', res: '1080p @ 30 FPS' }
+  };
+
   // Dynamic Unit Rate based on calibrated boundaries
   const getUnitPrice = (units) => {
     if (units > (pricingConfig.growth_max_units || 70)) return Number(pricingConfig.portfolio_price_per_unit || 50);
@@ -580,21 +588,72 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '11px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444', fontWeight: '700' }}>
                   <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
-                  REC • Main Gate 01
+                  REC • {cctvFeeds[activeCctvFeed]?.name}
                 </div>
-                <span style={{ color: '#64748b', fontSize: '10px' }}>1080p @ 25 FPS</span>
+                <span style={{ color: '#64748b', fontSize: '10px' }}>{cctvFeeds[activeCctvFeed]?.res}</span>
               </div>
               <div style={{ background: '#000', border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '6px', padding: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <div>
                   <div style={{ fontSize: '9px', color: '#64748b' }}>ACTIVE TARGET</div>
-                  <div style={{ color: '#fff', fontSize: '11px', fontWeight: '600' }}>Vehicle Barrier & ANPR</div>
+                  <div style={{ color: '#fff', fontSize: '11px', fontWeight: '600' }}>{cctvFeeds[activeCctvFeed]?.target}</div>
                 </div>
                 <span style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', padding: '2px 6px', borderRadius: '4px', fontSize: '9px', fontWeight: '700' }}>● Connected</span>
               </div>
               <div style={{ display: 'flex', gap: '6px' }}>
-                <span style={{ flex: 1, textAlign: 'center', background: '#f59e0b', color: '#000', padding: '4px', borderRadius: '4px', fontSize: '10px', fontWeight: '700' }}>Gate 01</span>
-                <span style={{ flex: 1, textAlign: 'center', background: 'rgba(255, 255, 255, 0.04)', color: '#94a3b8', padding: '4px', borderRadius: '4px', fontSize: '10px' }}>Parking A</span>
-                <span style={{ flex: 1, textAlign: 'center', background: 'rgba(255, 255, 255, 0.04)', color: '#94a3b8', padding: '4px', borderRadius: '4px', fontSize: '10px' }}>Lobby</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveCctvFeed('gate')}
+                  style={{
+                    flex: 1,
+                    textAlign: 'center',
+                    background: activeCctvFeed === 'gate' ? '#f59e0b' : 'rgba(255, 255, 255, 0.04)',
+                    color: activeCctvFeed === 'gate' ? '#000' : '#94a3b8',
+                    padding: '5px',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    fontWeight: '700',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Gate 01
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveCctvFeed('parking')}
+                  style={{
+                    flex: 1,
+                    textAlign: 'center',
+                    background: activeCctvFeed === 'parking' ? '#f59e0b' : 'rgba(255, 255, 255, 0.04)',
+                    color: activeCctvFeed === 'parking' ? '#000' : '#94a3b8',
+                    padding: '5px',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    fontWeight: '700',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Parking A
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveCctvFeed('lobby')}
+                  style={{
+                    flex: 1,
+                    textAlign: 'center',
+                    background: activeCctvFeed === 'lobby' ? '#f59e0b' : 'rgba(255, 255, 255, 0.04)',
+                    color: activeCctvFeed === 'lobby' ? '#000' : '#94a3b8',
+                    padding: '5px',
+                    borderRadius: '4px',
+                    fontSize: '10px',
+                    fontWeight: '700',
+                    border: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Lobby
+                </button>
               </div>
             </div>
           </div>

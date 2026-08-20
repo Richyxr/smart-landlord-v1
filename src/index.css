@@ -5624,19 +5624,20 @@ html[data-theme="light"] .skeleton-line::after {
   display: grid;
   grid-template-columns: 1fr;
   gap: 24px;
+  width: 100%;
 }
 
-@media (min-width: 992px) {
+@media (min-width: 900px) {
   .bento-grid-container {
-    grid-template-columns: repeat(12, 1fr);
+    grid-template-columns: repeat(12, 1fr) !important;
   }
   .bento-span-7 {
-    grid-column: span 7 !important;
+    grid-column: span 7 / span 7 !important;
   }
   .bento-span-5 {
-    grid-column: span 5 !important;
+    grid-column: span 5 / span 5 !important;
   }
   .bento-span-6 {
-    grid-column: span 6 !important;
+    grid-column: span 6 / span 6 !important;
   }
 }
