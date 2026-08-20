@@ -5666,29 +5666,92 @@ html[data-theme="light"] .skeleton-line::after {
   }
 }
 
-.animated-beam {
-  stroke-dasharray: 6 6;
-  animation: beam-flow 1.5s linear infinite;
+/* Magic UI Bento Grid System */
+.magic-bento-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+  width: 100%;
 }
 
-.hub-glow {
-  animation: hub-pulse 3.5s ease-in-out infinite;
+@media (min-width: 900px) {
+  .magic-bento-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+  .magic-span-1 {
+    grid-column: span 1;
+  }
+  .magic-span-2 {
+    grid-column: span 2;
+  }
+  .magic-span-3 {
+    grid-column: span 3;
+  }
 }
 
-.integration-node {
-  transition: all 0.2s ease;
-}
-.integration-node:hover {
-  transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.3) !important;
+.magic-bento-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  border-radius: 20px;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 24px;
+  backdrop-filter: blur(16px);
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.feature-pillar-card {
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+.magic-bento-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 20px 40px -15px rgba(99, 102, 241, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
-.feature-pillar-card:hover {
-  transform: translateY(-3px);
-  border-color: rgba(255, 255, 255, 0.16) !important;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5) !important;
+
+.magic-bento-card .magic-cta {
+  opacity: 0.7;
+  transform: translateX(0);
+  transition: all 0.25s ease;
+}
+
+.magic-bento-card:hover .magic-cta {
+  opacity: 1;
+  transform: translateX(4px);
+  color: #a5b4fc !important;
+}
+
+.magic-bg-graphic {
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(9, 13, 22, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  position: relative;
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(400%); }
+}
+
+.scan-line-anim {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #38bdf8, transparent);
+  animation: scan-line 2.5s linear infinite;
+}
+
+@keyframes float-tx {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.float-tx-anim {
+  animation: float-tx 4s ease-in-out infinite;
 }
 
