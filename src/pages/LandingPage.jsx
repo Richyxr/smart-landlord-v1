@@ -490,8 +490,127 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
         </div>
       </section>
 
+      {/* 4.5 UNIFIED INTEGRATION HUB */}
+      <section style={{ padding: '80px 20px 40px 20px', maxWidth: '1200px', margin: '0 auto' }}>
+        {/* SECTION HEADER */}
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: 'rgba(99, 102, 241, 0.12)',
+            border: '1px solid rgba(99, 102, 241, 0.3)',
+            borderRadius: '30px',
+            padding: '4px 16px',
+            fontSize: '11px',
+            fontWeight: '700',
+            textTransform: 'uppercase',
+            color: '#a5b4fc',
+            letterSpacing: '0.08em',
+            marginBottom: '14px'
+          }}>
+            <Sparkles size={13} style={{ color: '#818cf8' }} /> Unified Integration Hub
+          </div>
+          <h2 style={{ fontSize: 'clamp(28px, 4.5vw, 42px)', fontWeight: '800', margin: '0 0 14px 0', color: '#fff', letterSpacing: '-0.02em' }}>
+            The Autonomous Engine for African Real Estate
+          </h2>
+          <p style={{ fontSize: '15px', color: '#94a3b8', maxWidth: '680px', margin: '0 auto', lineHeight: 1.6 }}>
+            Connecting mobile money, local banking, caretaker field operations, CCTV surveillance, and KRA tax compliance into a single real-time ledger.
+          </p>
+        </div>
+
+        {/* INTERACTIVE INTEGRATION FLOW TREE */}
+        <div style={{
+          background: 'radial-gradient(ellipse at top, rgba(99, 102, 241, 0.12) 0%, rgba(15, 23, 42, 0.6) 70%)',
+          border: '1px solid rgba(255, 255, 255, 0.08)',
+          borderRadius: '24px',
+          padding: '40px 24px',
+          position: 'relative',
+          overflow: 'hidden'
+        }}>
+          {/* DESKTOP / TABLET FLOW TREE */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', maxWidth: '960px', margin: '0 auto' }}>
+            {/* INTEGRATION NODES ROW */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', width: '100%', marginBottom: '28px', zIndex: 2 }}>
+              {/* NODE 1: SAFARICOM M-PESA */}
+              <div className="integration-node" style={{ background: '#0b1120', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 4px 14px rgba(16, 185, 129, 0.15)' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', flexShrink: 0 }}>
+                  <Zap size={17} />
+                </div>
+                <div>
+                  <div style={{ color: '#fff', fontSize: '12px', fontWeight: '700' }}>Safaricom M-Pesa</div>
+                  <div style={{ color: '#10b981', fontSize: '10px', fontWeight: '600' }}>Daraja C2B / Till API</div>
+                </div>
+              </div>
+
+              {/* NODE 2: LOCAL BANKS */}
+              <div className="integration-node" style={{ background: '#0b1120', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 4px 14px rgba(56, 189, 248, 0.15)' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(56, 189, 248, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#38bdf8', flexShrink: 0 }}>
+                  <CreditCard size={17} />
+                </div>
+                <div>
+                  <div style={{ color: '#fff', fontSize: '12px', fontWeight: '700' }}>Bank Feeds</div>
+                  <div style={{ color: '#38bdf8', fontSize: '10px', fontWeight: '600' }}>Equity • KCB • Co-op</div>
+                </div>
+              </div>
+
+              {/* NODE 3: CCTV SURVEILLANCE */}
+              <div className="integration-node" style={{ background: '#0b1120', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 4px 14px rgba(245, 158, 11, 0.15)' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(245, 158, 11, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b', flexShrink: 0 }}>
+                  <Camera size={17} />
+                </div>
+                <div>
+                  <div style={{ color: '#fff', fontSize: '12px', fontWeight: '700' }}>CCTV Streams</div>
+                  <div style={{ color: '#f59e0b', fontSize: '10px', fontWeight: '600' }}>RTSP / ONVIF IP Cams</div>
+                </div>
+              </div>
+
+              {/* NODE 4: KRA ETIMS */}
+              <div className="integration-node" style={{ background: '#0b1120', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 4px 14px rgba(239, 68, 68, 0.15)' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', flexShrink: 0 }}>
+                  <ShieldCheck size={17} />
+                </div>
+                <div>
+                  <div style={{ color: '#fff', fontSize: '12px', fontWeight: '700' }}>Tax Compliance</div>
+                  <div style={{ color: '#ef4444', fontSize: '10px', fontWeight: '600' }}>KRA eTIMS Validated</div>
+                </div>
+              </div>
+            </div>
+
+            {/* ANIMATED SVG BEAM CONNECTORS */}
+            <svg style={{ width: '100%', height: '40px', overflow: 'visible', margin: '-10px 0 10px 0' }}>
+              <line x1="12%" y1="0" x2="50%" y2="35" stroke="rgba(16, 185, 129, 0.4)" strokeWidth="2" className="animated-beam" />
+              <line x1="37%" y1="0" x2="50%" y2="35" stroke="rgba(56, 189, 248, 0.4)" strokeWidth="2" className="animated-beam" />
+              <line x1="63%" y1="0" x2="50%" y2="35" stroke="rgba(245, 158, 11, 0.4)" strokeWidth="2" className="animated-beam" />
+              <line x1="88%" y1="0" x2="50%" y2="35" stroke="rgba(239, 68, 68, 0.4)" strokeWidth="2" className="animated-beam" />
+            </svg>
+
+            {/* CENTRAL HUB NODE */}
+            <div className="hub-glow" style={{
+              background: '#090d16',
+              border: '2px solid rgba(99, 102, 241, 0.5)',
+              borderRadius: '40px',
+              padding: '10px 28px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '12px',
+              zIndex: 3
+            }}>
+              <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1, #d946ef)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                <Building2 size={16} />
+              </div>
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ color: '#fff', fontSize: '13px', fontWeight: '800', letterSpacing: '-0.01em' }}>Smart Landlord Autonomous Engine</div>
+                <div style={{ color: '#94a3b8', fontSize: '10px' }}>Real-Time Ledger & Field Operations Hub</div>
+              </div>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 10px #10b981' }} />
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* 5. ENTERPRISE TABBED FEATURE SHOWCASE */}
-      <section id="features" style={{ padding: '100px 20px', maxWidth: '1140px', margin: '0 auto' }}>
+      <section id="features" style={{ padding: '60px 20px 100px 20px', maxWidth: '1140px', margin: '0 auto' }}>
 
         {/* SECTION HEADER */}
         <div style={{ textAlign: 'center', marginBottom: '64px' }}>
@@ -568,7 +687,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
                     {f.label}
                   </span>
                   {isActive && (
-                    <ArrowRight size={14} style={{ color: f.accentColor, marginLeft: 'auto', flexShrink: 0 }} />
+                    <ArrowRight size={14} className="tab-arrow" style={{ color: f.accentColor, marginLeft: 'auto', flexShrink: 0 }} />
                   )}
                   {/* PROGRESS SWEEP BAR */}
                   {isActive && !featuresPaused && (
