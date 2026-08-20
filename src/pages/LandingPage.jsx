@@ -414,51 +414,52 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
 
           {/* MAIN HEADLINE */}
           <h1 style={{
-            fontSize: 'clamp(28px, 5vw, 54px)',
-            fontWeight: '800',
-            lineHeight: 1.15,
-            letterSpacing: '-0.03em',
-            margin: '0 0 18px 0',
+            fontSize: 'clamp(32px, 6vw, 64px)',
+            fontWeight: '900',
+            lineHeight: 1.08,
+            letterSpacing: '-0.04em',
+            margin: '0 0 20px 0',
             color: '#ffffff'
           }}>
-            Automate Rent Collection, Invoicing & <br />
+            Autonomous Property Intelligence <br />
             <span style={{
-              background: 'linear-gradient(135deg, #818cf8 0%, #c084fc 50%, #38bdf8 100%)',
+              background: 'linear-gradient(135deg, #818cf8 0%, #38bdf8 50%, #10b981 100%)',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent'
             }}>
-              Property Oversight with Ease
+              for African Real Estate.
             </span>
           </h1>
 
           {/* SUBTITLE */}
           <p style={{
-            fontSize: 'clamp(14px, 2vw, 17px)',
+            fontSize: 'clamp(15px, 2.2vw, 18px)',
             color: '#94a3b8',
-            lineHeight: 1.6,
-            maxWidth: '680px',
-            margin: '0 auto 30px auto'
+            lineHeight: 1.65,
+            maxWidth: '720px',
+            margin: '0 auto 34px auto'
           }}>
-            Say goodbye to messy spreadsheets and uncollected rent. Smart Landlord combines automated M-Pesa billing, caretaker meter readings, CCTV feeds, and bank reconciliation in one unified dashboard.
+            Automated Safaricom M-Pesa billing, caretaker photo-verified meter logs, CCTV access control, and KRA tax compliance — orchestrated into a single autonomous ledger for institutional landlords.
           </p>
 
           {/* HERO ACTIONS */}
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '40px' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '14px', flexWrap: 'wrap', marginBottom: '36px' }}>
             <button
               type="button"
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                padding: '12px 28px',
-                borderRadius: '10px',
-                fontSize: '14px',
+                padding: '14px 32px',
+                borderRadius: '12px',
+                fontSize: '15px',
                 fontWeight: '700',
                 background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
                 color: '#fff',
                 border: 'none',
                 cursor: 'pointer',
-                boxShadow: '0 8px 24px rgba(99, 102, 241, 0.4)'
+                boxShadow: '0 8px 28px rgba(99, 102, 241, 0.45)',
+                transition: 'all 0.2s ease'
               }}
               onClick={onGetStarted}
             >
@@ -470,8 +471,8 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                padding: '12px 22px',
-                borderRadius: '10px',
+                padding: '14px 24px',
+                borderRadius: '12px',
                 fontSize: '14px',
                 fontWeight: '600',
                 background: 'rgba(255, 255, 255, 0.05)',
@@ -490,11 +491,11 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
-                  padding: '12px 22px',
-                  borderRadius: '10px',
+                  padding: '14px 24px',
+                  borderRadius: '12px',
                   fontSize: '14px',
                   fontWeight: '600',
-                  background: 'rgba(147, 51, 234, 0.14)',
+                  background: 'rgba(147, 51, 234, 0.15)',
                   color: '#c084fc',
                   border: '1px solid rgba(168, 85, 247, 0.35)',
                   cursor: 'pointer'
@@ -507,81 +508,117 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
           </div>
 
           {/* TRUST TICKER */}
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px', fontSize: '12px', color: '#64748b', flexWrap: 'wrap' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}><CheckCircle2 size={14} style={{ color: '#10b981' }} /> Instant M-Pesa STK Matching</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}><CheckCircle2 size={14} style={{ color: '#10b981' }} /> Auto Utility Calculation</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}><CheckCircle2 size={14} style={{ color: '#10b981' }} /> Zero Card Required</span>
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '24px', fontSize: '12px', color: '#64748b', flexWrap: 'wrap' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><CheckCircle2 size={14} style={{ color: '#10b981' }} /> Instant M-Pesa STK Matching</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><CheckCircle2 size={14} style={{ color: '#10b981' }} /> Auto Utility Calculation</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><CheckCircle2 size={14} style={{ color: '#10b981' }} /> Zero Card Required</span>
           </div>
 
         </div>
 
-        {/* 3. HERO DASHBOARD PREVIEW MOCKUP */}
-        <div style={{ maxWidth: '1000px', margin: '50px auto 0 auto', position: 'relative', zIndex: 1 }}>
+        {/* 3. CINEMATIC ARCHITECTURAL VIEWPORT WITH FLOATING TELEMETRY */}
+        <div style={{ maxWidth: '1080px', margin: '48px auto 0 auto', position: 'relative', zIndex: 1 }}>
           <div style={{
-            background: 'linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.95) 100%)',
+            position: 'relative',
+            borderRadius: '24px',
+            overflow: 'hidden',
             border: '1px solid rgba(255, 255, 255, 0.12)',
-            borderRadius: '16px',
-            padding: '16px',
-            boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.7), 0 0 40px rgba(99, 102, 241, 0.15)',
-            textAlign: 'left'
+            boxShadow: '0 30px 80px -15px rgba(0, 0, 0, 0.9), 0 0 60px rgba(99, 102, 241, 0.2)'
           }}>
-            
-            {/* MOCKUP WINDOW HEADER */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '12px', marginBottom: '16px' }}>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#ef4444' }} />
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#f59e0b' }} />
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#10b981' }} />
-              </div>
-              <div style={{ fontSize: '11px', color: '#64748b', background: 'rgba(0, 0, 0, 0.3)', padding: '3px 12px', borderRadius: '12px' }}>
-                smartlandlord.app/dashboard
-              </div>
-              <div style={{ fontSize: '11px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} /> Live System
+            {/* HERO ARCHITECTURAL IMAGE */}
+            <img
+              src="/assets/luxury_african_tower_hero.jpg"
+              alt="Luxury African Residential Tower at Golden Hour"
+              style={{
+                width: '100%',
+                height: 'auto',
+                minHeight: '380px',
+                maxHeight: '560px',
+                objectFit: 'cover',
+                display: 'block'
+              }}
+            />
+
+            {/* DARK VIGNETTE & LIGHTING OVERLAYS */}
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'linear-gradient(180deg, rgba(8, 12, 20, 0.4) 0%, rgba(8, 12, 20, 0.1) 40%, rgba(8, 12, 20, 0.85) 100%)',
+              pointerEvents: 'none'
+            }} />
+
+            {/* FLOATING TELEMETRY BEACON 1: DARAJA LIVE FEED (TOP RIGHT) */}
+            <div className="hero-telemetry-pill" style={{
+              position: 'absolute',
+              top: '24px',
+              right: '24px',
+              background: 'rgba(9, 13, 22, 0.85)',
+              border: '1px solid rgba(16, 185, 129, 0.4)',
+              borderRadius: '30px',
+              padding: '8px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.5), 0 0 20px rgba(16, 185, 129, 0.25)',
+              backdropFilter: 'blur(12px)'
+            }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 10px #10b981' }} />
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ fontSize: '11px', fontWeight: '800', color: '#fff' }}>Safaricom Daraja Feed: +KES 35,000</div>
+                <div style={{ fontSize: '9px', color: '#10b981' }}>Unit 4B · 0.28s auto-matched ✓</div>
               </div>
             </div>
 
-            {/* MOCKUP CONTENT GRID */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
-              
-              <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                <span style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Collected Rent (Aug 2026)</span>
-                <div style={{ fontSize: '20px', fontWeight: '800', color: '#10b981', marginTop: '4px' }}>KES 1,480,000</div>
-                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>96.8% Collection Rate</div>
-              </div>
-
-              <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                <span style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Occupied Units</span>
-                <div style={{ fontSize: '20px', fontWeight: '800', color: '#fff', marginTop: '4px' }}>48 / 50 <span style={{ fontSize: '12px', color: '#818cf8', fontWeight: '600' }}>(96%)</span></div>
-                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>Across 3 Properties</div>
-              </div>
-
-              <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '14px', borderRadius: '10px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                <span style={{ fontSize: '10px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Live Reconciliation</span>
-                <div style={{ fontSize: '20px', fontWeight: '800', color: '#38bdf8', marginTop: '4px' }}>100% Matched</div>
-                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>0 Unallocated Bank Lines</div>
-              </div>
-
-            </div>
-
-            {/* MOCKUP RECENT ACTIVITY ROW */}
-            <div style={{ background: 'rgba(0, 0, 0, 0.25)', borderRadius: '10px', padding: '12px', border: '1px solid rgba(255, 255, 255, 0.04)', fontSize: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', color: '#94a3b8', fontWeight: '600' }}>
-                <span>Recent Live M-Pesa Transactions</span>
-                <span style={{ color: '#818cf8' }}>Auto-credited</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255, 255, 255, 0.02)', padding: '6px 10px', borderRadius: '6px' }}>
-                  <div><strong>Tenant #1042</strong> (Block A • Unit 4B) • <span style={{ color: '#64748b' }}>REF: MPESA-***2KL9</span></div>
-                  <div style={{ color: '#10b981', fontWeight: '700' }}>+ KES 35,000</div>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255, 255, 255, 0.02)', padding: '6px 10px', borderRadius: '6px' }}>
-                  <div><strong>Tenant #2118</strong> (Block B • Unit 12) • <span style={{ color: '#64748b' }}>REF: MPESA-***1X2</span></div>
-                  <div style={{ color: '#10b981', fontWeight: '700' }}>+ KES 42,000</div>
-                </div>
+            {/* FLOATING TELEMETRY BEACON 2: CARETAKER METER (MIDDLE LEFT) */}
+            <div className="hero-telemetry-pill" style={{
+              position: 'absolute',
+              top: '50%',
+              left: '24px',
+              transform: 'translateY(-50%)',
+              background: 'rgba(9, 13, 22, 0.85)',
+              border: '1px solid rgba(56, 189, 248, 0.4)',
+              borderRadius: '30px',
+              padding: '8px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.5), 0 0 20px rgba(56, 189, 248, 0.25)',
+              backdropFilter: 'blur(12px)'
+            }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#38bdf8', display: 'inline-block', boxShadow: '0 0 10px #38bdf8' }} />
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ fontSize: '11px', fontWeight: '800', color: '#fff' }}>Caretaker Meter Lens</div>
+                <div style={{ fontSize: '9px', color: '#38bdf8' }}>17.7 m³ (Photo + GPS Tagged)</div>
               </div>
             </div>
 
+            {/* BOTTOM ARCHITECTURAL OVERLAY BAR */}
+            <div style={{
+              position: 'absolute',
+              bottom: '16px',
+              left: '16px',
+              right: '16px',
+              background: 'rgba(9, 13, 22, 0.85)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '16px',
+              padding: '12px 20px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '10px',
+              backdropFilter: 'blur(16px)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Building2 size={16} style={{ color: '#818cf8' }} />
+                <span style={{ fontSize: '12px', fontWeight: '700', color: '#fff' }}>Kilimani Heights Estate · Nairobi</span>
+                <span style={{ fontSize: '10px', color: '#10b981', background: 'rgba(16, 185, 129, 0.12)', padding: '2px 8px', borderRadius: '10px' }}>36/36 Units Connected</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px', fontSize: '11px', color: '#94a3b8' }}>
+                <span>ANPR Gate: <strong style={{ color: '#fff' }}>Barrier Open (KDA 291M)</strong></span>
+                <span style={{ color: '#10b981', fontWeight: '700' }}>● All 4 Telemetry Feeds Active</span>
+              </div>
+            </div>
           </div>
         </div>
 
