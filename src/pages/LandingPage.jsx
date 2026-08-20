@@ -175,6 +175,9 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
         </div>
       </header>
 
+      {/* MAIN CONTENT REGION */}
+      <main id="main-content">
+
       {/* 2. HERO SECTION */}
       <section style={{ position: 'relative', padding: '70px 20px 60px 20px', overflow: 'hidden', textAlign: 'center' }}>
         
@@ -891,6 +894,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
           </div>
         </div>
       </section>
+      </main>
 
       {/* 10. FOOTER */}
       <footer style={{ borderTop: '1px solid rgba(255, 255, 255, 0.08)', background: '#070a11', padding: '50px 20px 30px 20px', fontSize: '12px', color: '#64748b' }}>

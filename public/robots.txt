@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Allow: /#features
+Allow: /#roi-calculator
+Allow: /#pricing
+Allow: /#faq
+Disallow: /api/
+Disallow: /dashboard/
+Disallow: /admin/
+
+Sitemap: https://smartlandy.com/sitemap.xml
