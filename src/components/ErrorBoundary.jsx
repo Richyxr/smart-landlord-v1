@@ -61,14 +61,28 @@ class ErrorBoundary extends React.Component {
             </div>
             
             <h2 style={{ margin: '0 0 12px 0', fontSize: '20px', fontFamily: 'var(--font-title, sans-serif)' }}>Something went wrong</h2>
-            <p style={{ margin: '0 0 24px 0', color: 'var(--text-secondary, #64748b)', fontSize: '14px', lineHeight: '1.5' }}>
+            <p style={{ margin: '0 0 16px 0', color: 'var(--text-secondary, #64748b)', fontSize: '14px', lineHeight: '1.5' }}>
               We've encountered an unexpected error while loading this page. 
-              {this.state.error?.message && (
-                <span style={{ display: 'block', marginTop: '8px', fontSize: '12px', opacity: 0.8 }}>
-                  Error: {this.state.error.message}
-                </span>
-              )}
             </p>
+            {this.state.error && (
+              <div style={{
+                margin: '0 0 20px 0',
+                padding: '10px 12px',
+                backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                borderRadius: '8px',
+                color: 'var(--danger, #ef4444)',
+                fontSize: '12px',
+                fontFamily: 'monospace',
+                wordBreak: 'break-word',
+                textAlign: 'left',
+                width: '100%',
+                maxHeight: '120px',
+                overflowY: 'auto'
+              }}>
+                {this.state.error.message || String(this.state.error)}
+              </div>
+            )}
 
             <button 
               className="btn btn-primary" 

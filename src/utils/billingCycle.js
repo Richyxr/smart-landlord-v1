@@ -54,7 +54,18 @@ export function formatPeriodRange(startDate, endDate) {
  */
 export function formatReadableDate(dateInput) {
   if (!dateInput) return 'Not available';
-  const d = new Date(dateInput);
+  let d;
+  if (typeof dateInput === 'string') {
+    const cleanStr = dateInput.split('T')[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(cleanStr)) {
+      const [y, m, day] = cleanStr.split('-').map(Number);
+      d = new Date(y, m - 1, day);
+    } else {
+      d = new Date(dateInput);
+    }
+  } else {
+    d = new Date(dateInput);
+  }
   if (isNaN(d.getTime())) return 'Not available';
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
@@ -115,16 +126,23 @@ export function calculateTenantBillingCycle(tenant, invoices = [], referenceDate
   // 3. Fallback Period Rent Invoice Match
   const periodStartStr = formatDateISO(periodStart);
   const periodEndStr = formatDateISO(periodEnd);
+  const windowStartDate = new Date(periodStart.getTime() - 5 * 24 * 60 * 60 * 1000);
+  const windowStartStr = formatDateISO(windowStartDate);
 
   const currentPeriodRentInvoice = (Array.isArray(invoices) ? invoices : []).find(inv => {
     if (String(inv.tenant_id) !== String(tenant.id)) return false;
-    if (inv.invoice_type !== 'rent') return false;
-    if (inv.status === 'void') return false;
+    if (String(inv.invoice_type || '').toLowerCase() !== 'rent') return false;
+    if (String(inv.status || '').toLowerCase() === 'void') return false;
 
-    const invDateStr = inv.issue_date || inv.due_date || (inv.created_at ? String(inv.created_at).substring(0, 10) : null);
-    if (!invDateStr) return false;
+    const issueDateStr = inv.issue_date ? String(inv.issue_date).substring(0, 10) : null;
+    const dueDateStr = inv.due_date ? String(inv.due_date).substring(0, 10) : null;
+    const createdDateStr = inv.created_at ? String(inv.created_at).substring(0, 10) : null;
 
-    return invDateStr >= periodStartStr && invDateStr <= periodEndStr;
+    const isIssueInWindow = issueDateStr && issueDateStr >= windowStartStr && issueDateStr <= periodEndStr;
+    const isDueInPeriod = dueDateStr && dueDateStr >= periodStartStr && dueDateStr <= periodEndStr;
+    const isCreatedInWindow = createdDateStr && createdDateStr >= windowStartStr && createdDateStr <= periodEndStr;
+
+    return isIssueInWindow || isDueInPeriod || isCreatedInWindow;
   });
 
   const hasCurrentPeriodInvoice = Boolean(currentPeriodRentInvoice);

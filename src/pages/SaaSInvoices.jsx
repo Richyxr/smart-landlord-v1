@@ -6,11 +6,11 @@ export default function SaaSInvoices({ organization, refreshTrigger, onRefresh, 
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
-  const [isLocked, setIsLocked] = useState(organization.is_locked || forceShowLock);
+  const [isLocked, setIsLocked] = useState(organization?.is_locked || forceShowLock);
 
   useEffect(() => {
     fetchSaaSStatus();
-  }, [refreshTrigger, organization.is_locked, forceShowLock]);
+  }, [refreshTrigger, organization?.is_locked, forceShowLock]);
 
   const fetchSaaSStatus = async () => {
     try {
@@ -35,7 +35,7 @@ export default function SaaSInvoices({ organization, refreshTrigger, onRefresh, 
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           invoice_id: invoiceId,
-          phone_number: phone || organization.phone_number
+          phone_number: phone || organization?.phone_number || ''
         })
       });
 
@@ -120,7 +120,7 @@ export default function SaaSInvoices({ organization, refreshTrigger, onRefresh, 
                   <input
                     type="tel"
                     className="form-control"
-                    placeholder={organization.phone_number}
+                    placeholder={organization?.phone_number || '2547XXXXXXXX'}
                     value={phone}
                     onChange={e => setPhone(e.target.value)}
                   />
@@ -145,7 +145,7 @@ export default function SaaSInvoices({ organization, refreshTrigger, onRefresh, 
               <h4 className="lockout-card-kicker">Offline Paybill Instructions</h4>
               <div className="lockout-paybill-list">
                 <div>Business Number: <strong>174379</strong></div>
-                <div>Account Name: <strong>{organization.name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12)}</strong></div>
+                <div>Account Name: <strong>{organization?.name ? organization.name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 12) : 'SL-SAAS'}</strong></div>
                 <div className="lockout-note">Once paid, support admin will confirm within 1 hour.</div>
               </div>
             </article>

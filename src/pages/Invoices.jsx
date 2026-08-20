@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
 import PaymentEvidence from './PaymentEvidence.jsx';
 import { EmptyState } from '../components/ui-smart';
-import { CircleDollarSign, AlertTriangle, CheckCircle, Users, Zap, FileText, Printer, Bell, Check, CheckCircle2, Plus, DoorOpen, Droplets, Pencil, Clock, Mail, Phone, MessageSquare, Smartphone, ChevronRight, Send, X } from 'lucide-react';
+import { CircleDollarSign, AlertTriangle, CheckCircle, Users, Zap, FileText, Printer, Bell, Check, CheckCircle2, Plus, DoorOpen, Droplets, Pencil, Clock, Mail, Phone, MessageSquare, Smartphone, ChevronRight, Send, X, LayoutGrid, List, Search, Filter, CheckSquare, Square, Ban, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 
 export default function Invoices({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab, onNavigate, user, role }) {
   const [invoices, setInvoices] = useState([]);
@@ -16,6 +16,13 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
   // Tab Navigation
   const [activeSubTab, setActiveSubTab] = useState('overview'); // overview, invoices, payments, banking, utilities
   const [searchTerm, setSearchTerm] = useState('');
+  // View States & Filtering
+  const [invoiceViewMode, setInvoiceViewMode] = useState('table'); // 'table' or 'tiles'
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState([]);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [invoiceSortField, setInvoiceSortField] = useState('issue_date');
+  const [invoiceSortDirection, setInvoiceSortDirection] = useState('desc');
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
   // View States for Invoice Actions
   const [showAddForm, setShowAddForm] = useState(false);
@@ -370,6 +377,72 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
       setError('Failed to fetch invoice details.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleToggleSelectInvoice = (id) => {
+    setSelectedInvoiceIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllInvoices = (filteredList) => {
+    const allIds = (filteredList || []).map(inv => inv.id);
+    const isAllSelected = allIds.length > 0 && allIds.every(id => selectedInvoiceIds.includes(id));
+    if (isAllSelected) {
+      setSelectedInvoiceIds([]);
+    } else {
+      setSelectedInvoiceIds(allIds);
+    }
+  };
+
+  const handleBulkSendReminders = async () => {
+    if (selectedInvoiceIds.length === 0) return;
+    if (!window.confirm(`Send rent payment reminders for ${selectedInvoiceIds.length} selected invoice(s)?`)) return;
+
+    setBulkActionLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/invoices/bulk-remind', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_ids: selectedInvoiceIds })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || 'Failed to send bulk reminders.');
+
+      window.notifySuccess?.('Bulk Reminders Sent', data.message || `Queued reminders for ${data.count} invoice(s).`);
+      setSelectedInvoiceIds([]);
+    } catch (err) {
+      setError(err.message || 'Failed to execute bulk action.');
+    } finally {
+      setBulkActionLoading(false);
+    }
+  };
+
+  const handleBulkVoidInvoices = async () => {
+    if (selectedInvoiceIds.length === 0) return;
+    if (!window.confirm(`Are you sure you want to VOID ${selectedInvoiceIds.length} selected invoice(s)? This will adjust tenant balances.`)) return;
+
+    setBulkActionLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/invoices/bulk-void', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_ids: selectedInvoiceIds })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || 'Failed to void selected invoices.');
+
+      window.notifySuccess?.('Invoices Voided', data.message || `Successfully voided ${data.count} invoice(s).`);
+      setSelectedInvoiceIds([]);
+      fetchBillingData();
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      setError(err.message || 'Failed to void selected invoices.');
+    } finally {
+      setBulkActionLoading(false);
     }
   };
 
@@ -791,10 +864,10 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
 
             <div style={{ background: '#f5f5f5', padding: '10px', borderRadius: '6px', fontSize: '10px', borderLeft: '3px solid #333' }}>
               <strong>Payment Instructions:</strong>
-              {landlordMpesaShortcode ? (
-                <div>Lipa Na M-Pesa Paybill: <strong>{landlordMpesaShortcode}</strong></div>
+              {organization?.mpesa_paybill ? (
+                <div>Lipa Na M-Pesa Paybill: <strong>{organization.mpesa_paybill}</strong></div>
               ) : (
-                <div style={{ color: '#b45309' }}>M-Pesa Paybill is not configured for this property. Contact management before making payment.</div>
+                <div style={{ color: '#555', marginTop: '2px' }}>Payment as per lease agreement / management instructions.</div>
               )}
               <div>Account Number: <strong>{printInvoice.tenant_account_number || printInvoice.unit_code}</strong></div>
             </div>
@@ -1934,101 +2007,466 @@ export default function Invoices({ organization, refreshTrigger, onRefresh, init
       })()}
 
       {/* INVOICES SUB-TAB */}
-      {activeSubTab === 'invoices' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Invoice Records: <strong>{(Array.isArray(invoices) ? invoices : []).length}</strong> total</span>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => { setShowPaymentForm(true); setError(''); }}>
-                <CircleDollarSign size={14} /> Record Payment
-              </button>
-              <button className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={openRentGeneration}>
-                <FileText size={14} /> Generate Rent Invoices
-              </button>
-              <button className="btn btn-primary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => { setShowAddForm(true); resetForm(); }}>
-                <Plus size={14} /> Create New Invoice
-              </button>
-            </div>
-          </div>
+      {activeSubTab === 'invoices' && (() => {
+        const filteredInvoices = (Array.isArray(invoices) ? invoices : []).filter(inv => {
+          const searchLower = searchTerm.trim().toLowerCase();
+          const matchesSearch = !searchLower ||
+            (inv.tenant_name || '').toLowerCase().includes(searchLower) ||
+            (inv.invoice_number || '').toLowerCase().includes(searchLower) ||
+            (inv.unit_code || '').toLowerCase().includes(searchLower);
+          const matchesStatus = statusFilter === 'all' || inv.status === statusFilter;
+          return matchesSearch && matchesStatus;
+        });
 
-          {(Array.isArray(invoices) ? invoices : []).length === 0 ? (
-            <div className="sl-empty-state">
-              <div className="sl-empty-state-icon">
-                <FileText size={32} />
-              </div>
-              <div className="sl-empty-state-title">No invoices registered yet</div>
-              <div className="sl-empty-state-desc">
-                Create an invoice for an active tenant when the billing cycle starts, or add tenants from Properties first.
-              </div>
-            </div>
-          ) : (
-            (Array.isArray(invoices) ? invoices : []).map(inv => (
-              <div key={inv.id} className="sl-list-card">
-                <div className="flex-row">
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{inv.invoice_number}</span>
-                  <span className={`badge ${
-                    inv.status === 'paid' ? 'badge-success' :
-                    inv.status === 'overdue' ? 'badge-danger' :
-                    inv.status === 'draft' ? 'badge-info' : 'badge-warning'
-                  }`}>{inv.status}</span>
-                </div>
-                <h3 className="card-title" style={{ margin: '6px 0 2px 0' }}>{inv.tenant_name} ({inv.unit_code})</h3>
-                <p style={{ fontSize: '12px' }}>Category: <strong>{inv.invoice_type.toUpperCase()}</strong> • Due: {inv.due_date}</p>
-                
-                <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
-                <div className="flex-row" style={{ fontSize: '13px' }}>
-                  <span>Total: <strong>{formatCurrency(inv.total)}</strong></span>
-                  <span style={{ color: 'var(--danger)' }}>Balance: <strong>{formatCurrency(inv.balance)}</strong></span>
+        const displayedInvoices = [...filteredInvoices].sort((a, b) => {
+          let aVal = a[invoiceSortField];
+          let bVal = b[invoiceSortField];
+
+          if (invoiceSortField === 'total' || invoiceSortField === 'balance') {
+            aVal = Number(aVal) || 0;
+            bVal = Number(bVal) || 0;
+          } else if (invoiceSortField === 'issue_date' || invoiceSortField === 'due_date') {
+            aVal = aVal ? new Date(aVal).getTime() : 0;
+            bVal = bVal ? new Date(bVal).getTime() : 0;
+          } else {
+            aVal = (aVal || '').toString().toLowerCase();
+            bVal = (bVal || '').toString().toLowerCase();
+          }
+
+          if (aVal < bVal) return invoiceSortDirection === 'asc' ? -1 : 1;
+          if (aVal > bVal) return invoiceSortDirection === 'asc' ? 1 : -1;
+          return (b.id || 0) - (a.id || 0);
+        });
+
+        const handleSort = (field) => {
+          if (invoiceSortField === field) {
+            setInvoiceSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+          } else {
+            setInvoiceSortField(field);
+            setInvoiceSortDirection('asc');
+          }
+        };
+
+        const allFilteredSelected = displayedInvoices.length > 0 && displayedInvoices.every(inv => selectedInvoiceIds.includes(inv.id));
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', position: 'relative' }}>
+            
+            {/* TOOLBAR: PREMIUM RESPONSIVE LAYOUT */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--bg-surface)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border)' }}>
+              {/* TOP ROW: SEARCH & VIEW TOGGLE */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Search tenant, unit, invoice #..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    style={{ paddingLeft: '30px', fontSize: '12px', height: '34px', width: '100%' }}
+                  />
                 </div>
 
-                <div style={{ display: 'flex', gap: '6px', marginTop: '12px', justifyContent: 'flex-end' }}>
-                  <button className="btn btn-secondary btn-sm" onClick={() => handleViewDetails(inv.id)}>View</button>
-                  {inv.status === 'draft' && (
-                    <>
-                      <button className="btn btn-secondary btn-sm" onClick={() => {
-                        setEditId(inv.id);
-                        setSelectedTenantId(inv.tenant_id);
-                        setInvoiceType(inv.invoice_type);
-                        setIssueDate(inv.issue_date);
-                        setDueDate(inv.due_date);
-                        setNotes(inv.notes || '');
-                        fetch(`/api/invoices/${inv.id}`, { headers })
-                          .then(r => r.json())
-                          .then(data => {
-                            setItems(data.items.map(it => ({
-                              description: it.description,
-                              item_type: it.item_type,
-                              quantity: it.quantity,
-                              unit_price: it.unit_price.toString()
-                            })));
-                            setShowAddForm(true);
-                          });
-                      }}>Edit</button>
-                      <button className="btn btn-primary btn-sm" onClick={() => handleIssueInvoice(inv.id)}>Issue</button>
-                    </>
+                {/* VIEW TOGGLE */}
+                <div style={{ display: 'inline-flex', padding: '2px', background: 'var(--bg-surface-elevated, #1e293b)', borderRadius: '6px', border: '1px solid var(--border)', flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    className={`btn btn-xs ${invoiceViewMode === 'table' ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', height: '28px' }}
+                    onClick={() => setInvoiceViewMode('table')}
+                    title="Table View"
+                  >
+                    <List size={13} /> Table
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-xs ${invoiceViewMode === 'tiles' ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 10px', borderRadius: '4px', fontSize: '11px', height: '28px' }}
+                    onClick={() => setInvoiceViewMode('tiles')}
+                    title="Tiles View"
+                  >
+                    <LayoutGrid size={13} /> Tiles
+                  </button>
+                </div>
+              </div>
+
+              {/* MIDDLE ROW: 3 EQUAL-WIDTH ACTION BUTTONS */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', fontSize: '12px', height: '34px', padding: '0 8px', fontWeight: '600' }}
+                  onClick={() => { setShowAddForm(true); resetForm(); }}
+                >
+                  <Plus size={14} /> New Invoice
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', fontSize: '12px', height: '34px', padding: '0 8px' }}
+                  onClick={openRentGeneration}
+                >
+                  <FileText size={14} /> Gen Rent
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', fontSize: '12px', height: '34px', padding: '0 8px' }}
+                  onClick={() => { setShowPaymentForm(true); setError(''); }}
+                >
+                  <CircleDollarSign size={14} /> Payment
+                </button>
+              </div>
+
+              {/* BOTTOM ROW: FILTERS, SORT & COUNT */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', paddingTop: '4px', borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '220px' }}>
+                  <select
+                    className="form-control"
+                    value={statusFilter}
+                    onChange={e => setStatusFilter(e.target.value)}
+                    style={{ flex: 1, minWidth: '100px', fontSize: '11px', height: '30px', padding: '2px 6px' }}
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="issued">Issued</option>
+                    <option value="paid">Paid</option>
+                    <option value="overdue">Overdue</option>
+                    <option value="draft">Draft</option>
+                    <option value="void">Void</option>
+                  </select>
+
+                  <select
+                    className="form-control"
+                    value={`${invoiceSortField}-${invoiceSortDirection}`}
+                    onChange={e => {
+                      const [field, dir] = e.target.value.split('-');
+                      setInvoiceSortField(field);
+                      setInvoiceSortDirection(dir);
+                    }}
+                    style={{ flex: 1, minWidth: '120px', fontSize: '11px', height: '30px', padding: '2px 6px' }}
+                    title="Sort Invoices"
+                  >
+                    <option value="issue_date-desc">Newest First</option>
+                    <option value="issue_date-asc">Oldest First</option>
+                    <option value="due_date-asc">Due (Earliest)</option>
+                    <option value="due_date-desc">Due (Latest)</option>
+                    <option value="total-desc">Total (High→Low)</option>
+                    <option value="total-asc">Total (Low→High)</option>
+                    <option value="balance-desc">Balance (High→Low)</option>
+                    <option value="tenant_name-asc">Tenant (A→Z)</option>
+                    <option value="invoice_number-asc">Invoice # (Asc)</option>
+                  </select>
+                </div>
+
+                <div style={{ fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                  <span><strong>{displayedInvoices.length}</strong> of <strong>{(Array.isArray(invoices) ? invoices : []).length}</strong> invoice(s)</span>
+                  {selectedInvoiceIds.length > 0 && (
+                    <span style={{ color: 'var(--primary)', fontWeight: '600', marginLeft: '6px' }}>
+                      ({selectedInvoiceIds.length} selected)
+                    </span>
                   )}
-                  {(inv.status === 'issued' || inv.status === 'overdue') && (
-                    <button
-                      className="btn btn-warning btn-sm"
-                      onClick={() => openReminderModal(inv.id)}
-                      disabled={loading}
+                </div>
+              </div>
+            </div>
+
+            {/* EMPTY STATE */}
+            {displayedInvoices.length === 0 ? (
+              <div className="sl-empty-state">
+                <div className="sl-empty-state-icon">
+                  <FileText size={32} />
+                </div>
+                <div className="sl-empty-state-title">No matching invoices found</div>
+                <div className="sl-empty-state-desc">
+                  {searchTerm || statusFilter !== 'all' ? 'Try adjusting your search or status filter.' : 'Create an invoice for an active tenant when the billing cycle starts.'}
+                </div>
+              </div>
+            ) : invoiceViewMode === 'table' ? (
+
+              /* SHADCN PROPORTIONAL DATA TABLE VIEW */
+              <div style={{ width: '100%', overflowX: 'auto', border: '1px solid var(--border)', borderRadius: '10px', background: 'var(--bg-card)' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-surface-elevated)', textAlign: 'left', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
+                      <th style={{ padding: '10px 8px', width: '32px', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={allFilteredSelected}
+                          onChange={() => handleSelectAllInvoices(displayedInvoices)}
+                          style={{ cursor: 'pointer', width: '14px', height: '14px' }}
+                          title="Select all filtered invoices"
+                        />
+                      </th>
+                      <th
+                        style={{ padding: '10px 8px', cursor: 'pointer', userSelect: 'none' }}
+                        onClick={() => handleSort('invoice_number')}
+                        title="Sort by Invoice #"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span>Invoice #</span>
+                          {invoiceSortField === 'invoice_number' ? (
+                            invoiceSortDirection === 'asc' ? <ArrowUp size={12} style={{ color: 'var(--primary)' }} /> : <ArrowDown size={12} style={{ color: 'var(--primary)' }} />
+                          ) : (
+                            <ArrowUpDown size={12} style={{ opacity: 0.3 }} />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        style={{ padding: '10px 8px', cursor: 'pointer', userSelect: 'none' }}
+                        onClick={() => handleSort('tenant_name')}
+                        title="Sort by Tenant"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span>Tenant & Unit</span>
+                          {invoiceSortField === 'tenant_name' ? (
+                            invoiceSortDirection === 'asc' ? <ArrowUp size={12} style={{ color: 'var(--primary)' }} /> : <ArrowDown size={12} style={{ color: 'var(--primary)' }} />
+                          ) : (
+                            <ArrowUpDown size={12} style={{ opacity: 0.3 }} />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        style={{ padding: '10px 8px', cursor: 'pointer', userSelect: 'none' }}
+                        onClick={() => handleSort('issue_date')}
+                        title="Sort by Date"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span>Dates</span>
+                          {invoiceSortField === 'issue_date' || invoiceSortField === 'due_date' ? (
+                            invoiceSortDirection === 'asc' ? <ArrowUp size={12} style={{ color: 'var(--primary)' }} /> : <ArrowDown size={12} style={{ color: 'var(--primary)' }} />
+                          ) : (
+                            <ArrowUpDown size={12} style={{ opacity: 0.3 }} />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        style={{ padding: '10px 8px', textAlign: 'right', cursor: 'pointer', userSelect: 'none' }}
+                        onClick={() => handleSort('total')}
+                        title="Sort by Amount"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                          <span>Amount & Bal</span>
+                          {invoiceSortField === 'total' || invoiceSortField === 'balance' ? (
+                            invoiceSortDirection === 'asc' ? <ArrowUp size={12} style={{ color: 'var(--primary)' }} /> : <ArrowDown size={12} style={{ color: 'var(--primary)' }} />
+                          ) : (
+                            <ArrowUpDown size={12} style={{ opacity: 0.3 }} />
+                          )}
+                        </div>
+                      </th>
+                      <th
+                        style={{ padding: '10px 8px', textAlign: 'center', cursor: 'pointer', userSelect: 'none', width: '70px' }}
+                        onClick={() => handleSort('status')}
+                        title="Sort by Status"
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                          <span>Status</span>
+                          {invoiceSortField === 'status' ? (
+                            invoiceSortDirection === 'asc' ? <ArrowUp size={12} style={{ color: 'var(--primary)' }} /> : <ArrowDown size={12} style={{ color: 'var(--primary)' }} />
+                          ) : (
+                            <ArrowUpDown size={12} style={{ opacity: 0.3 }} />
+                          )}
+                        </div>
+                      </th>
+                      <th style={{ padding: '10px 8px', textAlign: 'right', width: '130px' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayedInvoices.map(inv => {
+                      const isSelected = selectedInvoiceIds.includes(inv.id);
+                      const formattedIssueDate = inv.issue_date ? String(inv.issue_date).split('T')[0] : '—';
+                      const formattedDueDate = inv.due_date ? String(inv.due_date).split('T')[0] : '—';
+                      return (
+                        <tr
+                          key={inv.id}
+                          style={{
+                            borderTop: '1px solid var(--border)',
+                            background: isSelected ? 'rgba(99, 102, 241, 0.08)' : 'transparent',
+                            transition: 'background 0.15s ease',
+                            verticalAlign: 'middle'
+                          }}
+                        >
+                          <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleSelectInvoice(inv.id)}
+                              style={{ cursor: 'pointer', width: '14px', height: '14px' }}
+                            />
+                          </td>
+                          <td style={{ padding: '10px 8px' }}>
+                            <div style={{ fontWeight: '700', fontFamily: 'monospace', fontSize: '12px' }}>
+                              {inv.invoice_number}
+                            </div>
+                            <div style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', marginTop: '1px' }}>
+                              {inv.invoice_type || 'RENT'}
+                            </div>
+                          </td>
+                          <td style={{ padding: '10px 8px' }}>
+                            <div style={{ fontWeight: '700', fontSize: '12px' }}>{inv.tenant_name}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Unit {inv.unit_code}</div>
+                          </td>
+                          <td style={{ padding: '10px 8px', fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                            <div><span style={{ color: 'var(--text-muted)' }}>Issued:</span> {formattedIssueDate}</div>
+                            <div><span style={{ color: 'var(--text-muted)' }}>Due:</span> {formattedDueDate}</div>
+                          </td>
+                          <td style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <div style={{ fontWeight: '700', fontSize: '12px' }}>{formatCurrency(inv.total)}</div>
+                            <div style={{ fontSize: '11px', fontWeight: '700', color: inv.balance > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                              Bal: {formatCurrency(inv.balance)}
+                            </div>
+                          </td>
+                          <td style={{ padding: '10px 8px', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            <span className={`badge ${
+                              inv.status === 'paid' ? 'badge-success' :
+                              inv.status === 'overdue' ? 'badge-danger' :
+                              inv.status === 'draft' ? 'badge-info' : 'badge-warning'
+                            }`} style={{ fontSize: '10px', padding: '2px 6px' }}>
+                              {inv.status}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                              <button className="btn btn-secondary btn-xs" style={{ padding: '3px 7px', fontSize: '11px' }} onClick={() => handleViewDetails(inv.id)}>View</button>
+                              {inv.status === 'draft' && (
+                                <button className="btn btn-primary btn-xs" style={{ padding: '3px 7px', fontSize: '11px' }} onClick={() => handleIssueInvoice(inv.id)}>Issue</button>
+                              )}
+                              {(inv.status === 'issued' || inv.status === 'overdue') && (
+                                <button className="btn btn-warning btn-xs" style={{ padding: '3px 7px', fontSize: '11px' }} onClick={() => openReminderModal(inv.id)}>Remind</button>
+                              )}
+                              {inv.status === 'issued' && (
+                                <button className="btn btn-danger btn-xs" style={{ padding: '3px 7px', fontSize: '11px' }} onClick={() => setPinTargetId(inv.id)}>Void</button>
+                              )}
+                              {inv.status !== 'draft' && inv.status !== 'void' && (
+                                <button className="btn btn-secondary btn-xs" style={{ padding: '3px 7px', fontSize: '11px' }} onClick={() => setPrintInvoice(inv)}>Print</button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+
+              /* GRID / TILES VIEW */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {displayedInvoices.map(inv => {
+                  const isSelected = selectedInvoiceIds.includes(inv.id);
+                  return (
+                    <div
+                      key={inv.id}
+                      className="sl-list-card"
+                      style={{
+                        border: isSelected ? '1px solid var(--primary)' : '1px solid var(--border)',
+                        background: isSelected ? 'rgba(99, 102, 241, 0.05)' : 'var(--bg-card)'
+                      }}
                     >
-                      Remind
-                    </button>
-                  )}
-                  {inv.status === 'issued' && (
-                    <button className="btn btn-danger btn-sm" onClick={() => setPinTargetId(inv.id)}>Void</button>
-                  )}
-                  {inv.status !== 'draft' && inv.status !== 'void' && (
-                    <button className="btn btn-secondary btn-sm" onClick={() => setPrintInvoice(inv)}>Print</button>
-                  )}
+                      <div className="flex-row" style={{ alignItems: 'center', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleSelectInvoice(inv.id)}
+                            style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                          />
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{inv.invoice_number}</span>
+                        </div>
+                        <span className={`badge ${
+                          inv.status === 'paid' ? 'badge-success' :
+                          inv.status === 'overdue' ? 'badge-danger' :
+                          inv.status === 'draft' ? 'badge-info' : 'badge-warning'
+                        }`}>{inv.status}</span>
+                      </div>
+
+                      <h3 className="card-title" style={{ margin: '8px 0 2px 0' }}>{inv.tenant_name} ({inv.unit_code})</h3>
+                      <p style={{ fontSize: '12px', margin: 0 }}>Category: <strong>{inv.invoice_type ? inv.invoice_type.toUpperCase() : 'RENT'}</strong> • Due: {inv.due_date}</p>
+                      
+                      <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
+                      <div className="flex-row" style={{ fontSize: '13px' }}>
+                        <span>Total: <strong>{formatCurrency(inv.total)}</strong></span>
+                        <span style={{ color: 'var(--danger)' }}>Balance: <strong>{formatCurrency(inv.balance)}</strong></span>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '6px', marginTop: '12px', justifyContent: 'flex-end' }}>
+                        <button className="btn btn-secondary btn-sm" onClick={() => handleViewDetails(inv.id)}>View</button>
+                        {inv.status === 'draft' && (
+                          <button className="btn btn-primary btn-sm" onClick={() => handleIssueInvoice(inv.id)}>Issue</button>
+                        )}
+                        {(inv.status === 'issued' || inv.status === 'overdue') && (
+                          <button className="btn btn-warning btn-sm" onClick={() => openReminderModal(inv.id)}>Remind</button>
+                        )}
+                        {inv.status === 'issued' && (
+                          <button className="btn btn-danger btn-sm" onClick={() => setPinTargetId(inv.id)}>Void</button>
+                        )}
+                        {inv.status !== 'draft' && inv.status !== 'void' && (
+                          <button className="btn btn-secondary btn-sm" onClick={() => setPrintInvoice(inv)}>Print</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* SHADCN-INSPIRED FLOATING BULK ACTIONS TOOLBAR */}
+            {selectedInvoiceIds.length > 0 && (
+              <div style={{
+                position: 'sticky',
+                bottom: '16px',
+                zIndex: 100,
+                background: 'var(--bg-surface-elevated, #1e293b)',
+                border: '1px solid var(--primary, #6366f1)',
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)',
+                borderRadius: '12px',
+                padding: '12px 18px',
+                display: 'flex',
+                alignItems: 'center',
+                justify: 'space-between',
+                gap: '12px',
+                flexWrap: 'wrap'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span className="badge badge-primary" style={{ fontSize: '13px', padding: '5px 10px', borderRadius: '6px' }}>
+                    {selectedInvoiceIds.length} Selected
+                  </span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                    Bulk Invoicing Actions
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    className="btn btn-warning btn-sm"
+                    onClick={handleBulkSendReminders}
+                    disabled={bulkActionLoading}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Bell size={14} /> Send Reminders ({selectedInvoiceIds.length})
+                  </button>
+
+                  <button
+                    className="btn btn-danger btn-sm"
+                    onClick={handleBulkVoidInvoices}
+                    disabled={bulkActionLoading}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Ban size={14} /> Void Invoices ({selectedInvoiceIds.length})
+                  </button>
+
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setSelectedInvoiceIds([])}
+                  >
+                    Deselect All
+                  </button>
                 </div>
               </div>
-            ))
-          )}
-        </div>
-      )}
+            )}
+
+          </div>
+        );
+      })()}
 
       {/* BANKING SUB-TAB (RECONCILIATION) */}
       {activeSubTab === 'banking' && (

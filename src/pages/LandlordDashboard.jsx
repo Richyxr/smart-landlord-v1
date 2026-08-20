@@ -12,9 +12,17 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { DashboardCard, MetricCard, SetupAlert, SectionCard, StatusBadge, Button, EmptyState } from '../components/ui-smart';
+import SmartPulseWidget from '../components/ui-smart/SmartPulseWidget.jsx';
+import KPISummaryGrid from '../components/KPISummaryGrid.jsx';
 import { getSessionToken } from '../lib/session.js';
 
-export default function LandlordDashboard({ organization, onNavigate, refreshTrigger }) {
+export default function LandlordDashboard({ user, organization, onNavigate, refreshTrigger }) {
+  const getFirstName = () => {
+    const rawName = user?.name || user?.full_name || organization?.name || 'Landlord';
+    const first = String(rawName).trim().split(' ')[0];
+    return first || 'Landlord';
+  };
+  const firstName = getFirstName();
   const [stats, setStats] = useState({
     propertiesCount: 0,
     unitsCount: 0,
@@ -61,7 +69,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
 
   useEffect(() => {
     fetchStats();
-  }, [refreshTrigger, organization.id]);
+  }, [refreshTrigger, organization?.id]);
 
   const fetchStats = async () => {
     try {
@@ -149,6 +157,7 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
         pendingReadingsCount: readingsRes.error && prev.hasReadingsData ? prev.pendingReadingsCount : (Array.isArray(readings) ? readings : []).filter((r) => r.status === 'submitted').length,
         saasLocked: saasRes.error && prev.hasSaasData ? prev.saasLocked : !!saas.organization?.is_locked,
         readinessStatus: readinessRes.error && prev.hasReadinessData ? prev.readinessStatus : readiness.is_ready !== false,
+        readinessChecklist: readinessRes.error && prev.hasReadinessData ? prev.readinessChecklist : (readiness.checklist || null),
         subscriptionStatus: saasRes.error && prev.hasSaasData ? prev.subscriptionStatus : saas.organization?.subscription_status || 'trial',
         trialEndsAt: saasRes.error && prev.hasSaasData ? prev.trialEndsAt : saas.organization?.trial_ends_at || null,
         subscriptionExpiresAt: saasRes.error && prev.hasSaasData ? prev.subscriptionExpiresAt : saas.organization?.subscription_expires_at || null,
@@ -263,6 +272,32 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
     return 'warning';
   };
 
+  const getReadinessProgress = () => {
+    const chk = stats.readinessChecklist;
+    if (!chk) return { completed: 7, total: 8, percent: 88, pendingText: 'Complete pending setup items to activate full platform features.' };
+    
+    const entries = Object.entries(chk);
+    const total = entries.length || 8;
+    const completed = entries.filter(([_, v]) => v === true).length;
+    const percent = Math.round((completed / total) * 100);
+
+    const pendingLabels = [];
+    if (chk.profile_complete === false) pendingLabels.push('Profile Setup');
+    if (chk.pin_created === false || typeof chk.pin_created === 'string') pendingLabels.push('Security PIN');
+    if (chk.property_created === false) pendingLabels.push('Property');
+    if (chk.unit_created === false) pendingLabels.push('Units');
+    if (chk.tenant_added === false) pendingLabels.push('Tenants');
+    if (chk.sms_configured === false) pendingLabels.push('SMS Gateway');
+    if (chk.mpesa_configured === false) pendingLabels.push('M-Pesa Paybill');
+    if (chk.saas_billing_active === false) pendingLabels.push('SaaS Subscription');
+
+    const pendingText = pendingLabels.length > 0
+      ? `Complete initial configuration (${pendingLabels.join(', ')}) to enable automated SMS dispatching and full functionality.`
+      : 'Complete initial configuration tasks to ensure account readiness.';
+
+    return { completed, total, percent, pendingText };
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', padding: '40px' }}>
@@ -324,34 +359,86 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
   return (
     <div className="sl-dashboard-stack" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       
-      {/* SECTION 1: ACCOUNT STATUS */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      {/* SECTION 1: PERSONALIZED GREETING BANNER & SETUP CHECKLIST */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <DashboardCard accent="primary">
-          <p className="kpi-lbl" style={{ color: 'var(--primary)' }}>
-            {organization.type === 'company' ? 'Company Portfolio' : 'Landlord Profile'}
-          </p>
-          <h2 style={{ fontSize: '20px', fontWeight: '800', fontFamily: 'var(--font-title)', marginTop: '2px' }}>
-            {organization.name}
-          </h2>
-          <div className="flex-row" style={{ marginTop: '12px' }}>
-            <StatusBadge tone={(stats.saasLocked || stats.subscriptionStatus === 'overdue') ? 'danger' : 'success'}>
-              {getSubscriptionStatusText()}
-            </StatusBadge>
-            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              Currency: <strong>{organization.billing_currency}</strong>
-            </span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: 'var(--primary, #818cf8)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                {organization?.type === 'company' ? 'Company Portfolio' : 'Landlord Profile'}
+              </div>
+              <h2 style={{ fontSize: '22px', fontWeight: '800', fontFamily: 'var(--font-title, sans-serif)', color: '#f8fafc', margin: '4px 0 2px 0' }}>
+                Welcome back, {firstName}
+              </h2>
+              <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                Manage your buildings, tenant billing, and collections in real-time.
+              </div>
+            </div>
+
+            {/* ELEVATED SUBSCRIPTION TIER BADGE WITH GLOWING INDICATOR */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '6px 12px',
+                borderRadius: '9999px',
+                background: (stats.saasLocked || stats.subscriptionStatus === 'overdue')
+                  ? 'rgba(239, 68, 68, 0.15)'
+                  : 'rgba(34, 197, 94, 0.15)',
+                border: (stats.saasLocked || stats.subscriptionStatus === 'overdue')
+                  ? '1px solid rgba(239, 68, 68, 0.4)'
+                  : '1px solid rgba(34, 197, 94, 0.4)',
+                boxShadow: (stats.saasLocked || stats.subscriptionStatus === 'overdue')
+                  ? '0 0 12px rgba(239, 68, 68, 0.2)'
+                  : '0 0 12px rgba(34, 197, 94, 0.2)',
+                color: (stats.saasLocked || stats.subscriptionStatus === 'overdue') ? '#f87171' : '#4ade80',
+                fontSize: '11px',
+                fontWeight: '700',
+                letterSpacing: '0.02em'
+              }}>
+                <span style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: (stats.saasLocked || stats.subscriptionStatus === 'overdue') ? '#ef4444' : '#22c55e',
+                  boxShadow: (stats.saasLocked || stats.subscriptionStatus === 'overdue') ? '0 0 8px #ef4444' : '0 0 8px #22c55e',
+                  display: 'inline-block'
+                }} />
+                <span>{getSubscriptionStatusText().toUpperCase()}</span>
+              </div>
+
+              <div style={{
+                fontSize: '11px',
+                fontWeight: '600',
+                padding: '6px 10px',
+                borderRadius: '8px',
+                background: 'var(--bg-surface-elevated, #020617)',
+                border: '1px solid var(--border, #1e293b)',
+                color: '#94a3b8'
+              }}>
+                Currency: <strong style={{ color: '#f8fafc' }}>{organization?.billing_currency || 'KES'}</strong>
+              </div>
+            </div>
           </div>
         </DashboardCard>
 
-        {!stats.readinessStatus && (
-          <SetupAlert
-            title="Setup Checklist Incomplete"
-            description="Complete the initial configuration tasks to ensure SMS dispatching and security PIN are ready."
-            actionLabel="Review Setup"
-            onClick={() => onNavigate('landlord_settings', 'readiness')}
-          />
-        )}
+        {!stats.readinessStatus && (() => {
+          const progressInfo = getReadinessProgress();
+          return (
+            <SetupAlert
+              title="Setup Checklist Incomplete"
+              description={progressInfo.pendingText}
+              actionLabel="Review Setup"
+              onClick={() => onNavigate('landlord_settings', 'readiness')}
+              progress={{ completed: progressInfo.completed, total: progressInfo.total, percent: progressInfo.percent }}
+            />
+          );
+        })()}
       </div>
+
+      {/* SYSTEM INTELLIGENCE SMART PULSE */}
+      <SmartPulseWidget role="landlord" />
 
       {/* SECTION 2: ATTENTION REQUIRED */}
       {(stats.arrears > 0 || stats.unmatchedCount > 0 || stats.pendingReadingsCount > 0) && (
@@ -397,37 +484,15 @@ export default function LandlordDashboard({ organization, onNavigate, refreshTri
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <h4 style={{ margin: '0', fontSize: '12px', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Today's Business</h4>
 
-        <div className="sl-dashboard-grid">
-          <MetricCard
-            label="Total Properties"
-            value={getMetricValue('properties')}
-            icon={Building2}
-            onClick={() => onNavigate('landlord_properties', 'properties')}
-          />
-          <MetricCard
-            label="Occupancy"
-            value={getMetricValue('occupancy')}
-            helper="Active units"
-            icon={Home}
-            onClick={() => onNavigate('landlord_properties', 'units')}
-          />
-          <MetricCard
-            label="Rent Collected"
-            value={getMetricValue('collected', formatCurrency)}
-            helper="Current month"
-            icon={Wallet}
-            tone="success"
-            onClick={() => onNavigate('landlord_invoices', 'overview')}
-          />
-          <MetricCard
-            label="Arrears"
-            value={getMetricValue('arrears', formatCurrency)}
-            helper="Unpaid balance"
-            icon={AlertTriangle}
-            tone={stats.arrears > 0 ? 'danger' : 'default'}
-            onClick={() => onNavigate('landlord_invoices', 'due_tenants')}
-          />
-        </div>
+        <KPISummaryGrid
+          stats={stats}
+          formatCurrency={formatCurrency}
+          getMetricValue={getMetricValue}
+          onOpenAddProperty={() => onNavigate('landlord_properties', 'properties')}
+          onOpenOccupancy={() => onNavigate('landlord_properties', 'units')}
+          onOpenBilling={() => onNavigate('landlord_invoices', 'overview')}
+          onOpenArrears={() => onNavigate('landlord_invoices', 'due_tenants')}
+        />
 
         <DashboardCard accent="success">
           <span className="kpi-lbl">Current Month Collections</span>

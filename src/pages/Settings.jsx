@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
-import { MessageSquare, Coins, Archive, Lock, FileText, Search, Check, X, Smartphone, Mail } from 'lucide-react';
+import { MessageSquare, Coins, Archive, Lock, FileText, Search, Check, X, Smartphone, Mail, Building } from 'lucide-react';
 import { getSessionToken } from '../lib/session.js';
 
 const getChecklistLabel = (key, orgType) => {
@@ -148,6 +148,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
   const [shortcode, setShortcode] = useState('');
   const [accountReference, setAccountReference] = useState('');
   const [passkey, setPasskey] = useState('');
+  const [coopAccountId, setCoopAccountId] = useState('');
+  const [kcbBuniAccountId, setKcbBuniAccountId] = useState('');
   const [env, setEnv] = useState('sandbox');
   const [acknowledgeLiveGate, setAcknowledgeLiveGate] = useState(false);
 
@@ -499,6 +501,22 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       config.from_email = smtpFromEmail.trim() || smtpUsername.trim();
       config.from_name = smtpFromName.trim() || 'Smart Landlord';
       config.reply_to = smtpReplyTo.trim();
+    } else if (selectedInt.provider_type === 'coop') {
+      config.consumer_key = consumerKey;
+      config.consumer_secret = consumerSecret;
+      config.account_id = coopAccountId.trim();
+      if (accountReference.trim()) {
+        config.account_reference = accountReference.trim();
+      }
+      config.webhook_secret = passkey;
+    } else if (selectedInt.provider_type === 'kcb_buni') {
+      config.consumer_key = consumerKey;
+      config.consumer_secret = consumerSecret;
+      config.account_id = kcbBuniAccountId.trim();
+      if (accountReference.trim()) {
+        config.account_reference = accountReference.trim();
+      }
+      config.webhook_secret = passkey;
     }
 
     const integrationEnvironment = env;
@@ -531,6 +549,8 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
       } else if (selectedInt.provider_type === 'email') {
         setSmtpPasswordMasked(true);
         setInfoMessage('SMTP credentials saved and connection verified. Use Send Test Email to confirm delivery.');
+      } else if (selectedInt.provider_type === 'coop') {
+        setInfoMessage(`Co-op Bank Direct Integration (${integrationEnvironment}) credentials saved securely. Use Test Connection to validate API access.`);
       } else {
         setInfoMessage('Integration credentials saved securely.');
       }
@@ -1171,6 +1191,7 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
           <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {selectedInt.provider_type === 'mpesa' && <Smartphone size={16} />}
             {selectedInt.provider_type === 'email' && <Mail size={16} />}
+            {selectedInt.provider_type === 'coop' && <Building size={16} />}
             Setup {selectedInt.provider_name}
           </h3>
           <form onSubmit={handleSaveIntegration}>
@@ -1450,6 +1471,180 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
               </>
             )}
 
+            {selectedInt.provider_type === 'coop' && (
+              <>
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--primary-glow)',
+                    border: '1px solid var(--primary)',
+                    fontSize: '12px',
+                    lineHeight: '1.5',
+                    marginBottom: '16px'
+                  }}
+                >
+                  🏦 Connect Co-op Bank Co-op Connect API to receive automated real-time transaction notifications and statement feeds.
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Co-op Account Number / App ID</label>
+                  <input
+                    type="text"
+                    required
+                    className="form-control"
+                    placeholder="e.g. 01129000000000"
+                    value={coopAccountId}
+                    onChange={e => setCoopAccountId(e.target.value)}
+                  />
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Your Co-operative Bank collection account number or App ID.
+                  </span>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Tenant Account Reference Prefix (Optional)</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="e.g. ACC-"
+                    value={accountReference}
+                    onChange={e => setAccountReference(e.target.value)}
+                  />
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Expected prefix for auto-matching payments (e.g. ACC-XXXXXXXX).
+                  </span>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Consumer Key</label>
+                  <input
+                    type="text"
+                    required
+                    className="form-control"
+                    placeholder="Consumer Key from Co-op Bank Developer Portal"
+                    value={consumerKey}
+                    onChange={e => setConsumerKey(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Consumer Secret</label>
+                  <input
+                    type="password"
+                    required
+                    className="form-control"
+                    placeholder="Consumer Secret from Co-op Bank Developer Portal"
+                    value={consumerSecret}
+                    onChange={e => setConsumerSecret(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Webhook Secret / Passkey (Optional)</label>
+                  <input
+                    type="password"
+                    className="form-control"
+                    placeholder="Webhook secret key for callback signature verification"
+                    value={passkey}
+                    onChange={e => setPasskey(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Webhook Callback URL (Read-only)</label>
+                  <input
+                    type="text"
+                    readOnly
+                    className="form-control"
+                    value="/api/webhooks/coop"
+                    style={{ background: 'var(--bg-secondary)', color: 'var(--text-muted)' }}
+                  />
+                </div>
+              </>
+            )}
+
+            {selectedInt.provider_type === 'kcb_buni' && (
+              <>
+                <div
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'var(--primary-glow)',
+                    border: '1px solid var(--primary)',
+                    fontSize: '12px',
+                    lineHeight: '1.5',
+                    marginBottom: '16px'
+                  }}
+                >
+                  🏦 Connect KCB Buni API (sandbox.buni.kcbgroup.com) to receive automated real-time transaction notifications and statement feeds.
+                </div>
+                <div className="form-group">
+                  <label className="form-label">KCB Account / App ID / Shortcode</label>
+                  <input
+                    type="text"
+                    required
+                    className="form-control"
+                    placeholder="e.g. 1100223344"
+                    value={kcbBuniAccountId}
+                    onChange={e => setKcbBuniAccountId(e.target.value)}
+                  />
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Your KCB Bank collection account number or App ID registered on sandbox.buni.kcbgroup.com.
+                  </span>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Tenant Account Reference Prefix (Optional)</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="e.g. ACC-"
+                    value={accountReference}
+                    onChange={e => setAccountReference(e.target.value)}
+                  />
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Expected prefix for auto-matching payments (e.g. ACC-XXXXXXXX).
+                  </span>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Consumer Key</label>
+                  <input
+                    type="text"
+                    required
+                    className="form-control"
+                    placeholder="Consumer Key from KCB Buni Developer Portal"
+                    value={consumerKey}
+                    onChange={e => setConsumerKey(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Consumer Secret</label>
+                  <input
+                    type="password"
+                    required
+                    className="form-control"
+                    placeholder="Consumer Secret from KCB Buni Developer Portal"
+                    value={consumerSecret}
+                    onChange={e => setConsumerSecret(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Webhook Secret / Passkey (Optional)</label>
+                  <input
+                    type="password"
+                    className="form-control"
+                    placeholder="Webhook secret key for callback signature verification"
+                    value={passkey}
+                    onChange={e => setPasskey(e.target.value)}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Webhook Callback URL (Read-only)</label>
+                  <input
+                    type="text"
+                    readOnly
+                    className="form-control"
+                    value="/api/webhooks/kcb_buni"
+                    style={{ background: 'var(--bg-secondary)', color: 'var(--text-muted)' }}
+                  />
+                </div>
+              </>
+            )}
+
             <div className="flex-gap" style={{ marginTop: '20px' }}>
               <button type="button" className="btn btn-secondary" onClick={() => setSelectedInt(null)}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={loading}>
@@ -1630,6 +1825,106 @@ export default function Settings({ organization, refreshTrigger, onRefresh, init
                 )}
               </div>
             </div>
+
+            {/* Co-op Bank Direct Integration (Co-op Connect) */}
+            {(() => {
+              const coopInt = integrations.find(i => i.provider_type === 'coop');
+              return (
+                <div className="card">
+                  <div className="flex-row">
+                    <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Building size={16} /> Co-op Bank Direct Integration (Co-op Connect)
+                    </h4>
+                    <span className={`badge ${coopInt ? 'badge-success' : 'badge-warning'}`}>
+                      {coopInt ? (coopInt.status === 'ready' ? 'connected' : coopInt.status) : 'draft'}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '12px', marginTop: '6px' }}>
+                    Connect Co-op Bank Co-op Connect API to automate real-time tenant payment notifications and account statement reconciliation.
+                  </p>
+                  {coopInt && (
+                    <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      <div>Co-op Account/App ID: <strong>{coopInt.provider_identifier || coopInt.shortcode || 'Not set'}</strong></div>
+                      <div>Environment: <strong>{coopInt.environment || 'sandbox'}</strong></div>
+                      <div>Webhook Callback: <strong>{coopInt.callback_url || '/api/webhooks/coop'}</strong></div>
+                      {coopInt.account_reference && <div>Account Reference Prefix: <strong>{coopInt.account_reference}</strong></div>}
+                    </div>
+                  )}
+                  <div className="flex-gap" style={{ marginTop: '12px' }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        setConsumerKey('');
+                        setConsumerSecret('');
+                        setCoopAccountId(coopInt?.provider_identifier || coopInt?.shortcode || '');
+                        setAccountReference(coopInt?.account_reference || '');
+                        setPasskey('');
+                        setEnv(coopInt?.environment || 'sandbox');
+                        setSelectedInt({ provider_type: 'coop', provider_name: 'Co-op Bank Direct Integration (Co-op Connect)' });
+                      }}
+                    >
+                      Configure
+                    </button>
+                    {coopInt && (
+                      <>
+                        <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(coopInt.id)}>Test Connection</button>
+                        <button className="btn btn-danger btn-sm" onClick={() => handleDeleteIntegrationTrigger(coopInt.id)}>Delete keys</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* KCB Buni Direct Integration (KCB Buni API) */}
+            {(() => {
+              const kcbInt = integrations.find(i => i.provider_type === 'kcb_buni');
+              return (
+                <div className="card">
+                  <div className="flex-row">
+                    <h4 style={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Building size={16} /> KCB Buni Direct Integration (KCB Buni API)
+                    </h4>
+                    <span className={`badge ${kcbInt ? 'badge-success' : 'badge-warning'}`}>
+                      {kcbInt ? (kcbInt.status === 'ready' ? 'connected' : kcbInt.status) : 'draft'}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '12px', marginTop: '6px' }}>
+                    Connect KCB Buni Developer Portal API to automate real-time tenant payment notifications and account statement reconciliation.
+                  </p>
+                  {kcbInt && (
+                    <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      <div>KCB Account/App ID: <strong>{kcbInt.provider_identifier || kcbInt.shortcode || 'Not set'}</strong></div>
+                      <div>Environment: <strong>{kcbInt.environment || 'sandbox'}</strong></div>
+                      <div>Webhook Callback: <strong>{kcbInt.callback_url || '/api/webhooks/kcb_buni'}</strong></div>
+                      {kcbInt.account_reference && <div>Account Reference Prefix: <strong>{kcbInt.account_reference}</strong></div>}
+                    </div>
+                  )}
+                  <div className="flex-gap" style={{ marginTop: '12px' }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => {
+                        setConsumerKey('');
+                        setConsumerSecret('');
+                        setKcbBuniAccountId(kcbInt?.provider_identifier || kcbInt?.shortcode || '');
+                        setAccountReference(kcbInt?.account_reference || '');
+                        setPasskey('');
+                        setEnv(kcbInt?.environment || 'sandbox');
+                        setSelectedInt({ provider_type: 'kcb_buni', provider_name: 'KCB Buni Direct Integration (KCB Buni API)' });
+                      }}
+                    >
+                      Configure
+                    </button>
+                    {kcbInt && (
+                      <>
+                        <button className="btn btn-secondary btn-sm" onClick={() => handleTestConnection(kcbInt.id)}>Test Connection</button>
+                        <button className="btn btn-danger btn-sm" onClick={() => handleDeleteIntegrationTrigger(kcbInt.id)}>Delete keys</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Email / SMTP Integration */}
             <div className="card">

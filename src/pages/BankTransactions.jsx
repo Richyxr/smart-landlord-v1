@@ -298,7 +298,7 @@ export default function BankTransactions({ organization }) {
   const formatCurrency = (val) => {
     return new Intl.NumberFormat('en-KE', { 
       style: 'currency', 
-      currency: organization.billing_currency || 'KES', 
+      currency: organization?.billing_currency || 'KES', 
       maximumFractionDigits: 0 
     }).format(Number(val));
   };

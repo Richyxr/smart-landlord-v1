@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
 import { Building2, MapPin, ClipboardList, Search, FileEdit, Droplets, Zap, User, Check, MessageSquare, Phone, Mail, X } from 'lucide-react';
+import SmartPulseWidget from '../components/ui-smart/SmartPulseWidget.jsx';
 
 export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh }) {
   const routeTabMap = {
@@ -60,7 +60,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
         ]);
         setAssignedProperties(await resProps.json());
         const readings = await resReadings.json();
-        setReadingsHistory((Array.isArray(readings) ? readings : []).filter(r => r.submitted_by === user.id));
+        setReadingsHistory((Array.isArray(readings) ? readings : []).filter(r => r.submitted_by === user?.id));
       } else if (activeTab === 'submit') {
         const [resProps, resUnits, resReadings] = await Promise.all([
           fetch('/api/properties', { headers }),
@@ -73,7 +73,7 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
       } else if (activeTab === 'history') {
         const res = await fetch('/api/meter-readings', { headers });
         const readings = await res.json();
-        setReadingsHistory((Array.isArray(readings) ? readings : []).filter(r => r.submitted_by === user.id));
+        setReadingsHistory((Array.isArray(readings) ? readings : []).filter(r => r.submitted_by === user?.id));
       } else if (activeTab === 'messages') {
         const res = await fetch('/api/messages', { headers });
         const chats = await res.json();
@@ -306,9 +306,20 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
       {activeTab === 'dashboard' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           
+          <SmartPulseWidget 
+            role="caretaker" 
+            onActionTrigger={(nudge) => {
+              if (nudge.category === 'meter_reading') {
+                setActiveTab('submit');
+                return true;
+              }
+              return false;
+            }}
+          />
+
           <div className="card" style={{ background: 'linear-gradient(135deg, var(--bg-surface), var(--primary-glow))' }}>
             <p className="kpi-lbl">Caretaker Account</p>
-            <h2 style={{ fontSize: '20px', fontWeight: '800', fontFamily: 'var(--font-title)' }}>{user.name}</h2>
+            <h2 style={{ fontSize: '20px', fontWeight: '800', fontFamily: 'var(--font-title)' }}>{user?.name || 'Caretaker'}</h2>
             <div style={{ marginTop: '10px' }}>
               <span className="badge badge-success">assigned staff</span>
             </div>
@@ -730,9 +741,9 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px', color: 'var(--text-secondary)' }}>
               <User size={64} />
             </div>
-            <h2 style={{ fontSize: '22px', marginTop: '10px' }}>{user.name}</h2>
+            <h2 style={{ fontSize: '22px', marginTop: '10px' }}>{user?.name || 'Caretaker'}</h2>
             <p style={{ fontSize: '13px' }}>Role: Caretaker</p>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Email: {user.email} • Phone: {user.phone_number}</p>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Email: {user?.email || ''} • Phone: {user?.phone_number || ''}</p>
           </div>
 
           <div className="card">
@@ -740,13 +751,13 @@ export default function Caretaker({ user, activeRoute, refreshTrigger, onRefresh
             <p style={{ fontSize: '12px', marginBottom: '14px' }}>Quick links to initiate contact with the Property Landlord.</p>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <a href={`tel:${user.phone_number}`} className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <a href={`tel:${user?.phone_number || ''}`} className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                 <Phone size={14} /> Call Landlord Direct
               </a>
               <a href="https://wa.me/254712345678" target="_blank" rel="noreferrer" className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                 <MessageSquare size={14} /> WhatsApp Message
               </a>
-              <a href={`sms:${user.phone_number}`} className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+              <a href={`sms:${user?.phone_number || ''}`} className="btn btn-secondary" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                 <Mail size={14} /> Send SMS Message
               </a>
             </div>

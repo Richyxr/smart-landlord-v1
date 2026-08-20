@@ -1,6 +1,7 @@
 import { auth } from './firebase';
 
 const SESSION_KEY = 'smart_landlord_session_token';
+const IMPERSONATION_ORG_KEY = 'smart_landlord_impersonation_org_id';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
@@ -61,6 +62,26 @@ export function clearSessionToken() {
   window.localStorage.removeItem(SESSION_KEY);
 }
 
+/**
+ * Store the target org ID being impersonated so the fetch interceptor
+ * can attach the x-impersonation-org-id header on every API call.
+ */
+export function setImpersonationOrgId(orgId) {
+  if (orgId !== null && orgId !== undefined) {
+    window.localStorage.setItem(IMPERSONATION_ORG_KEY, String(orgId));
+  } else {
+    window.localStorage.removeItem(IMPERSONATION_ORG_KEY);
+  }
+}
+
+export function getImpersonationOrgId() {
+  return window.localStorage.getItem(IMPERSONATION_ORG_KEY);
+}
+
+export function clearImpersonationOrgId() {
+  window.localStorage.removeItem(IMPERSONATION_ORG_KEY);
+}
+
 export function installAuthFetch() {
   if (window.__smartLandlordAuthFetchInstalled) return;
 
@@ -101,8 +122,12 @@ export function installAuthFetch() {
     }
 
     const headers = new Headers(init.headers || {});
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
+    headers.set('Authorization', `Bearer ${token}`);
+
+    // Attach impersonation org ID header when Super Admin is viewing a tenant's dashboard
+    const impersonationOrgId = getImpersonationOrgId();
+    if (impersonationOrgId) {
+      headers.set('x-impersonation-org-id', impersonationOrgId);
     }
 
     return originalFetch(rewrittenInput, {
@@ -113,3 +138,4 @@ export function installAuthFetch() {
 
   window.__smartLandlordAuthFetchInstalled = true;
 }
+

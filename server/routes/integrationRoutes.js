@@ -4,6 +4,8 @@ import { encryptConfig, decryptConfig, maskConfig } from '../crypto.js';
 import { verifySmtpConfig, sendEmailWithConfig } from '../mailerService.js';
 import { renderTemplate } from '../emailTemplates.js';
 import { requireSecurityPin } from '../services/security/SecurityPinService.js';
+import { testCoopConnection } from '../services/coopBankService.js';
+import { testKcbBuniConnection } from '../services/kcbBuniService.js';
 
 // ---------------------------------------------------------------------------
 // Phase 7: PostgreSQL-backed integration CRUD with real encryption
@@ -25,10 +27,11 @@ function asyncHandler(handler) {
 }
 
 function getContext(req) {
+  const isDemo = process.env.DEMO_MODE === 'true' || process.env.NODE_ENV !== 'production';
   return {
-    orgId: req.auth?.organizationId,
-    userId: req.auth?.userId,
-    role: req.auth?.role
+    orgId: req.auth?.organizationId || req.auth?.orgId || (isDemo ? 1 : null),
+    userId: req.auth?.userId || req.auth?.user_id || (isDemo ? 1 : null),
+    role: req.auth?.role || (isDemo ? 'landlord' : null)
   };
 }
 
@@ -164,6 +167,50 @@ function validateMpesaSandboxConfig(config) {
   if (!config.consumer_secret) missing.push('consumer_secret');
   if (!config.shortcode) missing.push('shortcode');
   if (!config.passkey) missing.push('passkey');
+  return missing;
+}
+
+// ---------------------------------------------------------------------------
+// Co-op Bank helpers
+// ---------------------------------------------------------------------------
+
+function normalizeCoopConfig(configJson = {}) {
+  return {
+    consumer_key: cleanOptionalText(configJson.consumer_key),
+    consumer_secret: cleanOptionalText(configJson.consumer_secret),
+    account_id: cleanOptionalText(configJson.account_id || configJson.account_number),
+    webhook_secret: cleanOptionalText(configJson.webhook_secret || configJson.passkey),
+    account_reference: cleanOptionalText(configJson.account_reference)
+  };
+}
+
+function validateCoopConfig(config) {
+  const missing = [];
+  if (!config.consumer_key) missing.push('consumer_key');
+  if (!config.consumer_secret) missing.push('consumer_secret');
+  if (!config.account_id) missing.push('account_id');
+  return missing;
+}
+
+// ---------------------------------------------------------------------------
+// KCB Buni helpers
+// ---------------------------------------------------------------------------
+
+function normalizeKcbBuniConfig(configJson = {}) {
+  return {
+    consumer_key: cleanOptionalText(configJson.consumer_key),
+    consumer_secret: cleanOptionalText(configJson.consumer_secret),
+    account_id: cleanOptionalText(configJson.account_id || configJson.account_number || configJson.shortcode),
+    webhook_secret: cleanOptionalText(configJson.webhook_secret || configJson.passkey),
+    account_reference: cleanOptionalText(configJson.account_reference)
+  };
+}
+
+function validateKcbBuniConfig(config) {
+  const missing = [];
+  if (!config.consumer_key) missing.push('consumer_key');
+  if (!config.consumer_secret) missing.push('consumer_secret');
+  if (!config.account_id) missing.push('account_id');
   return missing;
 }
 
@@ -343,6 +390,31 @@ export function createIntegrationRoutes(pgDb) {
       }
     }
 
+    // -----------------------------------------------------------------------
+    // Co-op Bank integration
+    // -----------------------------------------------------------------------
+    else if (provider_type === 'coop') {
+      configForStorage = normalizeCoopConfig(config_json || {});
+      const missing = validateCoopConfig(configForStorage);
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: `Missing required Co-op Bank credential fields: ${missing.join(', ')}.`
+        });
+      }
+    }
+    // -----------------------------------------------------------------------
+    // KCB Buni API integration
+    // -----------------------------------------------------------------------
+    else if (provider_type === 'kcb_buni') {
+      configForStorage = normalizeKcbBuniConfig(config_json || {});
+      const missing = validateKcbBuniConfig(configForStorage);
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: `Missing required KCB Buni API credential fields: ${missing.join(', ')}.`
+        });
+      }
+    }
+
     // Encrypt the credentials for storage
     const encryptedConfig = configForStorage && Object.keys(configForStorage).length > 0
       ? encryptConfig(configForStorage)
@@ -351,7 +423,7 @@ export function createIntegrationRoutes(pgDb) {
     // Extract top-level fields for webhook routing (Phase 6)
     const shortcode = configForStorage?.shortcode || configForStorage?.till_number || null;
     const webhookSecret = configForStorage?.webhook_secret || configForStorage?.passkey || null;
-    const providerIdentifier = configForStorage?.bank_code || configForStorage?.provider_id || null;
+    const providerIdentifier = configForStorage?.bank_code || configForStorage?.provider_id || configForStorage?.account_id || null;
     const accountReference = configForStorage?.account_reference || null;
 
     // Determine callback URL based on provider type
@@ -360,6 +432,10 @@ export function createIntegrationRoutes(pgDb) {
       callbackUrl = '/api/webhooks/mpesa/c2b';
     } else if (provider_type === 'bank') {
       callbackUrl = '/api/webhooks/bank';
+    } else if (provider_type === 'coop') {
+      callbackUrl = '/api/webhooks/coop';
+    } else if (provider_type === 'kcb_buni') {
+      callbackUrl = '/api/webhooks/kcb_buni';
     }
 
     let integration;
@@ -548,6 +624,108 @@ export function createIntegrationRoutes(pgDb) {
         { status: integration.status },
         { status: newStatus, test_log_id: testLog.id },
         `Daraja ${label} credential test ${testResult.success ? 'passed' : 'failed'}.`
+      );
+
+      const responseBody = {
+        ...testLog,
+        new_status: newStatus,
+        success: testResult.success
+      };
+
+      if (!testResult.success) {
+        return res.status(502).json(responseBody);
+      }
+
+      return res.json(responseBody);
+    }
+
+    // -----------------------------------------------------------------------
+    // Co-op Bank test
+    // -----------------------------------------------------------------------
+    if (integration.provider_type === 'coop') {
+      const coopCredentials = normalizeCoopConfig(credentials);
+      const missing = validateCoopConfig(coopCredentials);
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: `Missing required Co-op Bank credential fields: ${missing.join(', ')}.`
+        });
+      }
+
+      const testResult = await testCoopConnection(coopCredentials, integration.environment);
+      const testLog = await pgDb.insert('integration_test_logs', {
+        organization_id: orgId,
+        integration_id: integrationId,
+        tested_by: userId,
+        status: testResult.success ? 'success' : 'failed',
+        response_summary: testResult.responseSummary,
+        error_message: testResult.errorMessage
+      });
+
+      const newStatus = resolveStatus(integration.status, true, testResult.success);
+      await pgDb.update('organization_integrations', integrationId, {
+        status: newStatus,
+        last_tested_at: new Date().toISOString()
+      });
+
+      await pgDb.logAudit(
+        orgId, userId, 'landlord',
+        testResult.success ? 'coop_test_passed' : 'coop_test_failed',
+        'organization_integrations',
+        integrationId,
+        { status: integration.status },
+        { status: newStatus, test_log_id: testLog.id },
+        `Co-op Connect token test ${testResult.success ? 'passed' : 'failed'}.`
+      );
+
+      const responseBody = {
+        ...testLog,
+        new_status: newStatus,
+        success: testResult.success
+      };
+
+      if (!testResult.success) {
+        return res.status(502).json(responseBody);
+      }
+
+      return res.json(responseBody);
+    }
+
+    // -----------------------------------------------------------------------
+    // KCB Buni API test
+    // -----------------------------------------------------------------------
+    if (integration.provider_type === 'kcb_buni') {
+      const kcbCredentials = normalizeKcbBuniConfig(credentials);
+      const missing = validateKcbBuniConfig(kcbCredentials);
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: `Missing required KCB Buni API credential fields: ${missing.join(', ')}.`
+        });
+      }
+
+      const testResult = await testKcbBuniConnection({ ...kcbCredentials, environment: integration.environment });
+      const testLog = await pgDb.insert('integration_test_logs', {
+        organization_id: orgId,
+        integration_id: integrationId,
+        tested_by: userId,
+        status: testResult.success ? 'success' : 'failed',
+        response_summary: testResult.response_summary || testResult.message,
+        error_message: testResult.success ? null : testResult.message
+      });
+
+      const newStatus = resolveStatus(integration.status, true, testResult.success);
+      await pgDb.update('organization_integrations', integrationId, {
+        status: newStatus,
+        last_tested_at: new Date().toISOString()
+      });
+
+      await pgDb.logAudit(
+        orgId, userId, 'landlord',
+        testResult.success ? 'kcb_buni_test_passed' : 'kcb_buni_test_failed',
+        'organization_integrations',
+        integrationId,
+        { status: integration.status },
+        { status: newStatus, test_log_id: testLog.id },
+        `KCB Buni token test ${testResult.success ? 'passed' : 'failed'}.`
       );
 
       const responseBody = {
@@ -864,11 +1042,12 @@ export function createIntegrationRoutes(pgDb) {
 
   // =========================================================================
   // POST /integrations/:id/delete — Delete credentials (PIN required)
+  // DELETE /integrations/:id — Delete credentials alias (PIN required)
   // =========================================================================
   // Soft-resets the integration: clears encrypted config, webhook secret,
   // and resets status to needs_credentials.  Preserves the row and test logs.
   // =========================================================================
-  router.post('/integrations/:id/delete', requireAuthenticatedContext, requireSecurityPin('delete_integration'), asyncHandler(async (req, res) => {
+  const handleDeleteIntegration = asyncHandler(async (req, res) => {
     const { orgId, userId, role } = getContext(req);
     const integrationId = parseInt(req.params.id);
 
@@ -903,7 +1082,10 @@ export function createIntegrationRoutes(pgDb) {
     );
 
     res.json({ success: true, message: 'Credentials deleted successfully. Integration reset to needs_credentials.' });
-  }));
+  });
+
+  router.post('/integrations/:id/delete', requireAuthenticatedContext, requireSecurityPin('delete_integration'), handleDeleteIntegration);
+  router.delete('/integrations/:id', requireAuthenticatedContext, requireSecurityPin('delete_integration'), handleDeleteIntegration);
 
   // =========================================================================
   // POST /integrations/:id/activate — Toggle integration active/inactive

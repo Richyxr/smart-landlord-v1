@@ -49,6 +49,24 @@ export default function DevSwitcher({ currentRole, onChangeRole, currentOrgId, o
     }
   };
 
+  const handleResetDemo = async () => {
+    setLoading(true);
+    setMessage('');
+    try {
+      const res = await fetch('/api/demo/reset-data', { method: 'POST' });
+      if (res.ok) {
+        setMessage('Demo environment reset cleanly!');
+        onRefreshData?.();
+      } else {
+        setMessage('Demo reset failed.');
+      }
+    } catch (e) {
+      setMessage('Error resetting demo data.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleTriggerLockout = async () => {
     setLoading(true);
     try {
@@ -159,16 +177,26 @@ export default function DevSwitcher({ currentRole, onChangeRole, currentOrgId, o
           <div style={{ borderTop: '1px solid var(--border)', margin: '6px 0' }} />
 
           <div className="dev-section-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <CreditCard size={14} /> SaaS Billing Test
+            <CreditCard size={14} /> SaaS Billing & Demo Setup
           </div>
-          <button 
-            className="btn btn-danger btn-sm" 
-            onClick={handleTriggerLockout}
-            disabled={loading || currentRole !== 'landlord'}
-            style={{ width: '100%' }}
-          >
-            Trigger SaaS Lockout
-          </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <button 
+              className="btn btn-secondary btn-sm" 
+              onClick={handleResetDemo}
+              disabled={loading}
+              style={{ width: '100%', borderColor: 'rgba(168, 85, 247, 0.4)', color: '#c084fc' }}
+            >
+              🔄 Reset Demo Data
+            </button>
+            <button 
+              className="btn btn-danger btn-sm" 
+              onClick={handleTriggerLockout}
+              disabled={loading || currentRole !== 'landlord'}
+              style={{ width: '100%' }}
+            >
+              Trigger SaaS Lockout
+            </button>
+          </div>
         </div>
       )}
     </div>

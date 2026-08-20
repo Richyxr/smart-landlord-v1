@@ -60,7 +60,8 @@ const defaultDb = {
   bank_reconciliation_decisions: [],
   payments: [],
   security_pins: [],
-  security_pin_reset_tokens: []
+  security_pin_reset_tokens: [],
+  property_cameras: []
 };
 
 // Reading the DB
@@ -69,21 +70,39 @@ export function readDb() {
     if (!fs.existsSync(DB_FILE)) {
       writeDb(defaultDb);
       seedDb();
-      return ensureOrganizationAccountNumbers(JSON.parse(fs.readFileSync(DB_FILE, 'utf8')));
+      return ensureSuperAdminFlags(ensureOrganizationAccountNumbers(JSON.parse(fs.readFileSync(DB_FILE, 'utf8'))));
     }
     const content = fs.readFileSync(DB_FILE, 'utf8');
     if (!content.trim()) {
       writeDb(defaultDb);
       seedDb();
-      return ensureOrganizationAccountNumbers(JSON.parse(fs.readFileSync(DB_FILE, 'utf8')));
+      return ensureSuperAdminFlags(ensureOrganizationAccountNumbers(JSON.parse(fs.readFileSync(DB_FILE, 'utf8'))));
     }
-    return ensureOrganizationAccountNumbers(JSON.parse(content));
+    return ensureSuperAdminFlags(ensureOrganizationAccountNumbers(JSON.parse(content)));
   } catch (error) {
     console.error('Error reading database file, resetting:', error);
     writeDb(defaultDb);
     return defaultDb;
   }
 }
+
+/**
+ * Ensure that the seeded super admin user always has is_super_admin = true.
+ * This guards against stale db.json files that were written before this field was added.
+ */
+function ensureSuperAdminFlags(data) {
+  if (!data || !Array.isArray(data.users)) return data;
+  let changed = false;
+  for (const user of data.users) {
+    if (user.email === 'admin@smartlandlord.com' && !user.is_super_admin) {
+      user.is_super_admin = true;
+      changed = true;
+    }
+  }
+  if (changed) writeDb(data);
+  return data;
+}
+
 
 function ensureOrganizationAccountNumbers(data) {
   if (!data || !Array.isArray(data.organizations)) return data;
@@ -271,7 +290,7 @@ function seedDb() {
   // Password hash isn't used strictly since we mock authentication, but we keep structure
   const adminUser = { id: 1, email: 'admin@smartlandlord.com', is_super_admin: true, email_verified: true, phone_number: '+254700000000', phone_verified: true, name: 'Super Admin', first_name: 'Super', last_name: 'Admin', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   const landlordUser = { id: 2, email: 'landlord@demo.com', is_super_admin: false, email_verified: true, phone_number: '+254712345678', phone_verified: true, name: 'Maina Kamau', first_name: 'Maina', last_name: 'Kamau', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-  const caretakerUser = { id: 3, email: 'caretaker@demo.com', is_super_admin: false, email_verified: true, phone_number: '+254722111222', phone_verified: true, name: 'Juma Omondi', first_name: 'Juma', last_name: 'Omondi', caretaker_pin_hash: '$2a$10$LhgFLAFrl6frTX9../AgreYmI1T5/oJPLGrNznXu5H0JuW7L0iblm', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  const caretakerUser = { id: 3, email: 'caretaker@demo.com', firebase_uid: 'firebase-uid-caretaker-demo', is_super_admin: false, email_verified: true, phone_number: '+254722111222', phone_verified: true, name: 'Juma Omondi', first_name: 'Juma', last_name: 'Omondi', caretaker_pin_hash: '$2a$10$LhgFLAFrl6frTX9../AgreYmI1T5/oJPLGrNznXu5H0JuW7L0iblm', status: 'active', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
   
   data.users = [adminUser, landlordUser, caretakerUser];
 

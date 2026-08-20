@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   BarChart3,
   Building2,
+  Camera,
   Home,
   MessageCircle,
   ReceiptText,
@@ -26,6 +27,7 @@ export default function BottomNav({ role, activeTab, onChangeTab }) {
         return [
           { id: 'caretaker_dashboard', label: 'Home', icon: Home },
           { id: 'caretaker_readings', label: 'Readings', icon: Zap },
+          { id: 'caretaker_cameras', label: 'CCTV', icon: Camera },
           { id: 'caretaker_messages', label: 'Messages', icon: MessageCircle }
         ];
       default:
@@ -33,8 +35,8 @@ export default function BottomNav({ role, activeTab, onChangeTab }) {
           { id: 'landlord_dashboard', label: 'Home', icon: Home },
           { id: 'landlord_properties', label: 'Properties', icon: Building2 },
           { id: 'landlord_invoices', label: 'Billing', icon: ReceiptText },
-          { id: 'landlord_stats', label: 'Stats', icon: BarChart3 },
-          { id: 'landlord_settings', label: 'Settings', icon: Settings }
+          { id: 'landlord_cameras', label: 'CCTV', icon: Camera },
+          { id: 'landlord_stats', label: 'Stats', icon: BarChart3 }
         ];
     }
   };

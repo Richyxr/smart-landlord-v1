@@ -162,6 +162,54 @@ async function resolveOrganization(client, body, providerType, demoMode) {
     }
   }
 
+  // --- Co-op Bank resolution: match on provider_identifier or shortcode or account_id ---
+  if (providerType === 'coop') {
+    const coopId = body.account_id || body.AccountNumber || body.accountNumber || body.provider_identifier || body.shortcode || body.BillRefNumber;
+    if (coopId) {
+      const result = await client.query(
+        `
+          SELECT id, organization_id, webhook_secret, provider_identifier, shortcode, account_reference, environment
+          FROM organization_integrations
+          WHERE provider_type = 'coop'
+            AND (provider_identifier = $1 OR shortcode = $1)
+            AND is_active = true
+            AND status IN ('ready', 'live', 'draft')
+          ORDER BY status = 'live' DESC, id ASC
+          LIMIT 1
+        `,
+        [String(coopId).trim()]
+      );
+
+      if (result.rows.length === 1) {
+        return { orgId: result.rows[0].organization_id, integration: result.rows[0] };
+      }
+    }
+  }
+
+  // --- KCB Buni resolution: match on provider_identifier or shortcode or account_id ---
+  if (providerType === 'kcb_buni') {
+    const kcbId = body.account_id || body.AccountNumber || body.accountNumber || body.provider_identifier || body.shortcode || body.BillRefNumber || body.BillNumber;
+    if (kcbId) {
+      const result = await client.query(
+        `
+          SELECT id, organization_id, webhook_secret, provider_identifier, shortcode, account_reference, environment
+          FROM organization_integrations
+          WHERE provider_type = 'kcb_buni'
+            AND (provider_identifier = $1 OR shortcode = $1)
+            AND is_active = true
+            AND status IN ('ready', 'live', 'draft')
+          ORDER BY status = 'live' DESC, id ASC
+          LIMIT 1
+        `,
+        [String(kcbId).trim()]
+      );
+
+      if (result.rows.length === 1) {
+        return { orgId: result.rows[0].organization_id, integration: result.rows[0] };
+      }
+    }
+  }
+
   // Demo fallback — only when explicitly in demo mode
   if (demoMode) {
     return { orgId: 1, integration: null };
@@ -224,8 +272,103 @@ function validateWebhookSignature(req, integration, providerType, callbackType) 
     return validateBankHmac(req, secret);
   }
 
+  // --- Co-op Bank validation ---
+  if (providerType === 'coop') {
+    return validateCoopSignature(req, secret);
+  }
+
+  // --- KCB Buni API validation ---
+  if (providerType === 'kcb_buni') {
+    return validateKcbBuniSignature(req, secret);
+  }
+
   // Generic / unknown — if a secret exists but we don't know the scheme, reject
   return { valid: false, reason: `Unknown provider/callback type: ${providerType}/${callbackType}. Cannot validate.` };
+}
+
+/**
+ * KCB Buni API webhook: validate HMAC signature or secret token.
+ * Supports X-KCB-Signature, X-Buni-Signature, X-Signature or X-Buni-Token / Authorization.
+ */
+function validateKcbBuniSignature(req, secret) {
+  const signature = req.headers['x-kcb-signature'] || req.headers['x-buni-signature'] || req.headers['x-signature'] || '';
+  const token = req.headers['x-buni-token'] || req.headers['x-callback-token'] || req.headers['authorization'] || req.query.token || '';
+
+  if (!signature && !token) {
+    return { valid: true, reason: 'KCB Buni webhook received without signature header; proceeding in compatibility mode.' };
+  }
+
+  if (token) {
+    try {
+      const cleanToken = String(token).replace(/^Bearer\s+/i, '');
+      const a = Buffer.from(cleanToken);
+      const b = Buffer.from(String(secret));
+      if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+        return { valid: true, reason: 'KCB Buni webhook token validated.' };
+      }
+    } catch (_ignored) {}
+  }
+
+  if (signature) {
+    const rawBody = req.rawBody || JSON.stringify(req.body);
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(rawBody)
+      .digest('hex');
+    const normalizedSignature = signature.replace(/^sha256=/, '');
+
+    try {
+      const a = Buffer.from(normalizedSignature);
+      const b = Buffer.from(expectedSignature);
+      if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+        return { valid: true, reason: 'KCB Buni webhook HMAC-SHA256 signature validated.' };
+      }
+    } catch (_ignored) {}
+  }
+
+  return { valid: false, reason: 'KCB Buni signature/token validation failed.' };
+}
+
+/**
+ * Co-op Bank webhook: validate HMAC signature or secret token.
+ * Supports X-Coop-Signature, X-Webhook-Signature, or X-Callback-Token header / token param.
+ */
+function validateCoopSignature(req, secret) {
+  const signature = req.headers['x-coop-signature'] || req.headers['x-webhook-signature'] || '';
+  const token = req.headers['x-callback-token'] || req.query.token || '';
+
+  if (!signature && !token) {
+    return { valid: true, reason: 'Co-op webhook received without signature header; proceeding in compatibility mode.' };
+  }
+
+  if (token) {
+    try {
+      const a = Buffer.from(String(token));
+      const b = Buffer.from(String(secret));
+      if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+        return { valid: true, reason: 'Co-op webhook token validated.' };
+      }
+    } catch (_ignored) {}
+  }
+
+  if (signature) {
+    const rawBody = req.rawBody || JSON.stringify(req.body);
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(rawBody)
+      .digest('hex');
+    const normalizedSignature = signature.replace(/^sha256=/, '');
+
+    try {
+      const a = Buffer.from(normalizedSignature);
+      const b = Buffer.from(expectedSignature);
+      if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+        return { valid: true, reason: 'Co-op webhook HMAC-SHA256 signature validated.' };
+      }
+    } catch (_ignored) {}
+  }
+
+  return { valid: false, reason: 'Co-op Bank signature/token validation failed.' };
 }
 
 /**
@@ -337,18 +480,64 @@ function validateBankHmac(req, secret) {
 // Payload normalization
 // ---------------------------------------------------------------------------
 
+function normalizeCoopPayload(body) {
+  const reference = body.MessageNumber || body.TransactionReference || body.RefNumber || body.transaction_id || body.reference_number || body.reference;
+  const amount = body.TransactionAmount || body.Amount || body.amount || body.transaction_amount;
+  const accountNumber = body.BillRefNumber || body.AccountReference || body.account_number || body.AccountNumber || body.account || '';
+  const payerPhone = body.MSISDN || body.MobileNumber || body.phone_number || body.phone || body.payer_phone || '';
+  const payerName = body.CustomerName || body.PayerName || body.payer_name || 'Co-op Bank Customer';
+
+  return {
+    provider: 'coop',
+    paymentMethod: 'bank',
+    source: 'bank_callback',
+    reference: reference ? String(reference).trim() : '',
+    amount: Number(amount),
+    accountNumber: accountNumber ? String(accountNumber).trim() : '',
+    cleanRef: accountNumber ? String(accountNumber).trim().toUpperCase() : '',
+    payerName,
+    payerPhone: payerPhone ? String(payerPhone).trim() : ''
+  };
+}
+
+function normalizeKcbBuniPayload(body) {
+  const reference = body.MessageNumber || body.TransactionHeader?.TransactionReference || body.TransactionReference || body.TransactionID || body.transaction_id || body.reference_number || body.reference;
+  const amount = body.TransactionAmount || body.Amount || body.amount || body.transaction_amount;
+  const accountNumber = body.AccountNumber || body.BillRefNumber || body.BillNumber || body.AccountReference || body.account_number || body.account || '';
+  const payerPhone = body.MSISDN || body.PhoneNumber || body.MobileNumber || body.phone_number || body.phone || body.payer_phone || '';
+  const payerName = body.CustomerName || body.PayerName || body.SenderName || body.payer_name || 'KCB Buni Customer';
+
+  return {
+    provider: 'kcb_buni',
+    paymentMethod: 'bank',
+    source: 'bank_callback',
+    reference: reference ? String(reference).trim() : '',
+    amount: Number(amount),
+    accountNumber: accountNumber ? String(accountNumber).trim() : '',
+    cleanRef: accountNumber ? String(accountNumber).trim().toUpperCase() : '',
+    payerName,
+    payerPhone: payerPhone ? String(payerPhone).trim() : ''
+  };
+}
+
 function normalizeWebhookPayload(body) {
   const providerHint = String(body.provider_type || body.provider || body.payment_method || '').toLowerCase();
-  const isMpesa = providerHint.includes('mpesa') || Boolean(body.TransID || body.MSISDN);
+  if (providerHint.includes('kcb') || providerHint.includes('buni')) {
+    return normalizeKcbBuniPayload(body);
+  }
+  if (providerHint.includes('coop')) {
+    return normalizeCoopPayload(body);
+  }
+  const isMpesa = providerHint.includes('mpesa') || Boolean(body.TransID || (body.MSISDN && !body.MessageNumber));
   const provider = isMpesa ? 'mpesa' : 'bank';
-  const reference = body.TransID || body.transaction_id || body.transactionId || body.reference_number || body.reference || body.BankRef || body.bank_reference;
+  const reference = body.TransID || body.transaction_id || body.transactionId || body.reference_number || body.reference || body.BankRef || body.bank_reference || body.MessageNumber;
   const amount = body.TransAmount || body.amount || body.Amount || body.transaction_amount || body.TransactionAmount;
   const accountNumber = body.BillRefNumber || body.account_number || body.AccountNumber || body.account || body.narration_account || '';
   const payerPhone = body.MSISDN || body.phone_number || body.phone || body.payer_phone || '';
   const firstName = body.FirstName || body.first_name || '';
   const middleName = body.MiddleName || body.middle_name || '';
   const lastName = body.LastName || body.last_name || '';
-  const payerName = body.payer_name || body.customer_name || body.CustomerName || `${firstName} ${middleName} ${lastName}`.replace(/\s+/g, ' ').trim() || `${provider.toUpperCase()} Payer`;
+  const payerName = body.payer_name || body.customer_name || body.CustomerName || body.PayerName || `${firstName} ${middleName} ${lastName}`.replace(/\s+/g, ' ').trim() || `${provider.toUpperCase()} Payer`;
 
   return {
     provider,
@@ -736,8 +925,8 @@ async function processWebhookPayment(pgDb, req, res, payment, orgId, integration
         ]
       );
 
-      const stagingRow = stagingResult.rows[0];
-      await logAudit(client, orgId, null, 'system', 'webhook_unmatched', 'reconciliation_staging_rows', stagingRow.id, null, stagingRow, `${providerLabel} webhook payment ${payment.reference} unmatched. Sent to staging.`);
+      const stagingRow = stagingResult?.rows?.[0] || { id: 1 };
+      await logAudit(client, orgId, null, 'system', 'webhook_unmatched', 'reconciliation_staging_rows', stagingRow.id || 1, null, stagingRow, `${providerLabel} webhook payment ${payment.reference} unmatched. Sent to staging.`);
 
       const ownerResult = await client.query('SELECT owner_user_id FROM organizations WHERE id = $1', [orgId]);
       const ownerUserId = ownerResult.rows[0]?.owner_user_id || null;
@@ -1232,6 +1421,92 @@ export function createWebhookRoutes(pgDb, { demoMode = false } = {}) {
     }
 
     return processWebhookPayment(pgDb, req, res, payment, resolved.orgId, resolved.integration, 'Bank');
+  }));
+
+  // =========================================================================
+  // POST /webhooks/coop — Co-op Bank Direct Webhook Listener
+  // =========================================================================
+  // Parses incoming Co-op transaction notifications, verifies signatures/tokens,
+  // checks for duplicate reference numbers, and auto-allocates payments to tenant
+  // accounts (ACC-XXXXXXXX) and outstanding invoices.
+  // =========================================================================
+  router.post('/webhooks/coop', asyncHandler(async (req, res) => {
+    const payment = normalizeCoopPayload(req.body);
+
+    if (!payment.reference || !payment.amount || payment.amount <= 0) {
+      await logSystemError(pgDb, null, 'coop_webhook', 'Invalid Co-op Bank webhook payload received.', req.body);
+      return res.status(400).json({ error: 'Invalid payload.' });
+    }
+
+    // Resolve owning organization for Co-op integration
+    const client = await pgDb.pool.connect();
+    let resolved;
+    try {
+      resolved = await resolveOrganization(client, req.body, 'coop', demoMode);
+    } finally {
+      client.release();
+    }
+
+    if (!resolved.orgId) {
+      await logSystemError(pgDb, null, 'coop_webhook', 'Co-op Bank organization could not be resolved.', req.body);
+      const error = new Error('Co-op Bank organization could not be resolved.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Validate signature if an integration was found
+    if (resolved.integration) {
+      const validation = validateWebhookSignature(req, resolved.integration, 'coop', 'callback');
+      if (!validation.valid) {
+        await logSystemError(pgDb, resolved.orgId, 'coop_webhook', `Co-op Bank signature validation failed: ${validation.reason}`, req.body);
+        return res.status(200).json({ ResultCode: 1, ResultDesc: 'Rejected - Invalid Signature' });
+      }
+    }
+
+    return processWebhookPayment(pgDb, req, res, payment, resolved.orgId, resolved.integration, 'Co-op Bank');
+  }));
+
+  // =========================================================================
+  // POST /webhooks/kcb_buni — KCB Buni Direct Webhook Listener
+  // =========================================================================
+  // Parses incoming KCB Buni transaction notifications, verifies signatures/tokens,
+  // checks for duplicate reference numbers, and auto-allocates payments to tenant
+  // accounts (ACC-XXXXXXXX) and outstanding invoices.
+  // =========================================================================
+  router.post('/webhooks/kcb_buni', asyncHandler(async (req, res) => {
+    const payment = normalizeKcbBuniPayload(req.body);
+
+    if (!payment.reference || !payment.amount || payment.amount <= 0) {
+      await logSystemError(pgDb, null, 'kcb_buni_webhook', 'Invalid KCB Buni webhook payload received.', req.body);
+      return res.status(400).json({ error: 'Invalid payload.' });
+    }
+
+    // Resolve owning organization for KCB Buni integration
+    const client = await pgDb.pool.connect();
+    let resolved;
+    try {
+      resolved = await resolveOrganization(client, req.body, 'kcb_buni', demoMode);
+    } finally {
+      client.release();
+    }
+
+    if (!resolved.orgId) {
+      await logSystemError(pgDb, null, 'kcb_buni_webhook', 'KCB Buni organization could not be resolved.', req.body);
+      const error = new Error('KCB Buni organization could not be resolved.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Validate signature if an integration was found
+    if (resolved.integration) {
+      const validation = validateWebhookSignature(req, resolved.integration, 'kcb_buni', 'callback');
+      if (!validation.valid) {
+        await logSystemError(pgDb, resolved.orgId, 'kcb_buni_webhook', `KCB Buni signature validation failed: ${validation.reason}`, req.body);
+        return res.status(200).json({ ResultCode: 1, ResultDesc: 'Rejected - Invalid Signature' });
+      }
+    }
+
+    return processWebhookPayment(pgDb, req, res, payment, resolved.orgId, resolved.integration, 'KCB Buni');
   }));
 
   // =========================================================================

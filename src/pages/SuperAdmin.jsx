@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/card.jsx';
+import { Badge } from '../components/ui/badge.jsx';
 import {
   Settings,
   Building2,
@@ -11,7 +13,13 @@ import {
   CreditCard,
   AlertTriangle,
   FileText,
-  X
+  X,
+  Users,
+  UserCheck,
+  Receipt,
+  ShieldAlert,
+  Lock,
+  CheckCircle2
 } from 'lucide-react';
 
 const tabIcons = {
@@ -207,9 +215,20 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
   });
   const [platformSmsCredentialsMasked, setPlatformSmsCredentialsMasked] = useState(false);
 
-  // Pricing Form
-  const [pricePerTenant, setPricePerTenant] = useState('200');
-  const [gracePeriod, setGracePeriod] = useState('7');
+  // Pricing Form & Plan Calibration
+  const [pricingForm, setPricingForm] = useState({
+    price_per_active_tenant: '75',
+    grace_period_days: '7',
+    trial_days: '30',
+    starter_max_units: '20',
+    starter_price_per_unit: '75',
+    starter_package_price: '1500',
+    growth_max_units: '70',
+    growth_price_per_unit: '65',
+    growth_package_price: '4500',
+    portfolio_price_per_unit: '50',
+    portfolio_package_price: '7500'
+  });
 
   // Impersonate Modal
   const [impersonateOrg, setImpersonateOrg] = useState(null);
@@ -240,12 +259,6 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
 
       setStats({
         ...DEFAULT_STATS,
-        total_organizations: toFiniteNumber(source.total_organizations),
-        active_organizations: toFiniteNumber(source.active_organizations),
-        locked_organizations: toFiniteNumber(source.locked_organizations),
-        active_rental_tenants: toFiniteNumber(source.active_rental_tenants, toFiniteNumber(source.total_active_tenants)),
-        billable_tenants: toFiniteNumber(source.billable_tenants, toFiniteNumber(source.total_active_tenants)),
-        total_active_tenants: toFiniteNumber(source.total_active_tenants),
         monthly_saas_revenue: toFiniteNumber(source.monthly_saas_revenue),
         lifetime_saas_revenue: toFiniteNumber(source.lifetime_saas_revenue, toFiniteNumber(source.monthly_saas_revenue)),
         pending_confirmations: toFiniteNumber(source.pending_confirmations),
@@ -264,8 +277,19 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
         const res = await fetch('/api/admin/pricing', { headers });
         if (res.ok) {
           const data = await res.json();
-          setPricePerTenant(String(data.price_per_active_tenant ?? '200'));
-          setGracePeriod(String(data.grace_period_days ?? '7'));
+          setPricingForm({
+            price_per_active_tenant: String(data.price_per_active_tenant ?? '75'),
+            grace_period_days: String(data.grace_period_days ?? '7'),
+            trial_days: String(data.trial_days ?? '30'),
+            starter_max_units: String(data.starter_max_units ?? '20'),
+            starter_price_per_unit: String(data.starter_price_per_unit ?? '75'),
+            starter_package_price: String(data.starter_package_price ?? '1500'),
+            growth_max_units: String(data.growth_max_units ?? '70'),
+            growth_price_per_unit: String(data.growth_price_per_unit ?? '65'),
+            growth_package_price: String(data.growth_package_price ?? '4500'),
+            portfolio_price_per_unit: String(data.portfolio_price_per_unit ?? '50'),
+            portfolio_package_price: String(data.portfolio_package_price ?? '7500')
+          });
         }
       } else if (activeTab === 'landlords') {
         const res = await fetch('/api/admin/organizations', { headers });
@@ -381,11 +405,11 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       const res = await fetch('/api/admin/pricing', {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ price_per_active_tenant: pricePerTenant, grace_period_days: gracePeriod })
+        body: JSON.stringify(pricingForm)
       });
       const data = await res.json().catch(() => null);
       if (res.ok) {
-        window.notifySuccess('Pricing settings saved', 'The platform pricing policy has been updated.');
+        window.notifySuccess('Pricing settings saved', 'Live advertised pricing and subscription rates updated.');
         fetchStats();
         fetchData();
         onRefresh();
@@ -929,88 +953,337 @@ export default function SuperAdmin({ activeRoute, onImpersonateStart, refreshTri
       {activeTab === 'dashboard' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           
-          <div className="super-admin-metrics-grid">
-            <div className="sl-metric-card">
-              <div className="sl-metric-top">
-                <span className="sl-metric-label">Total Landlords</span>
-                <Building2 size={16} style={{ color: 'var(--text-secondary)' }} />
-              </div>
-              <div className="sl-metric-value">{safeStats.total_organizations}</div>
-            </div>
-            <div className="sl-metric-card">
-              <div className="sl-metric-top">
-                <span className="sl-metric-label">Active Tenants</span>
-                <Building2 size={16} style={{ color: 'var(--text-secondary)' }} />
-              </div>
-              <div className="sl-metric-value">{safeStats.active_rental_tenants}</div>
-            </div>
-            <div className="sl-metric-card">
-              <div className="sl-metric-top">
-                <span className="sl-metric-label">Billable Tenants</span>
-                <Building2 size={16} style={{ color: 'var(--text-secondary)' }} />
-              </div>
-              <div className="sl-metric-value">{safeStats.billable_tenants}</div>
-            </div>
-            <div className={`sl-metric-card ${safeStats.locked_organizations > 0 ? 'sl-metric-danger' : ''}`}>
-              <div className="sl-metric-top">
-                <span className="sl-metric-label">Locked Accounts</span>
-                <ShieldCheck size={16} style={{ color: safeStats.locked_organizations > 0 ? 'var(--danger)' : 'var(--text-secondary)' }} />
-              </div>
-              <div className="sl-metric-value" style={{ color: safeStats.locked_organizations > 0 ? 'var(--danger)' : 'var(--text-primary)' }}>
-                {safeStats.locked_organizations}
-              </div>
-            </div>
-            <div className={`sl-metric-card ${safeStats.pending_confirmations > 0 ? 'sl-metric-warning' : ''}`}>
-              <div className="sl-metric-top">
-                <span className="sl-metric-label">Confirmations</span>
-                <CreditCard size={16} style={{ color: safeStats.pending_confirmations > 0 ? 'var(--warning)' : 'var(--text-secondary)' }} />
-              </div>
-              <div className="sl-metric-value" style={{ color: safeStats.pending_confirmations > 0 ? 'var(--warning)' : 'var(--text-primary)' }}>
-                {safeStats.pending_confirmations}
-              </div>
-            </div>
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-6 w-full"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: '16px',
+              width: '100%',
+              marginBottom: '24px'
+            }}
+          >
+            {/* 1. TOTAL LANDLORDS */}
+            <Card
+              className="cursor-pointer transition-all duration-200 hover:-translate-y-1"
+              style={{
+                background: 'var(--bg-surface-elevated, #121420)',
+                border: '1px solid var(--border, #22253a)',
+                borderRadius: '16px',
+                padding: '16px 18px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                minHeight: '130px'
+              }}
+            >
+              <CardHeader style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 0, marginBottom: '8px' }}>
+                <CardTitle style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted, #94a3b8)', letterSpacing: '0.05em' }}>TOTAL LANDLORDS</CardTitle>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1px solid rgba(99, 102, 241, 0.3)', background: 'rgba(99, 102, 241, 0.12)', color: 'var(--primary, #6366f1)' }}>
+                  <Users size={16} strokeWidth={2.3} />
+                </div>
+              </CardHeader>
+              <CardContent style={{ padding: 0 }}>
+                <div style={{ fontSize: '26px', fontWeight: '800', color: 'var(--text-primary, #f8fafc)', margin: '4px 0', fontFamily: 'var(--font-title, sans-serif)' }}>
+                  {safeStats.total_organizations}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '6px', marginTop: '6px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary, #94a3b8)' }}>Registered accounts</span>
+                  <Badge variant="outline">Platform</Badge>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 2. ACTIVE TENANTS */}
+            <Card
+              className="cursor-pointer transition-all duration-200 hover:-translate-y-1"
+              style={{
+                background: 'var(--bg-surface-elevated, #121420)',
+                border: '1px solid var(--border, #22253a)',
+                borderRadius: '16px',
+                padding: '16px 18px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                minHeight: '130px'
+              }}
+            >
+              <CardHeader style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 0, marginBottom: '8px' }}>
+                <CardTitle style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted, #94a3b8)', letterSpacing: '0.05em' }}>ACTIVE TENANTS</CardTitle>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1px solid rgba(14, 165, 233, 0.3)', background: 'rgba(14, 165, 233, 0.12)', color: '#38bdf8' }}>
+                  <UserCheck size={16} strokeWidth={2.3} />
+                </div>
+              </CardHeader>
+              <CardContent style={{ padding: 0 }}>
+                <div style={{ fontSize: '26px', fontWeight: '800', color: 'var(--text-primary, #f8fafc)', margin: '4px 0', fontFamily: 'var(--font-title, sans-serif)' }}>
+                  {safeStats.active_rental_tenants}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '6px', marginTop: '6px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary, #94a3b8)' }}>Live occupants</span>
+                  <Badge variant="secondary">Active</Badge>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 3. BILLABLE TENANTS */}
+            <Card
+              className="cursor-pointer transition-all duration-200 hover:-translate-y-1"
+              style={{
+                background: 'var(--bg-surface-elevated, #121420)',
+                border: '1px solid var(--border, #22253a)',
+                borderRadius: '16px',
+                padding: '16px 18px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                minHeight: '130px'
+              }}
+            >
+              <CardHeader style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 0, marginBottom: '8px' }}>
+                <CardTitle style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted, #94a3b8)', letterSpacing: '0.05em' }}>BILLABLE TENANTS</CardTitle>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: '1px solid rgba(16, 185, 129, 0.3)', background: 'rgba(16, 185, 129, 0.12)', color: 'var(--success, #10b981)' }}>
+                  <Receipt size={16} strokeWidth={2.3} />
+                </div>
+              </CardHeader>
+              <CardContent style={{ padding: 0 }}>
+                <div style={{ fontSize: '26px', fontWeight: '800', color: 'var(--success, #10b981)', margin: '4px 0', fontFamily: 'var(--font-title, sans-serif)' }}>
+                  {safeStats.billable_tenants}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '6px', marginTop: '6px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary, #94a3b8)' }}>Billable count</span>
+                  <Badge variant="success">Monetized</Badge>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 4. LOCKED ACCOUNTS */}
+            <Card
+              className="cursor-pointer transition-all duration-200 hover:-translate-y-1"
+              style={{
+                background: safeStats.locked_organizations > 0 ? 'rgba(239, 68, 68, 0.08)' : 'var(--bg-surface-elevated, #121420)',
+                border: safeStats.locked_organizations > 0 ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid var(--border, #22253a)',
+                borderRadius: '16px',
+                padding: '16px 18px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                minHeight: '130px'
+              }}
+            >
+              <CardHeader style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 0, marginBottom: '8px' }}>
+                <CardTitle style={{ fontSize: '11px', fontWeight: '700', color: safeStats.locked_organizations > 0 ? '#fca5a5' : 'var(--text-muted, #94a3b8)', letterSpacing: '0.05em' }}>LOCKED ACCOUNTS</CardTitle>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: safeStats.locked_organizations > 0 ? '1px solid rgba(239, 68, 68, 0.4)' : '1px solid var(--border, #22253a)', background: safeStats.locked_organizations > 0 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.05)', color: safeStats.locked_organizations > 0 ? 'var(--danger, #ef4444)' : 'var(--text-secondary, #94a3b8)' }}>
+                  <ShieldAlert size={16} strokeWidth={2.3} />
+                </div>
+              </CardHeader>
+              <CardContent style={{ padding: 0 }}>
+                <div style={{ fontSize: '26px', fontWeight: '800', color: safeStats.locked_organizations > 0 ? 'var(--danger, #ef4444)' : 'var(--text-primary, #f8fafc)', margin: '4px 0', fontFamily: 'var(--font-title, sans-serif)' }}>
+                  {safeStats.locked_organizations}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '6px', marginTop: '6px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary, #94a3b8)' }}>Suspended access</span>
+                  <Badge variant={safeStats.locked_organizations > 0 ? "danger" : "secondary"}>
+                    {safeStats.locked_organizations > 0 ? "Action Required" : "Normal"}
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* 5. CONFIRMATIONS */}
+            <Card
+              className="cursor-pointer transition-all duration-200 hover:-translate-y-1"
+              style={{
+                background: safeStats.pending_confirmations > 0 ? 'rgba(245, 158, 11, 0.08)' : 'var(--bg-surface-elevated, #121420)',
+                border: safeStats.pending_confirmations > 0 ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid var(--border, #22253a)',
+                borderRadius: '16px',
+                padding: '16px 18px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                minHeight: '130px'
+              }}
+            >
+              <CardHeader style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 0, marginBottom: '8px' }}>
+                <CardTitle style={{ fontSize: '11px', fontWeight: '700', color: safeStats.pending_confirmations > 0 ? '#fde68a' : 'var(--text-muted, #94a3b8)', letterSpacing: '0.05em' }}>CONFIRMATIONS</CardTitle>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: safeStats.pending_confirmations > 0 ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid var(--border, #22253a)', background: safeStats.pending_confirmations > 0 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.05)', color: safeStats.pending_confirmations > 0 ? 'var(--warning, #f59e0b)' : 'var(--text-secondary, #94a3b8)' }}>
+                  <CheckCircle2 size={16} strokeWidth={2.3} />
+                </div>
+              </CardHeader>
+              <CardContent style={{ padding: 0 }}>
+                <div style={{ fontSize: '26px', fontWeight: '800', color: safeStats.pending_confirmations > 0 ? 'var(--warning, #f59e0b)' : 'var(--text-primary, #f8fafc)', margin: '4px 0', fontFamily: 'var(--font-title, sans-serif)' }}>
+                  {safeStats.pending_confirmations}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '6px', marginTop: '6px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-secondary, #94a3b8)' }}>Manual approvals</span>
+                  <Badge variant={safeStats.pending_confirmations > 0 ? "warning" : "secondary"}>
+                    {safeStats.pending_confirmations > 0 ? "Pending" : "Clear"}
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
-          <div className="super-admin-overview-bottom">
-            <div className="sl-card sl-card-success" style={{ marginBottom: 0 }}>
-              <span className="kpi-lbl">This Month SaaS Revenue</span>
-              <div className="kpi-num super-admin-revenue-num">
-                {formatCurrency(safeStats.monthly_saas_revenue)}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', alignItems: 'stretch', width: '100%' }}>
+            <div className="sl-card sl-card-success" style={{ marginBottom: 0, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <span className="kpi-lbl">This Month SaaS Revenue</span>
+                <div className="kpi-num super-admin-revenue-num">
+                  {formatCurrency(safeStats.monthly_saas_revenue)}
+                </div>
               </div>
-              <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <div style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
                 Lifetime SaaS Revenue: <strong>{formatCurrency(safeStats.lifetime_saas_revenue)}</strong>
               </div>
             </div>
 
-            {/* PRICING SETTINGS FORM */}
-            <div className="card" style={{ marginBottom: 0 }}>
-              <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Settings size={18} /> Global Platform Pricing
-              </h3>
-              <form onSubmit={handlePricingSubmit}>
-                <div className="form-group">
-                  <label className="form-label">Price per Active Tenant (Monthly KES)</label>
-                  <input
-                    type="number"
-                    required
-                    className="form-control"
-                    value={pricePerTenant}
-                    onChange={e => setPricePerTenant(e.target.value)}
-                  />
+            {/* PRICING SETTINGS & PLAN CALIBRATION FORM */}
+            <div className="card" style={{ marginBottom: 0, height: '100%' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                  <CreditCard size={18} style={{ color: '#818cf8' }} /> Advertised Pricing & Plan Calibration
+                </h3>
+                <span style={{ fontSize: '11px', color: '#10b981', background: 'rgba(16, 185, 129, 0.12)', padding: '2px 8px', borderRadius: '6px', fontWeight: '600' }}>
+                  Live Landing Page Sync
+                </span>
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary, #94a3b8)', marginBottom: '18px' }}>
+                Changes made here immediately calibrate the public landing page rates, package limits, and automatic billing invoice calculations.
+              </p>
+
+              <form onSubmit={handlePricingSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                
+                {/* GENERAL PARAMS */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', background: 'rgba(255, 255, 255, 0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '11px' }}>Free Trial (Days)</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      className="form-control"
+                      value={pricingForm.trial_days}
+                      onChange={e => setPricingForm({ ...pricingForm, trial_days: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '11px' }}>Grace Period (Days)</label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      className="form-control"
+                      value={pricingForm.grace_period_days}
+                      onChange={e => setPricingForm({ ...pricingForm, grace_period_days: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" style={{ fontSize: '11px' }}>Base Unit Rate (KES)</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      className="form-control"
+                      value={pricingForm.price_per_active_tenant}
+                      onChange={e => setPricingForm({ ...pricingForm, price_per_active_tenant: e.target.value, starter_price_per_unit: e.target.value })}
+                    />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Unpaid Invoice Grace Period (Days)</label>
-                  <input
-                    type="number"
-                    required
-                    className="form-control"
-                    value={gracePeriod}
-                    onChange={e => setGracePeriod(e.target.value)}
-                  />
+
+                {/* 3 TIERS GRID */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                  
+                  {/* STARTER TIER */}
+                  <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                    <div style={{ fontWeight: '700', fontSize: '12px', color: '#fff', marginBottom: '8px' }}>Starter Tier</div>
+                    <div className="form-group" style={{ marginBottom: '8px' }}>
+                      <label className="form-label" style={{ fontSize: '10px' }}>Max Units</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        style={{ fontSize: '12px', padding: '6px' }}
+                        value={pricingForm.starter_max_units}
+                        onChange={e => setPricingForm({ ...pricingForm, starter_max_units: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label" style={{ fontSize: '10px' }}>Package Price / mo (KES)</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        style={{ fontSize: '12px', padding: '6px' }}
+                        value={pricingForm.starter_package_price}
+                        onChange={e => setPricingForm({ ...pricingForm, starter_package_price: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  {/* GROWTH TIER */}
+                  <div style={{ background: 'rgba(99, 102, 241, 0.05)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+                    <div style={{ fontWeight: '700', fontSize: '12px', color: '#a5b4fc', marginBottom: '8px' }}>Growth Tier</div>
+                    <div className="form-group" style={{ marginBottom: '8px' }}>
+                      <label className="form-label" style={{ fontSize: '10px' }}>Max Units</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        style={{ fontSize: '12px', padding: '6px' }}
+                        value={pricingForm.growth_max_units}
+                        onChange={e => setPricingForm({ ...pricingForm, growth_max_units: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: '8px' }}>
+                      <label className="form-label" style={{ fontSize: '10px' }}>Price / Unit (KES)</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        style={{ fontSize: '12px', padding: '6px' }}
+                        value={pricingForm.growth_price_per_unit}
+                        onChange={e => setPricingForm({ ...pricingForm, growth_price_per_unit: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label" style={{ fontSize: '10px' }}>Package Price / mo (KES)</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        style={{ fontSize: '12px', padding: '6px' }}
+                        value={pricingForm.growth_package_price}
+                        onChange={e => setPricingForm({ ...pricingForm, growth_package_price: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  {/* PORTFOLIO TIER */}
+                  <div style={{ background: 'rgba(255, 255, 255, 0.02)', padding: '12px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                    <div style={{ fontWeight: '700', fontSize: '12px', color: '#fff', marginBottom: '8px' }}>Portfolio Tier</div>
+                    <div className="form-group" style={{ marginBottom: '8px' }}>
+                      <label className="form-label" style={{ fontSize: '10px' }}>Floor Unit Rate (KES)</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        style={{ fontSize: '12px', padding: '6px' }}
+                        value={pricingForm.portfolio_price_per_unit}
+                        onChange={e => setPricingForm({ ...pricingForm, portfolio_price_per_unit: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label" style={{ fontSize: '10px' }}>Package Price / mo (KES)</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        style={{ fontSize: '12px', padding: '6px' }}
+                        value={pricingForm.portfolio_package_price}
+                        onChange={e => setPricingForm({ ...pricingForm, portfolio_package_price: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
                 </div>
-                <button type="submit" className="btn btn-primary btn-sm" disabled={loading}>
-                  Update Pricing Policy
-                </button>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '6px' }}>
+                  <button type="submit" className="btn btn-primary btn-sm" disabled={loading} style={{ padding: '8px 18px', fontWeight: '700' }}>
+                    {loading ? 'Saving Changes...' : 'Save & Publish Live Pricing'}
+                  </button>
+                </div>
               </form>
             </div>
           </div>

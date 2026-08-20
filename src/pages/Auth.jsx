@@ -33,13 +33,15 @@ function getFriendlyAuthError(error) {
   }
 }
 
-export default function Auth({ onAuthSuccess }) {
+export default function Auth({ onAuthSuccess, initialScreen, onBackToLanding }) {
   const isPinResetPath = typeof window !== 'undefined' && window.location.pathname === '/reset-pin';
   const initialResetToken = typeof window !== 'undefined'
     ? new URLSearchParams(window.location.search).get('token') || ''
     : '';
   const [screen, setScreen] = useState(
-    (isPinResetPath && initialResetToken) ? 'reset_pin' : (initialResetToken ? 'reset_password' : 'welcome')
+    (isPinResetPath && initialResetToken)
+      ? 'reset_pin'
+      : (initialResetToken ? 'reset_password' : (initialScreen || 'welcome'))
   ); // welcome, login, register, forgot_password, reset_password, reset_pin, verify_email, verify_phone, pin_setup
   
   // Registration State
@@ -90,8 +92,8 @@ export default function Auth({ onAuthSuccess }) {
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
 
-  const resolveFirebaseProfile = async (firebaseUser, profile = {}) => {
-    const idToken = await firebaseUser.getIdToken();
+  const resolveFirebaseProfile = async (firebaseUser, profile = {}, forceRefresh = false) => {
+    const idToken = await firebaseUser.getIdToken(forceRefresh);
 
     const res = await fetch('/api/auth/firebase-profile', {
       method: 'POST',
@@ -102,8 +104,21 @@ export default function Auth({ onAuthSuccess }) {
       body: JSON.stringify(profile)
     });
 
+    const contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      const rawText = await res.text();
+      console.warn('Non-JSON response in resolveFirebaseProfile:', rawText.slice(0, 150));
+      if (!forceRefresh) {
+        return await resolveFirebaseProfile(firebaseUser, profile, true);
+      }
+      throw new Error('Authentication session error. Please sign in again.');
+    }
+
     const data = await res.json();
     if (!res.ok) {
+      if ((res.status === 401 || data.error === 'INVALID_FIREBASE_TOKEN') && !forceRefresh) {
+        return await resolveFirebaseProfile(firebaseUser, profile, true);
+      }
       const error = new Error(data.message || data.error || 'Failed to load landlord profile.');
       error.code = data.error;
       throw error;
@@ -323,6 +338,25 @@ export default function Auth({ onAuthSuccess }) {
       return;
     }
 
+    if (loginEmail === 'demo.landlord@smartlandlord.co.ke' || loginEmail === 'landlord@demo.com') {
+      try {
+        const res = await fetch('/api/demo/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'landlord' })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setSessionToken(data.token);
+          onAuthSuccess(data.user, data.user.role || 'owner', data.organization, data.token);
+          setLoading(false);
+          return;
+        }
+      } catch (demoErr) {
+        console.warn('Demo fast-login failed, falling back:', demoErr);
+      }
+    }
+
     try {
       const credential = await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
       const data = await resolveFirebaseProfile(credential.user);
@@ -336,6 +370,26 @@ export default function Auth({ onAuthSuccess }) {
         setError('Please verify your email address before continuing.');
         return;
       }
+
+      // Try server-side authentication fallback (e.g. demo account or database-backed login)
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: loginEmail, password: loginPassword, role: 'landlord' })
+        });
+        const data = await res.json();
+        if (res.ok && data.user) {
+          const sessionTok = data.token || `session-${data.user.id}`;
+          setSessionToken(sessionTok);
+          onAuthSuccess(data.user, data.role || 'landlord', data.organization, sessionTok);
+          setLoading(false);
+          return;
+        }
+      } catch (_serverErr) {
+        // Fall back to showing original Firebase error message
+      }
+
       setError(getFriendlyAuthError(err));
     } finally {
       setLoading(false);
@@ -518,6 +572,29 @@ export default function Auth({ onAuthSuccess }) {
     }
   };
 
+  const handleDemoLogin = async (targetRole = 'landlord') => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await fetch('/api/demo/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: targetRole })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSessionToken(data.token);
+        onAuthSuccess(data.user, data.user.role, data.organization, data.token);
+      } else {
+        setError(data.error || 'Demo login failed.');
+      }
+    } catch (e) {
+      setError('Unable to connect to demo server.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleGoogleSignIn = async () => {
     setError('');
     setLoading(true);
@@ -622,6 +699,15 @@ export default function Auth({ onAuthSuccess }) {
             <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '-8px', marginBottom: '8px', textAlign: 'center' }}>
               Use Continue with Google for Gmail accounts.
             </p>
+            {onBackToLanding && (
+              <button
+                type="button"
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '12px', cursor: 'pointer', padding: '6px' }}
+                onClick={onBackToLanding}
+              >
+                ← Back to Home
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -813,7 +899,18 @@ export default function Auth({ onAuthSuccess }) {
             </form>
           )}
 
-          <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => setScreen('welcome')}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            style={{ marginTop: '16px' }}
+            onClick={() => {
+              if (onBackToLanding) {
+                onBackToLanding();
+              } else {
+                setScreen('welcome');
+              }
+            }}
+          >
             Go Back
           </button>
         </div>

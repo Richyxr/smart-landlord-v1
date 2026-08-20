@@ -10,9 +10,11 @@ import {
   AlertTriangle,
   CheckCircle,
   Users,
-  Coins
+  Coins,
+  RefreshCw
 } from 'lucide-react';
 import { EmptyState } from '../components/ui-smart';
+import { getSessionToken } from '../lib/session.js';
 
 export default function Stats() {
   const [activeTab, setActiveTab] = useState('collections');
@@ -44,53 +46,77 @@ export default function Stats() {
     setLoading(true);
     setError('');
     try {
-      const headers = {};
-      const [resProps, resUnits, resTenants, resInvoices, resPayments] = await Promise.all([
-        fetch('/api/properties', { headers }),
-        fetch('/api/units', { headers }),
-        fetch('/api/tenants', { headers }),
-        fetch('/api/invoices', { headers }),
-        fetch('/api/payments', { headers })
+      const token = getSessionToken();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const fetchResult = async (url, fallback) => {
+        try {
+          const res = await fetch(url, { headers });
+          if (!res.ok) {
+            console.error(`Stats fetch failed [${res.status}] for ${url}`);
+            return fallback;
+          }
+          const json = await res.json();
+          return json;
+        } catch (e) {
+          console.error(`Stats fetch exception for ${url}:`, e);
+          return fallback;
+        }
+      };
+
+      const [propsData, untsData, tntsData, invsData, pmtsData] = await Promise.all([
+        fetchResult('/api/properties', []),
+        fetchResult('/api/units', []),
+        fetchResult('/api/tenants', []),
+        fetchResult('/api/invoices', []),
+        fetchResult('/api/payments', [])
       ]);
 
-      const props = await resProps.json();
-      const unts = await resUnits.json();
-      const tnts = await resTenants.json();
-      const invs = await resInvoices.json();
-      const pmts = await resPayments.json();
+      const extractArray = (data, keys = []) => {
+        if (Array.isArray(data)) return data;
+        if (!data || typeof data !== 'object') return [];
+        for (const k of keys) {
+          if (Array.isArray(data[k])) return data[k];
+        }
+        return [];
+      };
+
+      const props = extractArray(propsData, ['properties']);
+      const unts = extractArray(untsData, ['units']);
+      const tnts = extractArray(tntsData, ['tenants']);
+      const invs = extractArray(invsData, ['invoices']);
+      const pmts = extractArray(pmtsData, ['payments', 'transactions']);
 
       setProperties(props);
       setUnits(unts);
       setTenants(tnts);
       setInvoices(invs);
-      
-      const paymentsArray = Array.isArray(pmts) ? pmts : [];
-      setPayments(paymentsArray);
+      setPayments(pmts);
 
-      const expected = unts.reduce((acc, u) => acc + (u.rent_amount || 0), 0);
+      const expected = unts.reduce((acc, u) => acc + Number(u.rent_amount || 0), 0);
       const collected = invs
-        .filter(i => i.status === 'paid')
-        .reduce((acc, i) => acc + (i.amount_paid || 0), 0);
+        .filter(i => String(i.status || '').toLowerCase() === 'paid')
+        .reduce((acc, i) => acc + Number(i.amount_paid || 0), 0);
       const arrears = invs
-        .filter(i => i.status === 'overdue' || i.status === 'partially_paid')
-        .reduce((acc, i) => acc + (i.balance || 0), 0);
+        .filter(i => String(i.status || '').toLowerCase() === 'overdue' || String(i.status || '').toLowerCase() === 'partially_paid')
+        .reduce((acc, i) => acc + Number(i.balance || 0), 0);
 
-      const allocatedPayments = (Array.isArray(paymentsArray) ? paymentsArray : []).filter(p => p.allocation_status === 'fully_allocated' || p.allocation_status === 'partially_allocated').length;
+      const allocatedPayments = pmts.filter(p => p.allocation_status === 'fully_allocated' || p.allocation_status === 'partially_allocated').length;
 
       setData({
         propertiesCount: props.length,
-        unitsCount: (Array.isArray(unts) ? unts : []).length,
-        occupiedCount: (Array.isArray(unts) ? unts : []).filter(u => u.status === 'occupied').length,
+        unitsCount: unts.length,
+        occupiedCount: unts.filter(u => String(u.status || '').toLowerCase() === 'occupied').length,
         tenantsCount: tnts.length,
         totalExpected: expected,
         totalCollected: collected,
         totalArrears: arrears,
         allocatedPaymentsCount: allocatedPayments,
-        totalPaymentsCount: (Array.isArray(paymentsArray) ? paymentsArray : []).length
+        totalPaymentsCount: pmts.length
       });
     } catch (err) {
-      console.error(err);
-      setError('Failed to fetch stats dashboard data.');
+      console.error('Failed to load stats:', err);
+      setError('Failed to fetch stats dashboard data. Please click Refresh to try again.');
     } finally {
       setLoading(false);
     }
@@ -125,11 +151,22 @@ export default function Stats() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div>
-        <h2 className="page-title" style={{ margin: 0 }}>Reports & Performance</h2>
-        <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
-          Real-time financial metrics, collections efficiency, and operational trends.
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h2 className="page-title" style={{ margin: 0 }}>Reports & Performance</h2>
+          <p className="text-muted" style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
+            Real-time financial metrics, collections efficiency, and operational trends.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={fetchStatsData}
+          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <RefreshCw size={14} />
+          <span>Refresh</span>
+        </button>
       </div>
 
       {error && (

@@ -163,10 +163,12 @@ export function createPropertyRoutes(pgDb) {
     const pinHash = bcrypt.hashSync(pin, salt);
 
     if (!user) {
+      const firebaseUid = `caretaker_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       user = await pgDb.insert('users', {
         name,
         email: email || null,
         phone_number,
+        firebase_uid: firebaseUid,
         caretaker_pin_hash: pinHash,
         caretaker_failed_login_attempts: 0,
         caretaker_locked_until: null,
@@ -176,12 +178,16 @@ export function createPropertyRoutes(pgDb) {
         phone_verified: false
       });
     } else {
-      await pgDb.update('users', user.id, {
+      const updateData = {
         caretaker_pin_hash: pinHash,
         caretaker_failed_login_attempts: 0,
         caretaker_locked_until: null,
         caretaker_last_failed_login_at: null
-      });
+      };
+      if (!user.firebase_uid) {
+        updateData.firebase_uid = `caretaker_${user.id}_${Date.now()}`;
+      }
+      await pgDb.update('users', user.id, updateData);
       user = await pgDb.findOne('users', { id: user.id });
     }
 

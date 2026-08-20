@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, Home, MapPin, DoorOpen, User, Phone, Mail, CreditCard, Calendar, Wrench, Plus, Check, AlertTriangle } from 'lucide-react';
+import { Building2, Home, MapPin, DoorOpen, User, Phone, Mail, CreditCard, Calendar, Wrench, Plus, Check, AlertTriangle, ReceiptText } from 'lucide-react';
 import SecurityPinModal from '../components/SecurityPinModal.jsx';
 import { calculateTenantBillingCycle, formatReadableDate } from '../utils/billingCycle.js';
 import { getCountryDialCodeFromOrganization, normalizePhoneForOrganization } from '../utils/organizationPhone.js';
+import { getSessionToken } from '../lib/session.js';
+import { getInitials } from '../lib/utils.js';
+import TenantAvatar from '../components/ui/TenantAvatar.jsx';
+
+
 
 export default function Properties({ organization, refreshTrigger, onRefresh, initialSubTab, clearInitialSubTab }) {
   const [activeTab, setActiveTab] = useState(initialSubTab || 'properties'); // properties, units, tenants, caretakers
@@ -79,7 +84,10 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const headers = {};
+  const getHeaders = () => {
+    const token = getSessionToken();
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+  };
 
   useEffect(() => {
     fetchData();
@@ -88,12 +96,20 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
   const fetchData = async () => {
     setLoading(true);
     setError('');
+    const headers = getHeaders();
     try {
       if (activeTab === 'properties') {
-        const res = await fetch('/api/properties', { headers });
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data)) setProperties(data);
+        const [resProps, resUnits] = await Promise.all([
+          fetch('/api/properties', { headers }),
+          fetch('/api/units', { headers })
+        ]);
+        if (resProps.ok) {
+          const dataProps = await resProps.json();
+          if (Array.isArray(dataProps)) setProperties(dataProps);
+        }
+        if (resUnits.ok) {
+          const dataUnits = await resUnits.json();
+          if (Array.isArray(dataUnits)) setUnits(dataUnits);
         }
       } else if (activeTab === 'units') {
         const [resUnits, resProps] = await Promise.all([
@@ -321,17 +337,20 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
     };
 
     try {
-      const res = await fetch('/api/tenants', {
-        method: 'POST',
+      const url = editId ? `/api/tenants/${editId}` : '/api/tenants';
+      const method = editId ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      if (!res.ok) throw new Error('Add tenant failed.');
+      if (!res.ok) throw new Error(editId ? 'Update tenant failed.' : 'Add tenant failed.');
 
       setShowAddForm(false);
+      setEditId(null);
       resetTenantForm();
       fetchData();
-      onRefresh();
+      if (onRefresh) onRefresh();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -451,6 +470,69 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
     );
   };
 
+  const [generatingTenantId, setGeneratingTenantId] = useState(null);
+
+  const handleGenerateRentInvoiceForTenant = async (tenant, billingInfo) => {
+    const periodLabel = billingInfo?.currentPeriodLabel || new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+    const confirmed = window.confirm(
+      `Confirm Rent Billing:\n\n` +
+      `Tenant: ${tenant.full_name}\n` +
+      `Unit: ${tenant.unit_code || ''}\n` +
+      `Billing Cycle: ${periodLabel}\n` +
+      `Rent Amount: KES ${parseFloat(tenant.rent_amount || 0).toLocaleString()}\n\n` +
+      `Generate and issue rent invoice for this cycle?`
+    );
+    if (!confirmed) return;
+
+    setGeneratingTenantId(tenant.id);
+    setError('');
+    try {
+      const headers = getHeaders();
+      const today = new Date();
+      const issueDate = today.toISOString().split('T')[0];
+      const dueDate = billingInfo?.periodEndStr || new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+
+      // 1. Create Rent Invoice (idempotent backend check)
+      const res = await fetch('/api/invoices', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenant_id: tenant.id,
+          invoice_type: 'rent',
+          issue_date: issueDate,
+          due_date: dueDate,
+          notes: `Rent invoice for ${periodLabel}`,
+          items: [
+            {
+              description: `Monthly Rent (${periodLabel})`,
+              item_type: 'rent',
+              quantity: 1,
+              unit_price: parseFloat(tenant.rent_amount) || 0
+            }
+          ]
+        })
+      });
+
+      const invData = await res.json();
+      if (!res.ok) throw new Error(invData.message || invData.error || 'Failed to create invoice.');
+
+      // 2. Issue Invoice to finalize balance
+      const issueRes = await fetch(`/api/invoices/${invData.id}/issue`, {
+        method: 'POST',
+        headers
+      });
+
+      if (!issueRes.ok) throw new Error('Failed to issue invoice.');
+
+      fetchData();
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      setError(err.message || 'Failed to generate invoice.');
+    } finally {
+      setGeneratingTenantId(null);
+    }
+  };
+
   const handleSubmitCaretaker = async (e) => {
     e.preventDefault();
     setError('');
@@ -536,7 +618,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
 
   const getVacantUnitsForProp = (propId) => {
     const selectedPropertyId = String(propId ?? '');
-    return (Array.isArray(units) ? units : []).filter(u => {
+    const list = (Array.isArray(units) ? units : []).filter(u => {
       const unitPropertyId = String(
         u.property_id ??
         u.propertyId ??
@@ -547,6 +629,14 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
       const isDeleted = u.deleted_at !== null && u.deleted_at !== undefined;
       return unitPropertyId === selectedPropertyId && unitStatus === 'vacant' && !isDeleted;
     });
+
+    if (editId && tenantUnitId) {
+      const currentUnit = (Array.isArray(units) ? units : []).find(u => String(u.id) === String(tenantUnitId));
+      if (currentUnit && !list.some(u => String(u.id) === String(currentUnit.id))) {
+        list.push(currentUnit);
+      }
+    }
+    return list;
   };
 
   const sectionMeta = {
@@ -861,7 +951,7 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                     Cancel
                   </button>
                   <button type="submit" className="btn btn-primary" disabled={loading}>
-                    {loading ? 'Saving...' : 'Add & Occupy Unit'}
+                    {loading ? 'Saving...' : (editId ? 'Save Tenant Changes' : 'Add & Occupy Unit')}
                   </button>
                 </div>
               </form>
@@ -958,11 +1048,21 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                     <span>{p.location}</span>
                   </p>
                   
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', fontSize: '12px', background: 'var(--bg-surface-elevated)', padding: '8px', borderRadius: '6px' }}>
-                    <span>Occupied: <strong>{p.occupied_units}</strong></span>
-                    <span>Vacant: <strong>{p.vacant_units}</strong></span>
-                    <span>Expected: <strong>{formatCurrency(p.expected_rent)}</strong></span>
-                  </div>
+                  {(() => {
+                    const propUnits = (Array.isArray(units) ? units : []).filter(u => String(u.property_id) === String(p.id) && u.status !== 'inactive' && !u.deleted_at);
+                    const hasUnits = propUnits.length > 0;
+                    const occ = hasUnits ? propUnits.filter(u => u.status === 'occupied' || u.tenant_name).length : (p.occupied_units || 0);
+                    const vac = hasUnits ? propUnits.filter(u => u.status === 'vacant' || (!u.tenant_name && u.status !== 'occupied')).length : (p.vacant_units || 0);
+                    const exp = hasUnits ? propUnits.reduce((sum, u) => sum + (parseFloat(u.rent_amount) || 0), 0) : (p.expected_rent || 0);
+
+                    return (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', fontSize: '12px', background: 'var(--bg-surface-elevated)', padding: '8px', borderRadius: '6px' }}>
+                        <span>Occupied: <strong>{occ}</strong></span>
+                        <span>Vacant: <strong>{vac}</strong></span>
+                        <span>Expected: <strong>{formatCurrency(exp)}</strong></span>
+                      </div>
+                    );
+                  })()}
 
                   {p.notes && <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px', fontStyle: 'italic' }}>Note: {p.notes}</p>}
 
@@ -1057,23 +1157,35 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                 const billingInfo = calculateTenantBillingCycle(t, invoices);
                 return (
                   <div key={t.id} className="card">
-                    <div className="flex-row">
-                      <h3 className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <User size={18} style={{ color: 'var(--primary)' }} />
-                        <span>{t.full_name}</span>
-                      </h3>
-                      <span className={`badge ${t.status === 'active' ? 'badge-success' : 'badge-danger'}`}>{t.status}</span>
+                    <div className="flex items-center justify-between gap-3 mb-2" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', marginBottom: '8px' }}>
+                      <div className="flex items-center gap-3" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <TenantAvatar name={t?.full_name || t?.tenant_name || t?.name || t?.tenantName} />
+                        <div className="flex flex-col gap-0.5" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <h3 className="card-title" style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                            {t?.full_name || t?.tenant_name || t?.name || t?.tenantName || 'Unnamed Tenant'}
+                          </h3>
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: 0 }}>
+                            Unit: <strong>{t?.unit_code || 'N/A'}</strong> ({t?.property_name || 'Unassigned'})
+                          </p>
+                        </div>
+                      </div>
+                      <span className={`badge ${t?.status === 'active' ? 'badge-success' : 'badge-danger'}`} style={{ marginTop: '2px' }}>
+                        {t?.status || 'unknown'}
+                      </span>
                     </div>
-                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                      Unit: <strong>{t.unit_code}</strong> ({t.property_name})
-                    </p>
                     <div style={{ borderTop: '1px solid var(--border)', margin: '8px 0' }} />
                     
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Phone size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Phone: <strong>{t.phone_number}</strong></span></div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Mail size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Email: <strong>{t.email}</strong></span></div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><CreditCard size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Account: <strong style={{ color: 'var(--primary)', letterSpacing: '0.5px' }}>{t.tenant_account_number}</strong></span></div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Calendar size={12} style={{ color: 'var(--text-secondary)' }} /> <span>Moved In: {t.move_in_date}</span></div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '8px', fontSize: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Phone size={13} style={{ color: 'var(--text-secondary)' }} /> <span>Phone: <strong>{t.phone_number || 'N/A'}</strong></span></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Mail size={13} style={{ color: 'var(--text-secondary)' }} /> <span>Email: <strong>{t.email || 'N/A'}</strong></span></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><CreditCard size={13} style={{ color: 'var(--text-secondary)' }} /> <span>Account: <strong style={{ color: 'var(--primary)', letterSpacing: '0.5px' }}>{t.tenant_account_number || 'N/A'}</strong></span></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Calendar size={13} style={{ color: 'var(--text-secondary)' }} /> <span>Moved In: <strong>{formatReadableDate(t.move_in_date)}</strong></span></div>
+                      {t.id_number && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><User size={13} style={{ color: 'var(--text-secondary)' }} /> <span>ID/Passport: <strong>{t.id_number}</strong></span></div>
+                      )}
+                      {t.emergency_contact_name && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Phone size={13} style={{ color: 'var(--text-secondary)' }} /> <span>Emergency: <strong>{t.emergency_contact_name} {t.emergency_contact_phone ? `(${t.emergency_contact_phone})` : ''}</strong></span></div>
+                      )}
                     </div>
 
                     {/* BILLING CYCLE SUMMARY PANEL */}
@@ -1115,7 +1227,36 @@ export default function Properties({ organization, refreshTrigger, onRefresh, in
                     </div>
 
                     {t.status === 'active' && (
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '12px', justifyContent: 'flex-end' }}>
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '12px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                        {billingInfo.hasUnbilledWarning && (
+                          <button 
+                            className="btn btn-primary btn-sm" 
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                            onClick={() => handleGenerateRentInvoiceForTenant(t, billingInfo)}
+                            disabled={generatingTenantId === t.id}
+                          >
+                            <ReceiptText size={14} />
+                            <span>{generatingTenantId === t.id ? 'Billing...' : 'Bill Current Rent'}</span>
+                          </button>
+                        )}
+                        <button className="btn btn-secondary btn-sm" onClick={() => {
+                          setEditId(t.id);
+                          setTenantPropId(t.property_id || '');
+                          setTenantUnitId(t.unit_id || '');
+                          const nameParts = (t.full_name || t.tenant_name || t.name || '').split(' ');
+                          setTenantFirstName(nameParts[0] || '');
+                          setTenantLastName(nameParts.slice(1).join(' ') || '');
+                          setTenantPhone(t.phone_number || '');
+                          setTenantEmail(t.email || '');
+                          setTenantIdNum(t.id_number || '');
+                          setMoveInDate(t.move_in_date ? t.move_in_date.split('T')[0] : new Date().toISOString().split('T')[0]);
+                          setTenantRent(t.rent_amount || '');
+                          setBillingDay(String(t.billing_day || 1));
+                          setEmergencyName(t.emergency_contact_name || '');
+                          setEmergencyPhone(t.emergency_contact_phone || '');
+                          setTenantNotes(t.notes || '');
+                          setShowAddForm(true);
+                        }}>Edit Tenant</button>
                         <button className="btn btn-danger btn-sm" onClick={() => handleVacateTenant(t.id)}>Vacate Tenant</button>
                       </div>
                     )}

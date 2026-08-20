@@ -10,6 +10,7 @@ function toId(value) {
 
 function dateOnly(value) {
   if (!value) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
   const match = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
   return match ? match[1] : null;
 }
@@ -51,21 +52,24 @@ export function calculateRentBillingPeriod(periodMonth, billingDay, dueDayOffset
   const effectiveBillingDay = Number.isInteger(parsedBillingDay) && parsedBillingDay >= 1 && parsedBillingDay <= 31
     ? parsedBillingDay
     : 1;
-  const parsedOffset = Number.parseInt(dueDayOffset, 10);
-  const effectiveDueDayOffset = Number.isInteger(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 4;
 
   const periodStart = clampedUtcDate(year, monthIndex, effectiveBillingDay);
   const nextPeriodStart = clampedUtcDate(year, monthIndex + 1, effectiveBillingDay);
   const periodEnd = new Date(nextPeriodStart.getTime() - DAY_MS);
-  const dueDate = new Date(periodStart.getTime() + effectiveDueDayOffset * DAY_MS);
+  
+  // Invoice date is 3 days prior to billing period start
+  const dispatchDate = new Date(periodStart.getTime() - 3 * DAY_MS);
+  
+  // Due date is strictly the 5th of the billing period month
+  const dueDateStr = `${year}-${String(month).padStart(2, '0')}-05`;
 
   return {
     billing_day: effectiveBillingDay,
     billing_period_start: formatUtcDate(periodStart),
     billing_period_end: formatUtcDate(periodEnd),
-    invoice_date: formatUtcDate(periodStart),
-    due_date: formatUtcDate(dueDate),
-    due_day_offset: effectiveDueDayOffset
+    invoice_date: formatUtcDate(dispatchDate),
+    due_date: dueDateStr,
+    due_day_offset: 4
   };
 }
 
@@ -83,8 +87,10 @@ export function isExistingRentInvoiceForPeriod(invoice, tenantId, periodStart, p
 
   const issueDate = dateOnly(invoice.issue_date);
   const dueDate = dateOnly(invoice.due_date);
+  const windowStart = dateOnly(new Date(new Date(`${periodStart}T00:00:00Z`).getTime() - 4 * DAY_MS));
+
   return Boolean(
-    (issueDate && issueDate >= periodStart && issueDate <= periodEnd) ||
+    (issueDate && issueDate >= windowStart && issueDate <= periodEnd) ||
     (dueDate && dueDate >= periodStart && dueDate <= periodEnd)
   );
 }
@@ -96,6 +102,7 @@ export function buildRentInvoiceGenerationPreview({
   units = [],
   properties = [],
   invoices = [],
+  meterReadings = [],
   serverDate = new Date()
 }) {
   const normalizedMonth = resolvePeriodMonth(periodMonth, serverDate);
@@ -162,6 +169,19 @@ export function buildRentInvoiceGenerationPreview({
     if (rowStatus === 'ready_to_create' && existingInvoice) {
       rowStatus = 'already_invoiced';
       warnings.push('A non-void rent invoice already exists for this billing period.');
+    }
+
+    const unitReadings = (meterReadings || []).filter(r => toId(r.unit_id) === toId(tenant.unit_id));
+    const hasMeterConfig = unitReadings.length > 0;
+    const periodReading = unitReadings.find(r =>
+      String(r.status || '').toLowerCase() !== 'rejected' &&
+      r.reading_date >= cycle.billing_period_start &&
+      r.reading_date <= cycle.billing_period_end
+    );
+
+    if (rowStatus === 'ready_to_create' && hasMeterConfig && !periodReading) {
+      rowStatus = 'waiting_for_meter';
+      warnings.push('Meter reading required for period before billing can proceed. Caretaker and Landlord notified.');
     }
 
     return {

@@ -11,7 +11,7 @@ function asyncHandler(handler) {
 function getContext(req) {
   return {
     orgId: req.auth?.organizationId,
-    userId: req.auth?.userId,
+    userId: req.auth?.adminUser?.id || req.auth?.userId,
     role: req.auth?.role
   };
 }
@@ -19,7 +19,7 @@ function getContext(req) {
 function requireAuthenticatedContext(req, res, next) {
   const { orgId, userId, role } = getContext(req);
 
-  if (!userId || !role || (!orgId && role !== 'super_admin')) {
+  if (!userId || !role || (!orgId && role !== 'super_admin' && !req.auth?.isImpersonating)) {
     return res.status(401).json({
       error: 'AUTHENTICATION_REQUIRED',
       message: 'A valid Smart Landlord session is required.'
@@ -30,9 +30,9 @@ function requireAuthenticatedContext(req, res, next) {
 }
 
 function requireSuperAdminContext(req, res, next) {
-  const { userId, role } = getContext(req);
+  const isSuperAdmin = req.auth?.user?.is_super_admin || req.auth?.adminUser?.is_super_admin || req.auth?.role === 'super_admin';
 
-  if (!userId || role !== 'super_admin') {
+  if (!req.auth?.userId || !isSuperAdmin) {
     return res.status(403).json({
       error: 'SUPER_ADMIN_REQUIRED',
       message: 'Super admin access is required.'
@@ -802,13 +802,14 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   }));
 
   // =========================================================================
-  // GET /api/admin/pricing
   // =========================================================================
-  router.get('/admin/pricing', requireSuperAdminContext, asyncHandler(async (req, res) => {
+  // GET /api/public/pricing (Public endpoint for Landing Page)
+  // =========================================================================
+  router.get('/public/pricing', asyncHandler(async (req, res) => {
     let settings;
     if (pgDb) {
       const result = await pgDb.query(
-        'SELECT price_per_active_tenant, grace_period_days FROM platform_billing_settings WHERE id = 1'
+        'SELECT price_per_active_tenant, grace_period_days, bank_account_details FROM platform_billing_settings WHERE id = 1'
       );
       settings = result.rows[0];
     } else {
@@ -816,13 +817,72 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       settings = db.findOne('platform_billing_settings', { id: 1 });
     }
 
-    if (!settings) {
-      settings = { price_per_active_tenant: 200, grace_period_days: 7 };
-    }
+    let extraPricing = {};
+    try {
+      if (settings?.bank_account_details) {
+        const details = typeof settings.bank_account_details === 'string'
+          ? JSON.parse(settings.bank_account_details)
+          : settings.bank_account_details;
+        extraPricing = details?.pricing_calibration || {};
+      }
+    } catch (e) {}
+
+    const baseUnitRate = Number(settings?.price_per_active_tenant || 75);
 
     res.json({
-      price_per_active_tenant: Number(settings.price_per_active_tenant),
-      grace_period_days: Number(settings.grace_period_days)
+      price_per_active_tenant: baseUnitRate,
+      grace_period_days: Number(settings?.grace_period_days || 7),
+      trial_days: Number(extraPricing.trial_days || 30),
+      starter_max_units: Number(extraPricing.starter_max_units || 20),
+      starter_price_per_unit: Number(extraPricing.starter_price_per_unit || baseUnitRate || 75),
+      starter_package_price: Number(extraPricing.starter_package_price || 1500),
+      growth_max_units: Number(extraPricing.growth_max_units || 70),
+      growth_price_per_unit: Number(extraPricing.growth_price_per_unit || 65),
+      growth_package_price: Number(extraPricing.growth_package_price || 4500),
+      portfolio_price_per_unit: Number(extraPricing.portfolio_price_per_unit || 50),
+      portfolio_package_price: Number(extraPricing.portfolio_package_price || 7500)
+    });
+  }));
+
+  // =========================================================================
+  // GET /api/admin/pricing
+  // =========================================================================
+  router.get('/admin/pricing', requireSuperAdminContext, asyncHandler(async (req, res) => {
+    let settings;
+    if (pgDb) {
+      const result = await pgDb.query(
+        'SELECT price_per_active_tenant, grace_period_days, bank_account_details FROM platform_billing_settings WHERE id = 1'
+      );
+      settings = result.rows[0];
+    } else {
+      const db = await reqDb();
+      settings = db.findOne('platform_billing_settings', { id: 1 });
+    }
+
+    let extraPricing = {};
+    try {
+      if (settings?.bank_account_details) {
+        const details = typeof settings.bank_account_details === 'string'
+          ? JSON.parse(settings.bank_account_details)
+          : settings.bank_account_details;
+        extraPricing = details?.pricing_calibration || {};
+      }
+    } catch (e) {}
+
+    const baseUnitRate = Number(settings?.price_per_active_tenant || 75);
+
+    res.json({
+      price_per_active_tenant: baseUnitRate,
+      grace_period_days: Number(settings?.grace_period_days || 7),
+      trial_days: Number(extraPricing.trial_days || 30),
+      starter_max_units: Number(extraPricing.starter_max_units || 20),
+      starter_price_per_unit: Number(extraPricing.starter_price_per_unit || baseUnitRate || 75),
+      starter_package_price: Number(extraPricing.starter_package_price || 1500),
+      growth_max_units: Number(extraPricing.growth_max_units || 70),
+      growth_price_per_unit: Number(extraPricing.growth_price_per_unit || 65),
+      growth_package_price: Number(extraPricing.growth_package_price || 4500),
+      portfolio_price_per_unit: Number(extraPricing.portfolio_price_per_unit || 50),
+      portfolio_package_price: Number(extraPricing.portfolio_package_price || 7500)
     });
   }));
 
@@ -830,34 +890,56 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
   // POST /api/admin/pricing
   // =========================================================================
   router.post('/admin/pricing', requireSuperAdminContext, asyncHandler(async (req, res) => {
-    const { price_per_active_tenant, grace_period_days } = req.body;
+    const {
+      price_per_active_tenant,
+      grace_period_days,
+      trial_days = 30,
+      starter_max_units = 20,
+      starter_price_per_unit = 75,
+      starter_package_price = 1500,
+      growth_max_units = 70,
+      growth_price_per_unit = 65,
+      growth_package_price = 4500,
+      portfolio_price_per_unit = 50,
+      portfolio_package_price = 7500
+    } = req.body;
     const { userId: adminId } = getContext(req);
 
-    if (price_per_active_tenant === undefined || grace_period_days === undefined) {
-      return res.status(400).json({ error: 'Missing price_per_active_tenant or grace_period_days.' });
-    }
+    const parsedPricePerTenant = Number(price_per_active_tenant ?? starter_price_per_unit ?? 75);
+    const parsedGracePeriodDays = Number(grace_period_days ?? 7);
 
-    const parsedPricePerTenant = Number(price_per_active_tenant);
-    const parsedGracePeriodDays = Number(grace_period_days);
-
-    if (!Number.isFinite(parsedPricePerTenant) || parsedPricePerTenant < 0) {
-      return res.status(400).json({ error: 'price_per_active_tenant must be a finite number greater than or equal to 0.' });
-    }
-
-    if (!Number.isFinite(parsedGracePeriodDays) || !Number.isInteger(parsedGracePeriodDays) || parsedGracePeriodDays < 0) {
-      return res.status(400).json({ error: 'grace_period_days must be a finite integer greater than or equal to 0.' });
-    }
+    const pricingCalibration = {
+      trial_days: Number(trial_days),
+      starter_max_units: Number(starter_max_units),
+      starter_price_per_unit: Number(starter_price_per_unit),
+      starter_package_price: Number(starter_package_price),
+      growth_max_units: Number(growth_max_units),
+      growth_price_per_unit: Number(growth_price_per_unit),
+      growth_package_price: Number(growth_package_price),
+      portfolio_price_per_unit: Number(portfolio_price_per_unit),
+      portfolio_package_price: Number(portfolio_package_price)
+    };
 
     let updated;
     if (pgDb) {
+      const existingRes = await pgDb.query('SELECT bank_account_details FROM platform_billing_settings WHERE id = 1');
+      let currentDetails = {};
+      if (existingRes.rows[0]?.bank_account_details) {
+        currentDetails = typeof existingRes.rows[0].bank_account_details === 'string'
+          ? JSON.parse(existingRes.rows[0].bank_account_details)
+          : existingRes.rows[0].bank_account_details;
+      }
+      currentDetails.pricing_calibration = pricingCalibration;
+
       const result = await pgDb.query(
         `UPDATE platform_billing_settings
          SET price_per_active_tenant = $1,
              grace_period_days = $2,
+             bank_account_details = $3,
              updated_at = now()
          WHERE id = 1
          RETURNING *`,
-        [parsedPricePerTenant, parsedGracePeriodDays]
+        [parsedPricePerTenant, parsedGracePeriodDays, JSON.stringify(currentDetails)]
       );
       updated = result.rows[0];
 
@@ -865,13 +947,23 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         admin_user_id: adminId,
         action: 'changed_pricing_settings',
         reason: 'Admin price adjustment',
-        metadata: updated
+        metadata: { ...updated, pricing_calibration: pricingCalibration }
       });
     } else {
       const db = await reqDb();
+      const existing = db.findOne('platform_billing_settings', { id: 1 }) || {};
+      let currentDetails = {};
+      if (existing.bank_account_details) {
+        currentDetails = typeof existing.bank_account_details === 'string'
+          ? JSON.parse(existing.bank_account_details)
+          : existing.bank_account_details;
+      }
+      currentDetails.pricing_calibration = pricingCalibration;
+
       const resUpdated = db.update('platform_billing_settings', 1, {
         price_per_active_tenant: parsedPricePerTenant,
         grace_period_days: parsedGracePeriodDays,
+        bank_account_details: currentDetails,
         updated_at: new Date().toISOString()
       });
       updated = resUpdated[0];
@@ -880,11 +972,15 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
         admin_user_id: adminId,
         action: 'changed_pricing_settings',
         reason: 'Admin price adjustment',
-        metadata: JSON.stringify(updated)
+        metadata: JSON.stringify({ ...updated, pricing_calibration: pricingCalibration })
       });
     }
 
-    res.json(updated);
+    res.json({
+      price_per_active_tenant: parsedPricePerTenant,
+      grace_period_days: parsedGracePeriodDays,
+      ...pricingCalibration
+    });
   }));
 
   // =========================================================================
@@ -903,6 +999,12 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
     let owner;
 
     if (pgDb) {
+      // Close any previous active sessions for this admin
+      const existing = (await pgDb.find('support_access_sessions', { admin_user_id: adminId, status: 'active' })) || [];
+      for (const s of existing) {
+        await pgDb.update('support_access_sessions', parseInt(s.id), { status: 'completed', ended_at: new Date().toISOString() });
+      }
+
       session = await pgDb.insert('support_access_sessions', {
         admin_user_id: adminId,
         target_organization_id: parseInt(organization_id),
@@ -925,6 +1027,11 @@ export function createSaasBillingRoutes(pgDb, { demoMode = false, sessionSecret 
       owner = await pgDb.findOne('users', { id: targetOrg.owner_user_id });
     } else {
       const db = await reqDb();
+      const existing = (db.find('support_access_sessions', { admin_user_id: adminId, status: 'active' })) || [];
+      for (const s of existing) {
+        db.update('support_access_sessions', s.id, { status: 'completed', ended_at: new Date().toISOString() });
+      }
+
       session = db.insert('support_access_sessions', {
         admin_user_id: adminId,
         target_organization_id: parseInt(organization_id),

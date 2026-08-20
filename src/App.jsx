@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import LandingPage from './pages/LandingPage.jsx';
 import Auth from './pages/Auth.jsx';
 import CompleteProfile from './pages/CompleteProfile.jsx';
 import LandlordDashboard from './pages/LandlordDashboard.jsx';
@@ -8,6 +9,7 @@ import Reconciliation from './pages/Reconciliation.jsx';
 import PaymentEvidence from './pages/PaymentEvidence.jsx';
 import Stats from './pages/Stats.jsx';
 import Settings from './pages/Settings.jsx';
+import Cameras from './pages/Cameras.jsx';
 import Caretaker from './pages/Caretaker.jsx';
 import SuperAdmin from './pages/SuperAdmin.jsx';
 import SaaSInvoices from './pages/SaaSInvoices.jsx';
@@ -19,7 +21,8 @@ import InstallPrompt from './components/InstallPrompt.jsx';
 import ThemeModeToggle from './components/ThemeModeToggle.jsx';
 import ImpersonationBanner from './components/ImpersonationBanner.jsx';
 import DevSwitcher from './components/DevSwitcher.jsx';
-import { clearSessionToken, getSessionToken, setSessionToken } from './lib/session.js';
+import UserProfileDropdown from './components/UserProfileDropdown.jsx';
+import { clearSessionToken, getSessionToken, setSessionToken, setImpersonationOrgId, clearImpersonationOrgId } from './lib/session.js';
 import { auth } from './lib/firebase.js';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 
@@ -37,6 +40,7 @@ const VALID_TABS_BY_ROLE = {
     'landlord_reconciliation',
     'landlord_payment_evidence',
     'landlord_subscription',
+    'landlord_cameras',
     'landlord_stats',
     'landlord_settings'
   ]),
@@ -54,6 +58,7 @@ const VALID_TABS_BY_ROLE = {
   caretaker: new Set([
     'caretaker_dashboard',
     'caretaker_readings',
+    'caretaker_cameras',
     'caretaker_messages',
     'caretaker_profile'
   ])
@@ -146,6 +151,65 @@ export default function App() {
   const [confirmState, setConfirmState] = useState(null);
   const [promptState, setPromptState] = useState(null);
   const [navigationRestored, setNavigationRestored] = useState(false);
+  const [authMode, setAuthMode] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('token') || window.location.pathname === '/reset-pin' || urlParams.get('action') === 'login') {
+      return 'login';
+    }
+    if (urlParams.get('action') === 'register') {
+      return 'register';
+    }
+    return null;
+  });
+
+  // Browser History & PopState Support for Seamless Back/Forward Navigation
+  useEffect(() => {
+    const handlePopState = (event) => {
+      const state = event.state;
+      if (!state) {
+        if (!user) setAuthMode(null);
+        return;
+      }
+      if (state.type === 'auth') {
+        setAuthMode(state.authMode || null);
+      } else if (state.type === 'app') {
+        if (state.activeTab) setActiveTab(state.activeTab);
+        if (state.propertiesSubTab !== undefined) setPropertiesSubTab(state.propertiesSubTab);
+        if (state.invoicesSubTab !== undefined) setInvoicesSubTab(state.invoicesSubTab);
+        if (state.settingsSubTab !== undefined) setSettingsSubTab(state.settingsSubTab);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [user]);
+
+  const updateAuthModeWithHistory = (mode) => {
+    setAuthMode(mode);
+    try {
+      window.history.pushState({ type: 'auth', authMode: mode }, '');
+    } catch (e) {}
+  };
+
+  const handleDemoLogin = async (targetRole = 'landlord') => {
+    try {
+      const res = await fetch('/api/demo/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: targetRole })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSessionToken(data.token);
+        handleAuthSuccess(data.user, data.user.role, data.organization, data.token);
+        toast.success(`Connected to isolated ${targetRole} sandbox environment.`);
+      } else {
+        toast.error(data.error || 'Demo sandbox initialization failed.');
+      }
+    } catch (e) {
+      toast.error('Unable to connect to demo server.');
+    }
+  };
 
   const handleNavigate = (page, subTab) => {
     let targetPage = page;
@@ -164,6 +228,15 @@ export default function App() {
     if (targetPage === 'landlord_invoices' && targetSubTab) {
       setInvoicesSubTab(targetSubTab);
     }
+    try {
+      window.history.pushState({
+        type: 'app',
+        activeTab: targetPage,
+        propertiesSubTab: targetPage === 'landlord_properties' ? targetSubTab : propertiesSubTab,
+        invoicesSubTab: targetPage === 'landlord_invoices' ? targetSubTab : invoicesSubTab,
+        settingsSubTab: targetPage === 'landlord_settings' ? targetSubTab : settingsSubTab
+      }, '');
+    } catch (e) {}
   };
 
   const handleNavigationStateCapture = (event) => {
@@ -250,25 +323,49 @@ export default function App() {
   const [isLocked, setIsLocked] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  const resolveFirebaseSession = async (firebaseUser) => {
-    const idToken = await firebaseUser.getIdToken();
+  const resolveFirebaseSession = async (firebaseUser, forceRefresh = false) => {
+    try {
+      const idToken = await firebaseUser.getIdToken(forceRefresh);
 
-    const res = await fetch('/api/auth/firebase-profile', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${idToken}`
-      },
-      body: JSON.stringify({})
-    });
+      const res = await fetch('/api/auth/firebase-profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`
+        },
+        body: JSON.stringify({})
+      });
 
-    const data = await res.json();
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const rawText = await res.text();
+        console.warn('Non-JSON response received from /api/auth/firebase-profile:', rawText.slice(0, 150));
+        
+        // If 401 or non-json HTML response occurs on initial check, try forcing a fresh ID token once
+        if (!forceRefresh) {
+          console.log('Retrying Firebase session restoration with fresh ID token...');
+          return await resolveFirebaseSession(firebaseUser, true);
+        }
+        throw new Error('Server returned invalid content type. Please try again.');
+      }
 
-    if (!res.ok) {
-      throw new Error(data.message || data.error || 'Failed to restore session.');
+      const data = await res.json();
+
+      if (!res.ok) {
+        if ((res.status === 401 || data.error === 'INVALID_FIREBASE_TOKEN') && !forceRefresh) {
+          console.log('Firebase ID token expired or unverified, retrying with forceRefresh...');
+          return await resolveFirebaseSession(firebaseUser, true);
+        }
+        throw new Error(data.message || data.error || 'Failed to restore session.');
+      }
+
+      return data;
+    } catch (err) {
+      if (!forceRefresh && (err.message?.includes('token') || err.message?.includes('401'))) {
+        return await resolveFirebaseSession(firebaseUser, true);
+      }
+      throw err;
     }
-
-    return data;
   };
 
   useEffect(() => {
@@ -503,6 +600,7 @@ export default function App() {
 
   // Impersonation Controls
   const handleImpersonateStart = (session, targetOrg, targetOwner, authToken) => {
+    setImpersonationOrgId(targetOrg.id);
     setOriginalAdminUser(user);
     setOriginalAdminToken(getSessionToken());
     setSessionToken(authToken);
@@ -529,7 +627,10 @@ export default function App() {
         },
         body: JSON.stringify({ session_id: impersonationSession.id })
       });
-
+    } catch (e) {
+      console.error('Failed to end impersonation', e);
+    } finally {
+      clearImpersonationOrgId();
       setUser(originalAdminUser);
       setSessionToken(originalAdminToken);
       setRole('super_admin');
@@ -540,8 +641,6 @@ export default function App() {
       setOriginalAdminToken(null);
       setActiveTab('admin_dashboard');
       triggerRefresh();
-    } catch (e) {
-      console.error('Failed to end impersonation', e);
     }
   };
 
@@ -617,7 +716,7 @@ export default function App() {
     switch (activeTab) {
       // Landlord Pages
       case 'landlord_dashboard':
-        return <LandlordDashboard organization={organization} onNavigate={handleNavigate} refreshTrigger={refreshTrigger} />;
+        return <LandlordDashboard user={user} organization={organization} onNavigate={handleNavigate} refreshTrigger={refreshTrigger} />;
       case 'landlord_properties':
         return (
           <Properties
@@ -664,6 +763,8 @@ export default function App() {
             forceShowLock={false}
           />
         );
+      case 'landlord_cameras':
+        return <Cameras role={role} />;
       case 'landlord_stats':
         return <Stats />;
       case 'landlord_settings':
@@ -681,6 +782,8 @@ export default function App() {
         );
 
       // Caretaker Pages
+      case 'caretaker_cameras':
+        return <Cameras role={role} />;
       case 'caretaker_dashboard':
       case 'caretaker_readings':
       case 'caretaker_messages':
@@ -714,9 +817,21 @@ export default function App() {
         <ImpersonationBanner session={impersonationSession} onExit={handleExitImpersonation} />
       )}
 
-      {/* Welcome & Authentication */}
+      {/* Welcome & Authentication / Landing Page */}
       {!user ? (
-        <Auth onAuthSuccess={handleAuthSuccess} />
+        !authMode ? (
+          <LandingPage
+            onGetStarted={() => updateAuthModeWithHistory('register')}
+            onSignIn={() => updateAuthModeWithHistory('login')}
+            onLaunchDemo={handleDemoLogin}
+          />
+        ) : (
+          <Auth
+            initialScreen={authMode}
+            onBackToLanding={() => updateAuthModeWithHistory(null)}
+            onAuthSuccess={handleAuthSuccess}
+          />
+        )
       ) : role === 'landlord' && organization && !organization.profile_completed ? (
         <CompleteProfile
           user={user}
@@ -743,18 +858,15 @@ export default function App() {
                   <span className="header-brand-landlord">Landlord</span>
                 </span>
               </div>
-              <div className="app-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="badge badge-info app-role-badge" style={{ textTransform: 'uppercase', fontSize: '9px' }}>
-                  {role.replace('_', ' ')}
-                </span>
+              <div className="app-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <ThemeModeToggle />
-                <button
-                  className="btn btn-secondary btn-sm app-logout-button"
-                  onClick={handleLogout}
-                  style={{ padding: '4px 8px', fontSize: '10px' }}
-                >
-                  Logout
-                </button>
+                <UserProfileDropdown
+                  user={user}
+                  role={role}
+                  organization={organization}
+                  onNavigate={setActiveTab}
+                  onLogout={handleLogout}
+                />
               </div>
             </div>
 

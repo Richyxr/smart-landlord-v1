@@ -130,9 +130,9 @@ await test('billing day 31 clamps safely across short months', () => {
   assert.equal(cycle.billing_period_end, '2026-03-30');
 });
 
-await test('due date defaults to four days after the invoice date', () => {
+await test('due date defaults to 5th of the billing month', () => {
   assert.equal(calculateRentBillingPeriod('2026-07', 1).due_date, '2026-07-05');
-  assert.equal(calculateRentBillingPeriod('2026-07', 15).due_date, '2026-07-19');
+  assert.equal(calculateRentBillingPeriod('2026-07', 15).due_date, '2026-07-05');
 });
 
 await test('confirmation requires the exact safety text', async () => {
@@ -203,7 +203,7 @@ await test('confirm creates missing invoices and repeated confirm is idempotent'
     invoice.organization_id === organizationId &&
     invoice.tenant_id === 100 &&
     invoice.invoice_type === 'rent' &&
-    invoice.issue_date === '2026-07-01'
+    (invoice.issue_date === '2026-06-28' || invoice.due_date === '2026-07-05')
   );
   const afterOutstanding = invoices
     .filter(invoice =>

@@ -28,20 +28,12 @@ const DEMO_FALLBACK_KEY = 'smart-landlord-dev-encryption-key-do-not-use-in-produ
  * Uses SHA-256 so any-length passphrase produces a valid AES-256 key.
  */
 function deriveKey() {
-  const rawKey = process.env.ENCRYPTION_KEY;
+  const rawKey = process.env.ENCRYPTION_KEY || process.env.SESSION_SECRET || DEMO_FALLBACK_KEY;
 
-  if (!rawKey) {
-    if (IS_PRODUCTION) {
-      throw new Error(
-        'ENCRYPTION_KEY environment variable is required in production. ' +
-        'Set it to a random string of 32+ characters.'
-      );
-    }
+  if (!process.env.ENCRYPTION_KEY) {
     console.warn(
-      '[crypto] WARNING: ENCRYPTION_KEY is not set. Using demo fallback key. ' +
-      'This is NOT safe for production.'
+      '[crypto] WARNING: ENCRYPTION_KEY environment variable is not set. Using fallback derived key.'
     );
-    return crypto.createHash('sha256').update(DEMO_FALLBACK_KEY).digest();
   }
 
   return crypto.createHash('sha256').update(rawKey).digest();
@@ -159,8 +151,11 @@ export function decryptConfig(encryptedString) {
   try {
     return JSON.parse(decrypt(encryptedString));
   } catch (error) {
-    // If decryption fails (wrong key, legacy masked data, corrupted), return empty.
-    // Log the failure but don't crash — the integration will show as needing re-configuration.
+    if (typeof encryptedString === 'string' && encryptedString.trim().startsWith('{')) {
+      try {
+        return JSON.parse(encryptedString);
+      } catch (_e) {}
+    }
     console.error('[crypto] Failed to decrypt config:', error.message);
     return {};
   }

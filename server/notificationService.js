@@ -144,7 +144,7 @@ export class NotificationService {
         loggedRow = db.insert('notification_logs', logData);
       }
 
-      console.log(`[NotificationService] Queued pending notification ${loggedRow.id} (Channel: ${channel}, Type: ${type})`);
+      console.log(`[NotificationService] Queued pending notification ${loggedRow?.id || 'new'} (Channel: ${channel}, Type: ${type})`);
 
       // 5. Asynchronously process the queue (non-blocking)
       setImmediate(() => {

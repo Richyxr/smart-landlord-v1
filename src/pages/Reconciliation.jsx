@@ -258,7 +258,7 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
   };
 
   const formatCurrency = (val) => {
-    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: organization.billing_currency || 'KES', maximumFractionDigits: 0 }).format(val);
+    return new Intl.NumberFormat('en-KE', { style: 'currency', currency: organization?.billing_currency || 'KES', maximumFractionDigits: 0 }).format(val);
   };
 
   return (
@@ -269,7 +269,7 @@ export default function Reconciliation({ organization, refreshTrigger, onRefresh
         <SecurityPinModal
           isOpen={!!pinTargetRow}
           onClose={() => setPinTargetRow(null)}
-          organizationId={organization.id}
+          organizationId={organization?.id}
           onSuccess={handlePinSuccess}
         />
       )}

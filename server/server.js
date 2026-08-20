@@ -4,6 +4,8 @@ import multer from 'multer';
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import crypto from 'crypto';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { db } from './db.js';
 import { createPostgresDb } from './postgresDb.js';
 import { createPropertyRoutes } from './routes/propertyRoutes.js';
@@ -14,6 +16,10 @@ import { createIntegrationRoutes } from './routes/integrationRoutes.js';
 import { createNotificationRoutes } from './routes/notificationRoutes.js';
 import { createSaasBillingRoutes } from './routes/saasBillingRoutes.js';
 import { createPaymentEvidenceRoutes } from './routes/paymentEvidenceRoutes.js';
+import { createCameraRoutes } from './routes/cameraRoutes.js';
+import { createSystemNudgeRoutes } from './routes/systemNudges.js';
+import demoRoutes from './routes/demoRoutes.js';
+
 import { NotificationService } from './notificationService.js';
 import { PaymentDomainService } from './services/payment/PaymentDomainService.js';
 import {
@@ -21,6 +27,7 @@ import {
   executeRentInvoiceGeneration,
   resolvePeriodMonth
 } from './services/rentInvoiceGeneration.js';
+import { evaluateAutomatedRentBilling } from './services/automatedBillingService.js';
 import {
   setSecurityPinDb,
   setupPin,
@@ -104,7 +111,7 @@ const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || process.env.GCLOU
 const firebaseAdminApp = getFirebaseAdminApps().length
   ? getFirebaseAdminApps()[0]
   : initializeFirebaseAdminApp({ projectId: FIREBASE_PROJECT_ID });
-const firebaseAdminAuth = process.env.NODE_ENV === 'test'
+const firebaseAdminAuth = (process.env.NODE_ENV === 'test' || DEMO_MODE)
   ? (() => {
     global.mockFirebasePasswords = global.mockFirebasePasswords || {
       'smoke:reset-test@example.com': 'OldPassword123!'
@@ -115,10 +122,22 @@ const firebaseAdminAuth = process.env.NODE_ENV === 'test'
         providerData: [{ providerId: 'password' }],
         email: uid.startsWith('smoke:') ? uid.slice(6) : uid
       }),
-      verifyIdToken: async (idToken) => ({
-        uid: idToken,
-        email: idToken.startsWith('smoke:') ? idToken.slice(6) : idToken
-      }),
+      verifyIdToken: async (idToken) => {
+        if (typeof idToken === 'string' && idToken.startsWith('smoke:')) {
+          return {
+            uid: idToken,
+            email: idToken.slice(6)
+          };
+        }
+        try {
+          return await getFirebaseAdminAuth(firebaseAdminApp).verifyIdToken(idToken);
+        } catch (_e) {
+          return {
+            uid: idToken,
+            email: String(idToken).startsWith('smoke:') ? String(idToken).slice(6) : String(idToken)
+          };
+        }
+      },
       updateUser: async (uid, properties) => {
         if (properties.password) {
           global.mockFirebasePasswords[uid] = properties.password;
@@ -143,7 +162,9 @@ const publicApiPaths = new Set([
   '/api/webhooks/payment',
   '/api/webhooks/mpesa/c2b',
   '/api/webhooks/mpesa/stk',
-  '/api/webhooks/bank'
+  '/api/webhooks/bank',
+  '/api/webhooks/coop',
+  '/api/webhooks/kcb_buni'
 ]);
 
 if (process.env.NODE_ENV === 'test') {
@@ -184,7 +205,8 @@ function requireAuthenticated(req, res, next) {
 function requireAnyRole(...allowedRoles) {
   return (req, res, next) => {
     const role = req.auth?.role;
-    if (role === 'super_admin' || allowedRoles.includes(role)) {
+    const isSuperAdmin = Boolean(req.auth?.user?.is_super_admin || req.auth?.adminUser?.is_super_admin || role === 'super_admin');
+    if (isSuperAdmin || allowedRoles.includes(role)) {
       return next();
     }
 
@@ -520,6 +542,142 @@ function createJsonOtpDb() {
 }
 
 const jsonOtpDb = pgDb ? null : createJsonOtpDb();
+
+function createJsonPgDbAdapter() {
+  return {
+    pool: {
+      connect: async () => ({
+        query: async (sql, params = []) => {
+          const lowerSql = sql.toLowerCase();
+          if (lowerSql.includes('select pg_advisory_xact_lock')) return { rows: [] };
+          if (lowerSql.includes('organization_integrations')) {
+            const items = db.get('organization_integrations') || [];
+            if (params && params.length >= 1) {
+              const matched = items.filter(i => String(i.organization_id) === String(params[0]) || String(i.shortcode) === String(params[0]) || String(i.provider_identifier) === String(params[0]));
+              return { rows: matched };
+            }
+            return { rows: items };
+          }
+          if (lowerSql.includes('transactions')) {
+            const items = db.get('transactions') || [];
+            if (params && params.length >= 2) {
+              const matched = items.filter(t => String(t.organization_id) === String(params[0]) && t.reference_number === params[1] && t.status !== params[2]);
+              return { rows: matched };
+            }
+            return { rows: items };
+          }
+          if (lowerSql.includes('insert into reconciliation_staging_rows')) {
+            const row = db.insert('reconciliation_staging_rows', {
+              organization_id: params[0],
+              raw_payload: params[1],
+              amount: params[2],
+              reference_number: params[3],
+              account_number: params[4],
+              description: params[5],
+              payer_name: params[6],
+              payer_phone: params[7],
+              status: 'unmatched',
+              reason: params[8]
+            });
+            return { rows: [row] };
+          }
+          if (lowerSql.includes('insert into transactions')) {
+            const row = db.insert('transactions', {
+              organization_id: params[0],
+              tenant_id: params[1],
+              invoice_id: params[2],
+              unit_id: params[3],
+              amount: params[4],
+              payment_method: params[5],
+              reference_number: params[6],
+              account_number: params[7],
+              payer_name: params[8],
+              payer_phone: params[9],
+              transaction_date: params[10],
+              status: params[11],
+              notes: params[12]
+            });
+            return { rows: [row] };
+          }
+          if (lowerSql.includes('reconciliation_staging_rows')) {
+            const items = db.get('reconciliation_staging_rows') || [];
+            if (params && params.length >= 2) {
+              const matched = items.filter(r => String(r.organization_id) === String(params[0]) && r.reference_number === params[1] && r.status !== params[2]);
+              return { rows: matched };
+            }
+            return { rows: items };
+          }
+          if (lowerSql.includes('tenants')) {
+            const items = db.get('tenants') || [];
+            return { rows: items.filter(t => !t.deleted_at && String(t.organization_id) === String(params[0])) };
+          }
+          if (lowerSql.includes('invoices')) {
+            const items = db.get('invoices') || [];
+            return { rows: items.filter(inv => String(inv.organization_id) === String(params[0])) };
+          }
+          if (lowerSql.includes('units')) {
+            const items = db.get('units') || [];
+            return { rows: items.filter(u => !u.deleted_at && String(u.organization_id) === String(params[0])) };
+          }
+          if (lowerSql.includes('organizations')) {
+            const items = db.get('organizations') || [];
+            return { rows: items.filter(o => String(o.id) === String(params[0])) };
+          }
+          if (lowerSql.includes('property_cameras')) {
+            const cameras = db.get('property_cameras') || [];
+            const properties = db.get('properties') || [];
+            const matched = cameras.filter(c => String(c.organization_id) === String(params[0])).map(c => {
+              const prop = properties.find(p => p.id === c.property_id);
+              return { ...c, property_name: prop ? prop.name : 'All Properties' };
+            });
+            return { rows: matched };
+          }
+          if (lowerSql.includes('audit_logs')) return { rows: [] };
+          return { rows: [] };
+        },
+        release: () => {}
+      })
+    },
+    async query(sql, params) {
+      if (sql.toLowerCase().includes('property_cameras')) {
+        const cameras = db.get('property_cameras') || [];
+        const properties = db.get('properties') || [];
+        const matched = cameras.filter(c => String(c.organization_id) === String(params[0])).map(c => {
+          const prop = properties.find(p => p.id === c.property_id);
+          return { ...c, property_name: prop ? prop.name : 'All Properties' };
+        });
+        return { rows: matched };
+      }
+      const items = db.get('organization_integrations') || [];
+      if (params && params[0]) {
+        const sorted = items.filter(i => String(i.organization_id) === String(params[0])).sort((a, b) => (a.provider_type > b.provider_type ? 1 : -1));
+        return { rows: sorted };
+      }
+      return { rows: items };
+    },
+    async find(table, filterObj) {
+      return db.find(table, filterObj);
+    },
+    async findOne(table, filterObj) {
+      return db.findOne(table, filterObj);
+    },
+    async insert(table, data) {
+      return db.insert(table, data);
+    },
+    async update(table, idOrFilter, updates) {
+      return db.update(table, idOrFilter, updates);
+    },
+    async delete(table, idOrFilter) {
+      return db.delete(table, idOrFilter);
+    },
+    async logAudit(orgId, actorUserId, actorRole, actionType, targetType, targetId, oldValues = null, newValues = null, reason = '', pinValidated = null) {
+      return db.logAudit(orgId, actorUserId, actorRole, actionType, targetType, targetId, oldValues, newValues, reason, pinValidated);
+    },
+    async logError(orgId, userId, source, message) {
+      return db.logError(orgId, userId, source, message);
+    }
+  };
+}
 
 function getOtpDb() {
   return pgDb || jsonOtpDb;
@@ -891,11 +1049,14 @@ async function attachSessionContext(req, res, next) {
 
     if (token) {
       try {
-        const auth = getFirebaseAdminAuth();
+        const auth = firebaseAdminAuth;
         const decodedToken = await auth.verifyIdToken(token);
         
         const activeDb = pgDb || db;
-        const user = await activeDb.findOne('users', { firebase_uid: decodedToken.uid });
+        let user = await activeDb.findOne('users', { firebase_uid: decodedToken.uid });
+        if (!user && decodedToken.email) {
+          user = await activeDb.findOne('users', { email: decodedToken.email });
+        }
         if (!user) {
           if (req.path === '/api/auth/firebase-profile' || req.path.startsWith('/api/auth/registration/')) {
             return next();
@@ -904,16 +1065,61 @@ async function attachSessionContext(req, res, next) {
         }
 
         const membership = await activeDb.findOne('organization_members', { user_id: user.id });
-        const organization = membership ? await activeDb.findOne('organizations', { id: membership.organization_id }) : null;
+        let organization = membership ? await activeDb.findOne('organizations', { id: membership.organization_id }) : null;
         
         let role = user.is_super_admin ? 'super_admin' : (membership?.role || 'landlord');
         if (role === 'owner' || role === 'admin') role = 'landlord'; // map legacy roles if necessary
 
         if (role === 'landlord' && (user.status === 'pending_verification' || user.email_verified === false)) {
+          if (req.path.startsWith('/api/auth/')) {
+            return next();
+          }
           return res.status(403).json({
             error: 'EMAIL_VERIFICATION_REQUIRED',
             message: 'Please verify your email address before continuing.'
           });
+        }
+
+        // Handle Active Super Admin Impersonation Session Override
+        // Admin routes (/api/admin/*) always retain the real super-admin identity.
+        if (user.is_super_admin && !req.path.startsWith('/api/admin')) {
+          let impersonateOrgId = req.headers['x-impersonation-org-id'] || req.headers['x-impersonate-org-id'];
+
+          let activeSession = null;
+          if (impersonateOrgId && !isNaN(Number(impersonateOrgId))) {
+            activeSession = await activeDb.findOne('support_access_sessions', {
+              target_organization_id: parseInt(impersonateOrgId),
+              admin_user_id: user.id,
+              status: 'active'
+            });
+          }
+
+          if (!activeSession) {
+            // Auto-detect active support access session for this admin
+            activeSession = await activeDb.findOne('support_access_sessions', {
+              admin_user_id: user.id,
+              status: 'active'
+            });
+          }
+
+          if (activeSession) {
+            const targetOrg = await activeDb.findOne('organizations', { id: activeSession.target_organization_id });
+            if (targetOrg) {
+              const targetOwner = await activeDb.findOne('users', { id: targetOrg.owner_user_id });
+              req.auth = {
+                user: targetOwner || user,
+                adminUser: user,
+                organization: targetOrg,
+                role: 'landlord',
+                userId: targetOwner ? targetOwner.id : user.id,
+                organizationId: targetOrg.id,
+                impersonationSessionId: activeSession.id,
+                isImpersonating: true,
+                isFirebase: true
+              };
+              return next();
+            }
+          }
         }
 
         req.auth = {
@@ -993,6 +1199,7 @@ async function checkOrganizationLock(req, res, next) {
 
 app.use(attachSessionContext);
 app.use(checkOrganizationLock);
+app.use('/api/nudges', createSystemNudgeRoutes(pgDb));
 
 // --- REGISTRATION EMAIL OTP API ---
 app.post('/api/auth/forgot-password', async (req, res) => {
@@ -1377,16 +1584,21 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
         last_name: splitLastName(displayName),
         status: isEmailVerified ? 'active' : 'pending_verification'
       });
-    } else if (!user.auth_provider_uid) {
+    } else {
       const isEmailVerified = Boolean(user.email_verified || decodedToken.email_verified);
-      await activeUpdate('users', user.id, {
-        auth_provider_uid: firebaseUid,
-        email_verified: isEmailVerified,
-        phone_verified: Boolean(user.phone_verified || decodedToken.phone_number),
-        status: isEmailVerified ? 'active' : 'pending_verification'
-      });
-
-      user = await activeFindOne('users', { id: user.id });
+      const updates = {};
+      if (!user.auth_provider_uid) updates.auth_provider_uid = firebaseUid;
+      if (isEmailVerified) {
+        if (!user.email_verified) updates.email_verified = true;
+        if (user.status === 'pending_verification') updates.status = 'active';
+      }
+      if (phoneNumber && !user.phone_number) {
+        updates.phone_number = phoneNumber;
+      }
+      if (Object.keys(updates).length > 0) {
+        await activeUpdate('users', user.id, updates);
+        user = await activeFindOne('users', { id: user.id });
+      }
     }
 
     let membership = await activeFindOne('organization_members', {
@@ -1483,9 +1695,12 @@ app.post('/api/auth/firebase-profile', async (req, res, next) => {
     }
 
     if (
+      error?.code?.startsWith('auth/') ||
       error?.code === 'auth/id-token-expired' ||
       error?.code === 'auth/argument-error' ||
-      error?.code === 'auth/id-token-revoked'
+      error?.code === 'auth/id-token-revoked' ||
+      error?.code === 'auth/invalid-id-token' ||
+      error?.message?.includes('token')
     ) {
       return res.status(401).json({
         error: 'INVALID_FIREBASE_TOKEN',
@@ -1518,16 +1733,26 @@ app.post('/api/auth/login', async (req, res) => {
     });
   }
 
-  const { email, role: requestedRole } = req.body;
+  const { email, password, role: requestedRole } = req.body;
 
   // Find user by email
   let user = await activeFindOne('users', { email });
-  if (!user) {
+  if (user && user.password_hash && password) {
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) {
+      return res.status(401).json({
+        error: 'INVALID_CREDENTIALS',
+        message: 'Invalid email or password.'
+      });
+    }
+  } else if (!user) {
     // Return demo user if not found for testing convenience
     if (email.includes('admin')) {
       user = await activeFindOne('users', { id: 1 });
     } else if (email.includes('caretaker')) {
       user = await activeFindOne('users', { id: 3 });
+    } else if (email === 'demo.landlord@smartlandlord.co.ke' || email === 'landlord@demo.com') {
+      user = await activeFindOne('users', { email: 'demo.landlord@smartlandlord.co.ke' }) || await activeFindOne('users', { id: 'user-demo-landlord' });
     } else {
       user = await activeFindOne('users', { id: 2 });
     }
@@ -1547,10 +1772,13 @@ app.post('/api/auth/login', async (req, res) => {
     db.logAudit(org ? org.id : null, user.id, resolvedRole || requestedRole || 'unknown', 'login', 'user', user.id, null, null, 'User logged in successfully', 'success');
   }
 
+  const auth_token = user.firebase_uid || `smoke:${user.email}`;
+
   return res.status(200).json({
     user,
     role: resolvedRole,
-    organization: organizationForSession
+    organization: organizationForSession,
+    auth_token
   });
 });
 
@@ -2093,11 +2321,20 @@ app.post('/api/auth/caretaker/login', async (req, res) => {
     }
 
     const organization = await activeFindOne('organizations', { id: membership.organization_id });
-    const auth = getFirebaseAdminAuth();
-    const token = await auth.createCustomToken(effectiveUser.firebase_uid, {
-      role: 'caretaker',
-      organizationId: organization.id
-    });
+    const auth = firebaseAdminAuth;
+    let token;
+    if (typeof auth.createCustomToken === 'function') {
+      try {
+        token = await auth.createCustomToken(effectiveUser.firebase_uid, {
+          role: 'caretaker',
+          organizationId: organization.id
+        });
+      } catch (_e) {
+        token = `smoke:${effectiveUser.email || effectiveUser.phone_number}`;
+      }
+    } else {
+      token = `smoke:${effectiveUser.email || effectiveUser.phone_number}`;
+    }
     
     await resetCaretakerLoginState(user.id);
 
@@ -2148,6 +2385,7 @@ app.use('/api/integrations', requireAuthenticated, requireAnyRole('landlord'));
 app.use('/api/saas', requireAuthenticated, requireAnyRole('landlord'));
 app.use('/api/compliance', requireAuthenticated, requireAnyRole('landlord'));
 app.use('/api/maintenance', requireAuthenticated, requireAnyRole('landlord', 'caretaker'));
+app.use('/api/cameras', requireAuthenticated, requireAnyRole('landlord', 'caretaker'));
 
 app.use('/api/admin', requireAuthenticated, requireAnyRole('super_admin'));
 
@@ -2162,17 +2400,19 @@ function resolveRentGenerationOrganizationId(req) {
 }
 
 async function loadPostgresRentGenerationData(queryable, organizationId) {
-  const [tenantsResult, unitsResult, propertiesResult, invoicesResult] = await Promise.all([
+  const [tenantsResult, unitsResult, propertiesResult, invoicesResult, meterReadingsResult] = await Promise.all([
     queryable.query('SELECT * FROM tenants WHERE organization_id = $1 ORDER BY id', [organizationId]),
     queryable.query('SELECT * FROM units WHERE organization_id = $1 ORDER BY id', [organizationId]),
     queryable.query('SELECT * FROM properties WHERE organization_id = $1 ORDER BY id', [organizationId]),
-    queryable.query('SELECT * FROM invoices WHERE organization_id = $1 ORDER BY id', [organizationId])
+    queryable.query('SELECT * FROM invoices WHERE organization_id = $1 ORDER BY id', [organizationId]),
+    queryable.query('SELECT * FROM meter_readings WHERE organization_id = $1 ORDER BY id', [organizationId])
   ]);
   return {
     tenants: tenantsResult.rows,
     units: unitsResult.rows,
     properties: propertiesResult.rows,
-    invoices: invoicesResult.rows
+    invoices: invoicesResult.rows,
+    meterReadings: meterReadingsResult.rows
   };
 }
 
@@ -2182,7 +2422,8 @@ function loadJsonRentGenerationData(organizationId) {
     tenants: db.get('tenants').filter(isInOrganization),
     units: db.get('units').filter(isInOrganization),
     properties: db.get('properties').filter(isInOrganization),
-    invoices: db.get('invoices').filter(isInOrganization)
+    invoices: db.get('invoices').filter(isInOrganization),
+    meterReadings: db.get('meter_readings').filter(isInOrganization)
   };
 }
 
@@ -2207,6 +2448,89 @@ async function validateRentGenerationOrganization(req, res) {
   }
   return organizationId;
 }
+
+app.post('/api/invoices/auto-billing/evaluate', async (req, res, next) => {
+  try {
+    const refDate = req.body?.reference_date ? new Date(req.body.reference_date) : new Date();
+    const result = await evaluateAutomatedRentBilling(pgDb, refDate);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/invoices/bulk-remind', async (req, res, next) => {
+  try {
+    const orgId = req.auth?.organizationId;
+    const { invoice_ids } = req.body;
+    if (!Array.isArray(invoice_ids) || invoice_ids.length === 0) {
+      return res.status(400).json({ error: 'invoice_ids array is required.' });
+    }
+
+    const ids = invoice_ids.map(id => parseInt(id, 10)).filter(Boolean);
+    const notificationService = new NotificationService(pgDb);
+    let count = 0;
+
+    for (const invId of ids) {
+      const invoice = pgDb
+        ? (await pgDb.query('SELECT * FROM invoices WHERE id = $1 AND organization_id = $2', [invId, orgId])).rows[0]
+        : db.findOne('invoices', { id: invId, organization_id: orgId });
+
+      if (invoice && ['issued', 'overdue'].includes(invoice.status)) {
+        await notificationService.queue({
+          organizationId: orgId,
+          tenantId: invoice.tenant_id,
+          channel: 'sms',
+          type: 'rent_reminder',
+          data: {
+            invoice_number: invoice.invoice_number,
+            amount: invoice.balance || invoice.total,
+            due_date: invoice.due_date
+          }
+        });
+        count++;
+      }
+    }
+
+    res.json({ success: true, count, message: `Queued rent reminders for ${count} invoice(s).` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/invoices/bulk-void', async (req, res, next) => {
+  try {
+    const orgId = req.auth?.organizationId;
+    const { invoice_ids } = req.body;
+    if (!Array.isArray(invoice_ids) || invoice_ids.length === 0) {
+      return res.status(400).json({ error: 'invoice_ids array is required.' });
+    }
+
+    const ids = invoice_ids.map(id => parseInt(id, 10)).filter(Boolean);
+    let count = 0;
+
+    for (const invId of ids) {
+      if (pgDb) {
+        const resInv = await pgDb.query('SELECT * FROM invoices WHERE id = $1 AND organization_id = $2', [invId, orgId]);
+        const invoice = resInv.rows[0];
+        if (invoice && invoice.status !== 'void') {
+          await pgDb.query("UPDATE invoices SET status = 'void', voided_at = NOW() WHERE id = $1", [invId]);
+          count++;
+        }
+      } else {
+        const invoice = db.findOne('invoices', { id: invId, organization_id: orgId });
+        if (invoice && invoice.status !== 'void') {
+          db.update('invoices', invId, { status: 'void', voided_at: new Date().toISOString() });
+          count++;
+        }
+      }
+    }
+
+    res.json({ success: true, count, message: `Voided ${count} invoice(s).` });
+  } catch (err) {
+    next(err);
+  }
+});
 
 app.post('/api/invoices/rent-generation-preview', async (req, res, next) => {
   try {
@@ -2384,11 +2708,14 @@ app.post('/api/invoices/generate-rent-invoices', async (req, res, next) => {
   }
 });
 
+const activeIntegrationDb = pgDb || createJsonPgDbAdapter();
+app.use('/api', createWebhookRoutes(activeIntegrationDb, { demoMode: DEMO_MODE }));
+app.use('/api', createIntegrationRoutes(activeIntegrationDb));
+app.use('/api', createCameraRoutes(activeIntegrationDb));
+
 if (pgDb) {
-  app.use('/api', createWebhookRoutes(pgDb, { demoMode: DEMO_MODE }));
   app.use('/api', createPropertyRoutes(pgDb));
   app.use('/api', createReconciliationRoutes(pgDb));
-  app.use('/api', createIntegrationRoutes(pgDb));
 }
 
 if (pgDb) {
@@ -2504,10 +2831,12 @@ app.post('/api/properties/caretakers', requireSecurityPin('invite_caretaker'), (
   const pinHash = bcrypt.hashSync(pin, salt);
 
   if (!user) {
+    const firebaseUid = `caretaker_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     user = db.insert('users', {
       name,
       email: email || null,
       phone_number,
+      firebase_uid: firebaseUid,
       caretaker_pin_hash: pinHash,
       caretaker_failed_login_attempts: 0,
       caretaker_locked_until: null,
@@ -2517,12 +2846,16 @@ app.post('/api/properties/caretakers', requireSecurityPin('invite_caretaker'), (
       phone_verified: false
     });
   } else {
-    db.update('users', user.id, {
+    const updateData = {
       caretaker_pin_hash: pinHash,
       caretaker_failed_login_attempts: 0,
       caretaker_locked_until: null,
       caretaker_last_failed_login_at: null
-    });
+    };
+    if (!user.firebase_uid) {
+      updateData.firebase_uid = `caretaker_${user.id}_${Date.now()}`;
+    }
+    db.update('users', user.id, updateData);
     user = db.findOne('users', { id: user.id });
   }
 
@@ -2738,24 +3071,24 @@ app.get('/api/properties', (req, res) => {
   }
 
   // Calculate stats for properties
-  const units = db.get('units');
-  const tenants = db.get('tenants');
-  const invoices = db.get('invoices');
+  const units = (db.find ? db.find('units', { organization_id: orgId }) : db.get('units')).filter(u => String(u.organization_id) === String(orgId));
+  const tenants = (db.find ? db.find('tenants', { organization_id: orgId }) : db.get('tenants')).filter(t => String(t.organization_id) === String(orgId));
+  const invoices = (db.find ? db.find('invoices', { organization_id: orgId }) : db.get('invoices')).filter(i => String(i.organization_id) === String(orgId));
 
   const detailedProperties = properties.map(prop => {
-    const propUnits = units.filter(u => u.property_id === prop.id && !u.deleted_at);
+    const propUnits = units.filter(u => String(u.property_id) === String(prop.id) && u.status !== 'inactive' && !u.deleted_at);
     const vacantCount = propUnits.filter(u => u.status === 'vacant').length;
     const occupiedCount = propUnits.filter(u => u.status === 'occupied').length;
     const underMaintCount = propUnits.filter(u => u.status === 'under_maintenance').length;
 
-    // Financial stats (June 2026 expected)
-    const expected = propUnits.reduce((acc, curr) => acc + (curr.rent_amount || 0), 0);
+    // Financial stats (dynamically calculated from actual units)
+    const expected = propUnits.reduce((acc, curr) => acc + (parseFloat(curr.rent_amount) || 0), 0);
     const paid = invoices
-      .filter(inv => inv.property_id === prop.id && inv.status === 'paid')
-      .reduce((acc, curr) => acc + (curr.amount_paid || 0), 0);
+      .filter(inv => String(inv.property_id) === String(prop.id) && inv.status === 'paid')
+      .reduce((acc, curr) => acc + (parseFloat(curr.amount_paid) || 0), 0);
     const arrears = invoices
-      .filter(inv => inv.property_id === prop.id && (inv.status === 'overdue' || inv.status === 'partially_paid'))
-      .reduce((acc, curr) => acc + (curr.balance || 0), 0);
+      .filter(inv => String(inv.property_id) === String(prop.id) && (inv.status === 'overdue' || inv.status === 'partially_paid'))
+      .reduce((acc, curr) => acc + (parseFloat(curr.balance) || 0), 0);
 
     return {
       ...prop,
@@ -2846,8 +3179,8 @@ app.get('/api/units', (req, res) => {
     units = units.filter(u => assignedPropIds.includes(u.property_id));
   }
 
-  const tenants = db.get('tenants');
-  const properties = db.get('properties');
+  const tenants = (db.find ? db.find('tenants', { organization_id: orgId }) : db.get('tenants')).filter(t => String(t.organization_id) === String(orgId));
+  const properties = (db.find ? db.find('properties', { organization_id: orgId }) : db.get('properties')).filter(p => String(p.organization_id) === String(orgId));
 
   const detailedUnits = units.map(u => {
     const prop = properties.find(p => p.id === u.property_id);
@@ -2932,10 +3265,10 @@ app.get('/api/tenants', (req, res) => {
     tenants = tenants.filter(t => assignedPropIds.includes(t.property_id));
   }
 
-  const properties = db.get('properties');
-  const units = db.get('units');
-  const invoices = db.get('invoices');
-  const transactions = db.get('transactions');
+  const properties = (db.find ? db.find('properties', { organization_id: orgId }) : db.get('properties')).filter(p => String(p.organization_id) === String(orgId));
+  const units = (db.find ? db.find('units', { organization_id: orgId }) : db.get('units')).filter(u => String(u.organization_id) === String(orgId));
+  const invoices = (db.find ? db.find('invoices', { organization_id: orgId }) : db.get('invoices')).filter(i => String(i.organization_id) === String(orgId));
+  const transactions = (db.find ? db.find('transactions', { organization_id: orgId }) : db.get('transactions')).filter(t => String(t.organization_id) === String(orgId));
 
   const detailedTenants = tenants.map(t => {
     const prop = properties.find(p => p.id === t.property_id);
@@ -3069,9 +3402,9 @@ app.post('/api/tenants/:id/vacate', requireSecurityPin('vacate_tenant'), (req, r
 app.get('/api/invoices', (req, res) => {
   const orgId = req.auth?.organizationId;
   const invoices = db.find('invoices', { organization_id: orgId });
-  const tenants = db.get('tenants');
-  const properties = db.get('properties');
-  const units = db.get('units');
+  const tenants = (db.find ? db.find('tenants', { organization_id: orgId }) : db.get('tenants')).filter(t => String(t.organization_id) === String(orgId));
+  const properties = (db.find ? db.find('properties', { organization_id: orgId }) : db.get('properties')).filter(p => String(p.organization_id) === String(orgId));
+  const units = (db.find ? db.find('units', { organization_id: orgId }) : db.get('units')).filter(u => String(u.organization_id) === String(orgId));
 
   const detailedInvoices = invoices.map(inv => {
     const tenant = tenants.find(t => t.id === inv.tenant_id);
@@ -3098,6 +3431,21 @@ app.post('/api/invoices', (req, res) => {
   const tenant = db.findOne('tenants', { id: parseInt(tenant_id), organization_id: orgId });
   if (!tenant) {
     return res.status(400).json({ error: 'Tenant not found.' });
+  }
+
+  // Idempotency guard for rent invoices: return existing invoice if already present for target month
+  if ((invoice_type || 'rent') === 'rent') {
+    const existingInvoices = db.find('invoices', { organization_id: orgId, tenant_id: tenant.id });
+    const targetMonth = (issue_date || due_date || '').substring(0, 7);
+    const existing = existingInvoices.find(inv =>
+      inv.invoice_type === 'rent' &&
+      inv.status !== 'void' &&
+      ((inv.issue_date && inv.issue_date.substring(0, 7) === targetMonth) ||
+       (inv.due_date && inv.due_date.substring(0, 7) === targetMonth))
+    );
+    if (existing) {
+      return res.status(200).json(existing);
+    }
   }
 
   // Invoice calculations
@@ -3224,16 +3572,22 @@ app.post('/api/invoices/:id/issue', (req, res) => {
   const invoice = db.findOne('invoices', { id: invoiceId, organization_id: orgId });
   if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
 
+  if (invoice.status === 'issued') {
+    return res.json(invoice); // Already issued
+  }
+
   const updated = db.update('invoices', invoiceId, {
     status: 'issued',
     issued_at: new Date().toISOString()
   });
 
+  const tenant = db.findOne('tenants', { id: invoice.tenant_id });
+  if (tenant && invoice.status === 'draft') {
+    db.update('tenants', tenant.id, { balance: (parseFloat(tenant.balance || 0) + parseFloat(invoice.total || 0)) });
+  }
+
   db.logAudit(orgId, userId, role, 'invoice_issued', 'invoice', invoiceId, invoice, updated[0]);
 
-  // Log mock notification log
-  // Log mock notification log
-  const tenant = db.findOne('tenants', { id: invoice.tenant_id });
   if (tenant) {
     const notificationService = new NotificationService(null);
     notificationService.queue({
@@ -3372,9 +3726,9 @@ app.post('/api/invoices/:id/send-reminder', async (req, res) => {
 app.get('/api/payments', (req, res) => {
   const orgId = req.auth?.organizationId;
   const txs = db.find('transactions', { organization_id: orgId });
-  const tenants = db.get('tenants');
-  const properties = db.get('properties');
-  const units = db.get('units');
+  const tenants = (db.find ? db.find('tenants', { organization_id: orgId }) : db.get('tenants')).filter(t => String(t.organization_id) === String(orgId));
+  const properties = (db.find ? db.find('properties', { organization_id: orgId }) : db.get('properties')).filter(p => String(p.organization_id) === String(orgId));
+  const units = (db.find ? db.find('units', { organization_id: orgId }) : db.get('units')).filter(u => String(u.organization_id) === String(orgId));
 
   const detailedTxs = txs.map(t => {
     const tenant = tenants.find(te => te.id === t.tenant_id);
@@ -6195,6 +6549,21 @@ app.put('/api/maintenance/:id', (req, res) => {
   res.json(updated);
 });
 
+// Demo Account & Testing Routes
+app.use('/api/demo', demoRoutes);
+
+// Serve frontend static files
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+app.use(express.static(path.join(__dirname, '../dist')));
+
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
+});
+
 // Global error handler to guarantee JSON responses for all unhandled backend errors
 app.use((err, req, res, next) => {
   console.error('Unhandled Server Error:', err);
@@ -6207,4 +6576,13 @@ app.use((err, req, res, next) => {
 // Serve and listen
 app.listen(PORT, () => {
   console.log(`Smart Landlord Backend Server running on http://localhost:${PORT}`);
+  
+  // Initialize Automated Rent Billing Engine
+  setTimeout(() => {
+    evaluateAutomatedRentBilling(pgDb).catch(err => console.error('Automated Rent Billing evaluation error on startup:', err));
+  }, 5000);
+
+  setInterval(() => {
+    evaluateAutomatedRentBilling(pgDb).catch(err => console.error('Automated Rent Billing periodic evaluation error:', err));
+  }, 60 * 60 * 1000); // Run hourly
 });
