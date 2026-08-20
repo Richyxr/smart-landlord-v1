@@ -513,40 +513,93 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
             {/* CONTROLS */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <label style={{ fontSize: '13px', fontWeight: '600' }}>Number of Units:</label>
-                  <span style={{ fontSize: '15px', fontWeight: '800', color: '#818cf8' }}>{unitCount} units</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <input
+                      type="number"
+                      min="1"
+                      max="10000"
+                      value={unitCount}
+                      onChange={e => setUnitCount(Math.max(1, Math.min(10000, Number(e.target.value) || 1)))}
+                      style={{
+                        width: '90px',
+                        background: 'rgba(255, 255, 255, 0.08)',
+                        border: '1px solid rgba(99, 102, 241, 0.4)',
+                        borderRadius: '6px',
+                        padding: '4px 8px',
+                        color: '#818cf8',
+                        fontSize: '14px',
+                        fontWeight: '800',
+                        textAlign: 'right'
+                      }}
+                    />
+                    <span style={{ fontSize: '13px', color: '#94a3b8', fontWeight: '600' }}>units</span>
+                  </div>
                 </div>
                 <input
                   type="range"
-                  min="5"
-                  max="300"
-                  step="5"
+                  min="1"
+                  max="10000"
+                  step="1"
                   value={unitCount}
                   onChange={e => setUnitCount(Number(e.target.value))}
                   style={{ width: '100%', accentColor: '#6366f1', cursor: 'pointer' }}
                 />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+                  <span>1 unit</span>
+                  <span>2,500</span>
+                  <span>5,000</span>
+                  <span>10,000 units</span>
+                </div>
               </div>
 
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <label style={{ fontSize: '13px', fontWeight: '600' }}>Average Monthly Rent per Unit:</label>
-                  <span style={{ fontSize: '15px', fontWeight: '800', color: '#818cf8' }}>KES {avgRent.toLocaleString()}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '600' }}>KES</span>
+                    <input
+                      type="number"
+                      min="1000"
+                      max="2500000"
+                      step="1000"
+                      value={avgRent}
+                      onChange={e => setAvgRent(Math.max(1000, Math.min(2500000, Number(e.target.value) || 1000)))}
+                      style={{
+                        width: '120px',
+                        background: 'rgba(255, 255, 255, 0.08)',
+                        border: '1px solid rgba(99, 102, 241, 0.4)',
+                        borderRadius: '6px',
+                        padding: '4px 8px',
+                        color: '#818cf8',
+                        fontSize: '14px',
+                        fontWeight: '800',
+                        textAlign: 'right'
+                      }}
+                    />
+                  </div>
                 </div>
                 <input
                   type="range"
-                  min="5000"
-                  max="150000"
-                  step="5000"
+                  min="2000"
+                  max="2000000"
+                  step="2000"
                   value={avgRent}
                   onChange={e => setAvgRent(Number(e.target.value))}
                   style={{ width: '100%', accentColor: '#6366f1', cursor: 'pointer' }}
                 />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+                  <span>KES 2,000</span>
+                  <span>KES 500k</span>
+                  <span>KES 1.5M+</span>
+                  <span>KES 2M</span>
+                </div>
               </div>
 
               <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '12px', borderRadius: '8px', fontSize: '12px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Lightbulb size={16} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                <em>Based on benchmarks from 1,000+ landlords across Nairobi, Mombasa, and Kisumu.</em>
+                <em>Scales from single residential flats up to 10,000+ unit multi-estate and commercial portfolios.</em>
               </div>
             </div>
 
@@ -564,7 +617,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
               <div>
                 <div style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase' }}>Estimated Admin Time Saved</div>
                 <div style={{ fontSize: '28px', fontWeight: '800', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Clock size={24} style={{ color: '#818cf8' }} /> {hoursSavedPerMonth} hours / mo
+                  <Clock size={24} style={{ color: '#818cf8' }} /> {hoursSavedPerMonth.toLocaleString()} hours / mo
                 </div>
               </div>
 
@@ -573,7 +626,7 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
                   Software Cost ({unitRate < 75 ? `${unitRate === 50 ? '33%' : '13%'} Volume Discount applied` : 'Standard Rate'})
                 </div>
                 <div style={{ fontSize: '24px', fontWeight: '800', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <DollarSign size={22} style={{ color: '#38bdf8' }} /> KES {totalMonthlySoftwareCost.toLocaleString()}
+                  <Receipt size={22} style={{ color: '#38bdf8' }} /> KES {totalMonthlySoftwareCost.toLocaleString()}
                   <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: '500' }}>
                     (@ KES {unitRate} / unit)
                   </span>
