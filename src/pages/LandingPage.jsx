@@ -26,7 +26,10 @@ import {
   Check,
   Lightbulb,
   Globe,
-  Play
+  Play,
+  MapPin,
+  Activity,
+  Droplet
 } from 'lucide-react';
 
 export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
@@ -58,6 +61,122 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
   // ROI Calculator State
   const [unitCount, setUnitCount] = useState(25);
   const [avgRent, setAvgRent] = useState(20000);
+
+  // Live Estate Telemetry Inspector State
+  const [selectedEstate, setSelectedEstate] = useState(0);
+  const [selectedUnitIdx, setSelectedUnitIdx] = useState(0);
+  const [simulatedStkState, setSimulatedStkState] = useState('idle'); // 'idle' | 'pushing' | 'paid'
+
+  const handleSimulateStk = () => {
+    setSimulatedStkState('pushing');
+    setTimeout(() => {
+      setSimulatedStkState('paid');
+      setTimeout(() => setSimulatedStkState('idle'), 4500);
+    }, 1100);
+  };
+
+  const estateData = [
+    {
+      name: 'Kilimani Heights',
+      location: 'Argwings Kodhek Rd, Nairobi',
+      totalUnits: 36,
+      occupancy: '97.2%',
+      monthlyRoll: 'KES 1,480,000',
+      caretaker: 'Joseph Mwangi (PIN: ••••)',
+      units: [
+        {
+          code: 'Unit A-04',
+          tenant: 'Jane Wambui',
+          phone: '+254 712 ••• 890',
+          rent: 35000,
+          waterUsage: '17.7 m³',
+          waterBill: 2655,
+          powerUsage: '142 kWh',
+          powerBill: 3408,
+          status: 'Paid',
+          lastMpesaRef: 'QK8291KL0P',
+          matchTime: '0.28s',
+          meterPhotoVerified: true,
+          gpsCoords: '-1.2884, 36.7820',
+          barrierAccess: 'Allowed · KDA 291M'
+        },
+        {
+          code: 'Unit A-05',
+          tenant: 'David Ochieng',
+          phone: '+254 722 ••• 419',
+          rent: 28000,
+          waterUsage: '13.3 m³',
+          waterBill: 1995,
+          powerUsage: '110 kWh',
+          powerBill: 2640,
+          status: 'Invoice Dispatched',
+          lastMpesaRef: 'Pending STK Push',
+          matchTime: 'Auto-Detect Ready',
+          meterPhotoVerified: true,
+          gpsCoords: '-1.2884, 36.7820',
+          barrierAccess: 'Allowed · KCF 884L'
+        },
+        {
+          code: 'Unit B-12',
+          tenant: 'Sarah Muthoni',
+          phone: '+254 701 ••• 332',
+          rent: 42000,
+          waterUsage: '19.4 m³',
+          waterBill: 2910,
+          powerUsage: '165 kWh',
+          powerBill: 3960,
+          status: 'Paid',
+          lastMpesaRef: 'QK9102XB8R',
+          matchTime: '0.31s',
+          meterPhotoVerified: true,
+          gpsCoords: '-1.2884, 36.7820',
+          barrierAccess: 'Allowed · KBZ 119Q'
+        }
+      ]
+    },
+    {
+      name: 'Westlands Square',
+      location: 'Muthithi Road, Nairobi',
+      totalUnits: 48,
+      occupancy: '95.8%',
+      monthlyRoll: 'KES 2,640,000',
+      caretaker: 'Eric Kimani (PIN: ••••)',
+      units: [
+        {
+          code: 'Unit W-201',
+          tenant: 'Brian Omondi',
+          phone: '+254 733 ••• 561',
+          rent: 55000,
+          waterUsage: '22.1 m³',
+          waterBill: 3315,
+          powerUsage: '210 kWh',
+          powerBill: 5040,
+          status: 'Paid',
+          lastMpesaRef: 'QK7712AA9L',
+          matchTime: '0.19s',
+          meterPhotoVerified: true,
+          gpsCoords: '-1.2642, 36.8044',
+          barrierAccess: 'Allowed · KDD 482L'
+        },
+        {
+          code: 'Unit W-202',
+          tenant: 'Amina Hassan',
+          phone: '+254 711 ••• 702',
+          rent: 48000,
+          waterUsage: '15.8 m³',
+          waterBill: 2370,
+          powerUsage: '135 kWh',
+          powerBill: 3240,
+          status: 'Paid',
+          lastMpesaRef: 'QK8940PP3W',
+          matchTime: '0.22s',
+          meterPhotoVerified: true,
+          gpsCoords: '-1.2642, 36.8044',
+          barrierAccess: 'Allowed · KCR 302J'
+        }
+      ]
+    }
+  ];
 
   // FAQ Accordion State
   const [openFaqIndex, setOpenFaqIndex] = useState(0);
@@ -965,6 +1084,210 @@ export default function LandingPage({ onGetStarted, onSignIn, onLaunchDemo }) {
 
 
 
+
+      {/* 5.5 LIVE ESTATE TELEMETRY INSPECTOR */}
+      <section style={{ padding: '80px 20px', maxWidth: '1140px', margin: '0 auto' }}>
+        <div style={{ textAlign: 'center', marginBottom: '36px' }}>
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: 'rgba(56, 189, 248, 0.1)',
+            border: '1px solid rgba(56, 189, 248, 0.25)',
+            borderRadius: '30px',
+            padding: '4px 16px',
+            fontSize: '11px',
+            fontWeight: '700',
+            textTransform: 'uppercase',
+            color: '#38bdf8',
+            letterSpacing: '0.08em',
+            marginBottom: '12px'
+          }}>
+            <Activity size={13} style={{ color: '#38bdf8' }} /> Live Field Telemetry
+          </div>
+          <h2 style={{ fontSize: 'clamp(26px, 4vw, 38px)', fontWeight: '800', margin: '0 0 12px 0', color: '#fff', letterSpacing: '-0.02em' }}>
+            Interactive Estate & Unit Inspector
+          </h2>
+          <p style={{ fontSize: '15px', color: '#94a3b8', maxWidth: '620px', margin: '0 auto', lineHeight: 1.6 }}>
+            Touch any unit below to inspect live Daraja C2B reconciliations, verified meter photos, and real-time gate telemetry.
+          </p>
+        </div>
+
+        {/* ESTATE SELECTOR PILLS */}
+        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginBottom: '16px', overflowX: 'auto', paddingBottom: '8px' }}>
+          {estateData.map((estate, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => {
+                setSelectedEstate(idx);
+                setSelectedUnitIdx(0);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 18px',
+                borderRadius: '30px',
+                fontSize: '13px',
+                fontWeight: '600',
+                background: selectedEstate === idx ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                border: `1px solid ${selectedEstate === idx ? 'rgba(99, 102, 241, 0.5)' : 'rgba(255, 255, 255, 0.08)'}`,
+                color: selectedEstate === idx ? '#fff' : '#94a3b8',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <Building2 size={15} style={{ color: selectedEstate === idx ? '#818cf8' : '#64748b' }} />
+              {estate.name}
+              <span style={{ fontSize: '11px', color: '#64748b' }}>({estate.totalUnits} Units)</span>
+            </button>
+          ))}
+        </div>
+
+        {/* UNIT SELECTOR PILLS */}
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '24px', flexWrap: 'wrap' }}>
+          {estateData[selectedEstate].units.map((unit, uIdx) => (
+            <button
+              key={uIdx}
+              type="button"
+              onClick={() => setSelectedUnitIdx(uIdx)}
+              style={{
+                padding: '7px 16px',
+                borderRadius: '8px',
+                fontSize: '12px',
+                fontWeight: selectedUnitIdx === uIdx ? '700' : '500',
+                background: selectedUnitIdx === uIdx ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.02)',
+                border: `1px solid ${selectedUnitIdx === uIdx ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255, 255, 255, 0.06)'}`,
+                color: selectedUnitIdx === uIdx ? '#10b981' : '#cbd5e1',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              {unit.code} · {unit.tenant}
+            </button>
+          ))}
+        </div>
+
+        {/* TELEMETRY CARD */}
+        {(() => {
+          const currentUnit = estateData[selectedEstate].units[selectedUnitIdx];
+          const estate = estateData[selectedEstate];
+          return (
+            <div style={{
+              background: 'rgba(15, 23, 42, 0.75)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: '20px',
+              padding: '24px',
+              boxShadow: '0 20px 50px -10px rgba(0, 0, 0, 0.6), 0 0 30px rgba(99, 102, 241, 0.1)',
+              backdropFilter: 'blur(16px)'
+            }}>
+              {/* TOP SUMMARY ROW */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '16px', marginBottom: '20px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#fff', margin: 0 }}>
+                      {currentUnit.code} · {currentUnit.tenant}
+                    </h3>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#10b981', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.25)', padding: '2px 8px', borderRadius: '12px' }}>
+                      {currentUnit.status}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <MapPin size={13} style={{ color: '#818cf8' }} /> {estate.location} · Caretaker: {estate.caretaker}
+                  </div>
+                </div>
+
+                {/* SIMULATE STK PUSH BUTTON */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={handleSimulateStk}
+                    disabled={simulatedStkState === 'pushing'}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 18px',
+                      borderRadius: '10px',
+                      fontSize: '12px',
+                      fontWeight: '700',
+                      background: simulatedStkState === 'paid' ? 'rgba(16, 185, 129, 0.25)' : 'linear-gradient(135deg, #10b981, #059669)',
+                      border: simulatedStkState === 'paid' ? '1px solid #10b981' : 'none',
+                      color: '#fff',
+                      cursor: simulatedStkState === 'pushing' ? 'wait' : 'pointer',
+                      boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
+                      transition: 'all 0.25s ease'
+                    }}
+                  >
+                    <Zap size={14} />
+                    {simulatedStkState === 'pushing' && 'Triggering Daraja STK Push...'}
+                    {simulatedStkState === 'paid' && '✓ Payment Matched in 0.28s!'}
+                    {simulatedStkState === 'idle' && 'Test Live M-Pesa STK Push'}
+                  </button>
+                </div>
+              </div>
+
+              {/* 3-COLUMN TELEMETRY GRID */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
+                {/* METRIC 1: M-PESA RECONCILIATION */}
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '14px', padding: '18px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#10b981', letterSpacing: '0.05em' }}>M-Pesa Ledger</span>
+                    <span style={{ fontSize: '10px', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>Daraja C2B</span>
+                  </div>
+                  <div style={{ fontSize: '20px', fontWeight: '800', color: '#fff', marginBottom: '4px' }}>
+                    KES {currentUnit.rent.toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#94a3b8', lineHeight: 1.5 }}>
+                    Ref: <code style={{ color: '#38bdf8' }}>{simulatedStkState === 'paid' ? 'QK9844NX12' : currentUnit.lastMpesaRef}</code>
+                  </div>
+                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '6px' }}>
+                    Auto-match latency: <strong style={{ color: '#10b981' }}>{currentUnit.matchTime}</strong>
+                  </div>
+                </div>
+
+                {/* METRIC 2: WATER & POWER METERS */}
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '14px', padding: '18px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#38bdf8', letterSpacing: '0.05em' }}>Caretaker Meter Log</span>
+                    <span style={{ fontSize: '10px', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>Photo Verified</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '12px' }}>
+                    <span style={{ color: '#94a3b8' }}>Water Consumption</span>
+                    <strong style={{ color: '#38bdf8' }}>{currentUnit.waterUsage} (KES {currentUnit.waterBill})</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                    <span style={{ color: '#94a3b8' }}>Power Consumption</span>
+                    <strong style={{ color: '#f59e0b' }}>{currentUnit.powerUsage} (KES {currentUnit.powerBill})</strong>
+                  </div>
+                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '8px' }}>
+                    GPS Tag: <code style={{ color: '#94a3b8' }}>{currentUnit.gpsCoords}</code>
+                  </div>
+                </div>
+
+                {/* METRIC 3: GATE & VEHICLE ACCESS */}
+                <div style={{ background: 'rgba(255, 255, 255, 0.02)', border: '1px solid rgba(255, 255, 255, 0.06)', borderRadius: '14px', padding: '18px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#f59e0b', letterSpacing: '0.05em' }}>Gate Access & ANPR</span>
+                    <span style={{ fontSize: '10px', color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>Barrier OK</span>
+                  </div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '6px' }}>
+                    {currentUnit.barrierAccess}
+                  </div>
+                  <div style={{ fontSize: '11px', color: '#94a3b8', lineHeight: 1.4 }}>
+                    Camera: <span style={{ color: '#cbd5e1' }}>Gate 01 HD Stream</span>
+                  </div>
+                  <div style={{ fontSize: '10px', color: '#10b981', marginTop: '6px', fontWeight: '600' }}>
+                    ✓ Automatic KRA eTIMS invoice synced
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </section>
 
       {/* 6. INTERACTIVE ROI CALCULATOR */}
       <section id="calculator" style={{ padding: '80px 20px', background: 'rgba(15, 23, 42, 0.6)', borderTop: '1px solid rgba(255, 255, 255, 0.06)', borderBottom: '1px solid rgba(255, 255, 255, 0.06)' }}>
